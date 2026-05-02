@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
         val db = buildDatabase<AppDatabase>()
         val viewModel = DatabaseViewModel(db, Conversation::class to db.conversationDao(), Message::class to db.messageDao())
 
-        val oldModelFile = File(applicationContext.getExternalFilesDir(null)!!, "model.litertlm")
+        val oldModelFile = File(applicationContext.getExternalFilesDir(null)!!, "gemma4-4b.litertlm")
         
         setContent {
             LaunchedEffect(Unit) {
@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
             }
             DynamicTheme {
                 InitialDownloadChecker(ds, listOf(
-                    Triple("https://huggingface.co/samirsayyed/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm", "gemma4.litertlm", "Model"),
+                    Triple("https://huggingface.co/samirsayyed/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm", "gemma4-4b.litertlm", "Model"),
                 )) {
                     // Once downloads are complete, find the file in internal storage
                     Navigation(viewModel)
