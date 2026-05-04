@@ -352,7 +352,7 @@ fun LogMealDialog(initialTime: Instant? = null, onDismiss: () -> Unit) {
                                                     type = RecordType.Nutrition,
                                                     startTime = time,
                                                     endTime = time,
-                                                    value = 0.0,
+                                                    value = nutrition.calories,
                                                     nutritionData = nutrition,
                                                     metadata = selectedLoggable?.name
                                             )

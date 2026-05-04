@@ -247,7 +247,10 @@ fun NutritionDetailsPage(backStack: NavBackStack<Route>) {
             LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(vertical = 16.dp) + padding
+                    contentPadding = PaddingValues(
+                        top = 16.dp + padding.calculateTopPadding(),
+                        bottom = 80.dp + padding.calculateBottomPadding()
+                    )
             ) {
                 item {
                     Column(
