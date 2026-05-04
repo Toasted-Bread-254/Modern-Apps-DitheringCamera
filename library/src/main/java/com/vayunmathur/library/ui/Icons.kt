@@ -177,3 +177,12 @@ fun IconBackup(tint: Color = LocalContentColor.current) {
 fun IconRestore(tint: Color = LocalContentColor.current) {
     Icon(painterResource(R.drawable.outline_settings_backup_restore_24), "Restore", tint = tint)
 }
+@Composable
+fun IconFavorite(tint: Color = LocalContentColor.current) {
+    Icon(painterResource(R.drawable.favorite_24px), "Favorite", tint = tint)
+}
+
+@Composable
+fun IconFire(tint: Color = LocalContentColor.current) {
+    Icon(painterResource(R.drawable.fire_24px), "Fire", tint = tint)
+}

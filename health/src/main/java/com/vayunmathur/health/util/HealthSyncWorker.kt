@@ -135,38 +135,38 @@ class HealthSyncWorker(
 fun androidx.health.connect.client.records.Record.toRecord(): List<Record> =
     when (this) {
         // --- Activity ---
-        is StepsRecord -> listOf(Record(this.metadata.id, 0, RecordType.Steps, this.startTime, this.endTime, this.count.toDouble()))
-        is WheelchairPushesRecord -> listOf(Record(this.metadata.id, 0, RecordType.Wheelchair, this.startTime, this.endTime, this.count.toDouble()))
-        is DistanceRecord -> listOf(Record(this.metadata.id, 0, RecordType.Distance, this.startTime, this.endTime, this.distance.inKilometers))
-        is TotalCaloriesBurnedRecord -> listOf(Record(this.metadata.id, 0, RecordType.CaloriesTotal, this.startTime, this.endTime, this.energy.inKilocalories))
-        is ActiveCaloriesBurnedRecord -> listOf(Record(this.metadata.id, 0, RecordType.CaloriesActive, this.startTime, this.endTime, this.energy.inKilocalories))
-        is BasalMetabolicRateRecord -> listOf(Record(this.metadata.id, 0, RecordType.CaloriesBasal, this.time, this.time, this.basalMetabolicRate.inKilocaloriesPerDay))
-        is FloorsClimbedRecord -> listOf(Record(this.metadata.id, 0, RecordType.Floors, this.startTime, this.endTime, this.floors))
-        is ElevationGainedRecord -> listOf(Record(this.metadata.id, 0, RecordType.Elevation, this.startTime, this.endTime, this.elevation.inMeters))
+        is StepsRecord -> listOf(Record(this.metadata.id, 0, RecordType.Steps, this.startTime, this.endTime, this.count.toDouble(), metadata = "Steps"))
+        is WheelchairPushesRecord -> listOf(Record(this.metadata.id, 0, RecordType.Wheelchair, this.startTime, this.endTime, this.count.toDouble(), metadata = "Wheelchair Pushes"))
+        is DistanceRecord -> listOf(Record(this.metadata.id, 0, RecordType.Distance, this.startTime, this.endTime, this.distance.inKilometers, metadata = "Distance"))
+        is TotalCaloriesBurnedRecord -> listOf(Record(this.metadata.id, 0, RecordType.CaloriesTotal, this.startTime, this.endTime, this.energy.inKilocalories, metadata = "Total Calories"))
+        is ActiveCaloriesBurnedRecord -> listOf(Record(this.metadata.id, 0, RecordType.CaloriesActive, this.startTime, this.endTime, this.energy.inKilocalories, metadata = "Active Calories"))
+        is BasalMetabolicRateRecord -> listOf(Record(this.metadata.id, 0, RecordType.CaloriesBasal, this.time, this.time, this.basalMetabolicRate.inKilocaloriesPerDay, metadata = "Basal Metabolic Rate"))
+        is FloorsClimbedRecord -> listOf(Record(this.metadata.id, 0, RecordType.Floors, this.startTime, this.endTime, this.floors, metadata = "Floors Climbed"))
+        is ElevationGainedRecord -> listOf(Record(this.metadata.id, 0, RecordType.Elevation, this.startTime, this.endTime, this.elevation.inMeters, metadata = "Elevation Gained"))
 
         // --- Vitals ---
-        is HeartRateRecord -> this.samples.mapIndexed { idx, sample -> Record(this.metadata.id, idx, RecordType.HeartRate, sample.time, sample.time, sample.beatsPerMinute.toDouble()) }
-        is RestingHeartRateRecord -> listOf(Record(this.metadata.id, 0, RecordType.RestingHeartRate, this.time, this.time, this.beatsPerMinute.toDouble()))
-        is HeartRateVariabilityRmssdRecord -> listOf(Record(this.metadata.id, 0, RecordType.HeartRateVariabilityRmssd, this.time, this.time, this.heartRateVariabilityMillis))
-        is RespiratoryRateRecord -> listOf(Record(this.metadata.id, 0, RecordType.RespiratoryRate, this.time, this.time, this.rate))
-        is OxygenSaturationRecord -> listOf(Record(this.metadata.id, 0, RecordType.OxygenSaturation, this.time, this.time, this.percentage.value))
-        is BloodPressureRecord -> listOf(Record(this.metadata.id, 0, RecordType.BloodPressure, this.time, this.time, this.systolic.inMillimetersOfMercury, this.diastolic.inMillimetersOfMercury))
-        is BloodGlucoseRecord -> listOf(Record(this.metadata.id, 0, RecordType.BloodGlucose, this.time, this.time, this.level.inMilligramsPerDeciliter))
-        is Vo2MaxRecord -> listOf(Record(this.metadata.id, 0, RecordType.Vo2Max, this.time, this.time, this.vo2MillilitersPerMinuteKilogram))
-        is SkinTemperatureRecord -> this.deltas.mapIndexed { idx, delta -> Record(this.metadata.id, idx, RecordType.SkinTemperature, delta.time, delta.time, delta.delta.inCelsius) }
+        is HeartRateRecord -> this.samples.mapIndexed { idx, sample -> Record(this.metadata.id, idx, RecordType.HeartRate, sample.time, sample.time, sample.beatsPerMinute.toDouble(), metadata = "Heart Rate") }
+        is RestingHeartRateRecord -> listOf(Record(this.metadata.id, 0, RecordType.RestingHeartRate, this.time, this.time, this.beatsPerMinute.toDouble(), metadata = "Resting Heart Rate"))
+        is HeartRateVariabilityRmssdRecord -> listOf(Record(this.metadata.id, 0, RecordType.HeartRateVariabilityRmssd, this.time, this.time, this.heartRateVariabilityMillis, metadata = "HRV"))
+        is RespiratoryRateRecord -> listOf(Record(this.metadata.id, 0, RecordType.RespiratoryRate, this.time, this.time, this.rate, metadata = "Respiratory Rate"))
+        is OxygenSaturationRecord -> listOf(Record(this.metadata.id, 0, RecordType.OxygenSaturation, this.time, this.time, this.percentage.value, metadata = "Oxygen Saturation"))
+        is BloodPressureRecord -> listOf(Record(this.metadata.id, 0, RecordType.BloodPressure, this.time, this.time, this.systolic.inMillimetersOfMercury, this.diastolic.inMillimetersOfMercury, metadata = "Blood Pressure"))
+        is BloodGlucoseRecord -> listOf(Record(this.metadata.id, 0, RecordType.BloodGlucose, this.time, this.time, this.level.inMilligramsPerDeciliter, metadata = "Blood Glucose"))
+        is Vo2MaxRecord -> listOf(Record(this.metadata.id, 0, RecordType.Vo2Max, this.time, this.time, this.vo2MillilitersPerMinuteKilogram, metadata = "VO2 Max"))
+        is SkinTemperatureRecord -> this.deltas.mapIndexed { idx, delta -> Record(this.metadata.id, idx, RecordType.SkinTemperature, delta.time, delta.time, delta.delta.inCelsius, metadata = "Skin Temperature") }
 
         // --- Body Composthision ---
-        is WeightRecord -> listOf(Record(this.metadata.id, 0, RecordType.Weight, this.time, this.time, this.weight.inKilograms))
-        is HeightRecord -> listOf(Record(this.metadata.id, 0, RecordType.Height, this.time, this.time, this.height.inMeters))
-        is BodyFatRecord -> listOf(Record(this.metadata.id, 0, RecordType.BodyFat, this.time, this.time, this.percentage.value))
-        is LeanBodyMassRecord -> listOf(Record(this.metadata.id, 0, RecordType.LeanBodyMass, this.time, this.time, this.mass.inKilograms))
-        is BoneMassRecord -> listOf(Record(this.metadata.id, 0, RecordType.BoneMass, this.time, this.time, this.mass.inKilograms))
-        is BodyWaterMassRecord -> listOf(Record(this.metadata.id, 0, RecordType.BodyWaterMass, this.time, this.time, this.mass.inKilograms))
+        is WeightRecord -> listOf(Record(this.metadata.id, 0, RecordType.Weight, this.time, this.time, this.weight.inKilograms, metadata = "Weight"))
+        is HeightRecord -> listOf(Record(this.metadata.id, 0, RecordType.Height, this.time, this.time, this.height.inMeters, metadata = "Height"))
+        is BodyFatRecord -> listOf(Record(this.metadata.id, 0, RecordType.BodyFat, this.time, this.time, this.percentage.value, metadata = "Body Fat"))
+        is LeanBodyMassRecord -> listOf(Record(this.metadata.id, 0, RecordType.LeanBodyMass, this.time, this.time, this.mass.inKilograms, metadata = "Lean Body Mass"))
+        is BoneMassRecord -> listOf(Record(this.metadata.id, 0, RecordType.BoneMass, this.time, this.time, this.mass.inKilograms, metadata = "Bone Mass"))
+        is BodyWaterMassRecord -> listOf(Record(this.metadata.id, 0, RecordType.BodyWaterMass, this.time, this.time, this.mass.inKilograms, metadata = "Body Water Mass"))
 
         // --- Lifestyle ---
 //                    is SleepSessionRecord -> listOf(Record(this.metadata.id, 0, "Sleep", this.startTime, this.endTime, this))
-        is MindfulnessSessionRecord -> listOf(Record(this.metadata.id, 0, RecordType.Mindfulness, this.startTime, this.endTime, Duration.between(this.startTime, this.endTime).toMillis().toDouble() / 1000.0 / 60.0))
-        is HydrationRecord -> listOf(Record(this.metadata.id, 0, RecordType.Hydration, this.startTime, this.endTime, this.volume.inMilliliters))
+        is MindfulnessSessionRecord -> listOf(Record(this.metadata.id, 0, RecordType.Mindfulness, this.startTime, this.endTime, Duration.between(this.startTime, this.endTime).toMillis().toDouble() / 1000.0 / 60.0, metadata = "Mindfulness"))
+        is HydrationRecord -> listOf(Record(this.metadata.id, 0, RecordType.Hydration, this.startTime, this.endTime, this.volume.inMilliliters, metadata = "Hydration"))
         is NutritionRecord -> listOf(Record(
             this.metadata.id, 0, RecordType.Nutrition, this.startTime, this.endTime,
             this.energy?.inKilocalories ?: 0.0,
@@ -211,7 +211,8 @@ fun androidx.health.connect.client.records.Record.toRecord(): List<Record> =
                 vitaminE = this.vitaminE?.inGrams ?: 0.0,
                 vitaminK = this.vitaminK?.inGrams ?: 0.0,
                 zinc = this.zinc?.inGrams ?: 0.0
-            )
+            ),
+            metadata = this.name
         ))
 
         else -> throw IllegalArgumentException("Unsupported record type")

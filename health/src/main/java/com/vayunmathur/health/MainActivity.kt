@@ -59,6 +59,8 @@ import com.vayunmathur.health.ui.MainPage
 import com.vayunmathur.health.ui.ImmunizationsPage
 import com.vayunmathur.health.ui.LabResultsPage
 import com.vayunmathur.health.ui.NutritionDetailsPage
+import com.vayunmathur.health.ui.RecipeEditorPage
+import com.vayunmathur.health.ui.RecipeManagementPage
 import com.vayunmathur.health.util.HealthAPI
 import com.vayunmathur.health.util.HealthSyncWorker
 import com.vayunmathur.library.ui.DynamicTheme
@@ -83,7 +85,11 @@ val CLASSES = setOf(
     MindfulnessSessionRecord::class, HydrationRecord::class, NutritionRecord::class, // TODO: readd these: SleepSessionRecord::class
 )
 
-val PERMISSIONS = CLASSES.map { HealthPermission.getReadPermission(it) }.toSet() + if (SdkExtensions.getExtensionVersion(Build.VERSION_CODES.UPSIDE_DOWN_CAKE) >= 16) {setOf(
+val PERMISSIONS = CLASSES.map { HealthPermission.getReadPermission(it) }.toSet() + 
+    setOf(
+        HealthPermission.getWritePermission(NutritionRecord::class),
+        HealthPermission.getWritePermission(HydrationRecord::class)
+    ) + if (SdkExtensions.getExtensionVersion(Build.VERSION_CODES.UPSIDE_DOWN_CAKE) >= 16) {setOf(
     HealthPermissions.READ_MEDICAL_DATA_ALLERGIES_INTOLERANCES,
     HealthPermissions.READ_MEDICAL_DATA_CONDITIONS,
     HealthPermissions.READ_MEDICAL_DATA_LABORATORY_RESULTS,
@@ -160,6 +166,12 @@ sealed interface Route: NavKey {
     data object NutritionDetails: Route
 
     @Serializable
+    data object RecipeManagement: Route
+
+    @Serializable
+    data class RecipeEditor(val recipeId: String? = null): Route
+
+    @Serializable
     data class BarChartDetails(val healthMetric: HealthMetricConfig): Route
 }
 
@@ -172,8 +184,8 @@ fun Navigation() {
             com.vayunmathur.library.util.BottomNavBar(
                 backStack = backStack,
                 pages = listOf(
-                    com.vayunmathur.library.util.BottomBarItem("Home", Route.MainPage, R.drawable.baseline_favorite_24),
-                    com.vayunmathur.library.util.BottomBarItem("Nutrition", Route.NutritionDetails, R.drawable.baseline_local_fire_department_24)
+                    com.vayunmathur.library.util.BottomBarItem("Home", Route.MainPage, com.vayunmathur.library.R.drawable.favorite_24px),
+                    com.vayunmathur.library.util.BottomBarItem("Nutrition", Route.NutritionDetails, com.vayunmathur.library.R.drawable.fire_24px)
                 ),
                 currentPage = backStack.last()
             )
@@ -190,6 +202,12 @@ fun Navigation() {
         }
         entry<Route.NutritionDetails> {
             NutritionDetailsPage(backStack)
+        }
+        entry<Route.RecipeManagement> {
+            RecipeManagementPage(backStack)
+        }
+        entry<Route.RecipeEditor> {
+            RecipeEditorPage(backStack, it.recipeId)
         }
         entry<Route.BarChartDetails> {
             BarChartDetails(backStack, it.healthMetric)

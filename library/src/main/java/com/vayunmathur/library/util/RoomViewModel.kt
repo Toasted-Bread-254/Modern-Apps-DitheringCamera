@@ -405,6 +405,7 @@ inline fun <reified T : RoomDatabase> Context.buildDatabase(
             T::class.java,
             dbName
         ).addMigrations(*migrations.toTypedArray())
+         .fallbackToDestructiveMigration()
 
         builder.openHelperFactory(SupportOpenHelperFactory(password.toByteArray(StandardCharsets.UTF_8)))
 

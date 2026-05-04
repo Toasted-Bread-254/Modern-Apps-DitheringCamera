@@ -11,6 +11,9 @@ import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
+import androidx.room.Update
+import androidx.room.Delete
+import kotlinx.serialization.Serializable
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
 
@@ -22,6 +25,7 @@ enum class RecordType {
     Sleep, Mindfulness, Hydration, Nutrition
 }
 
+@Serializable
 data class NutritionData(
     val protein: Double = 0.0,
     val carbohydrates: Double = 0.0,
@@ -62,7 +66,8 @@ data class NutritionData(
     val vitaminD: Double = 0.0,
     val vitaminE: Double = 0.0,
     val vitaminK: Double = 0.0,
-    val zinc: Double = 0.0
+    val zinc: Double = 0.0,
+    val calories: Double = 0.0
 )
 
 @Entity(indices = [Index(value = ["type", "startTime", "endTime"])])
@@ -75,6 +80,7 @@ data class Record(
     val value: Double,
     val secondaryValue: Double = 0.0,
     @Embedded(prefix = "nutrition_") val nutritionData: NutritionData? = null,
+    val metadata: String? = null,
     @PrimaryKey val primaryKey: String = "$id-$index",
 )
 
@@ -95,7 +101,7 @@ interface HealthDao {
     @Query("SELECT * FROM Record WHERE type = :type ORDER BY startTime DESC LIMIT 1")
     suspend fun getLastRecord(type: RecordType): Record?
 
-    @Query("SELECT COALESCE(SUM(value), 0.0) FROM Record WHERE type = :type AND startTime >= :startTime AND endTime <= :endTime")
+    @Query("SELECT COALESCE(SUM(CASE WHEN :type = 'Nutrition' THEN nutrition_calories ELSE value END), 0.0) FROM Record WHERE type = :type AND startTime >= :startTime AND endTime <= :endTime")
     fun sumInRange(type: RecordType, startTime: kotlin.time.Instant, endTime: kotlin.time.Instant): Flow<Double>
     
     @Query("SELECT COALESCE(SUM(nutrition_protein), 0.0) FROM Record WHERE type = :type AND startTime >= :startTime AND endTime <= :endTime")
@@ -316,11 +322,75 @@ interface HealthDao {
         val totalValue: Double,
         val totalValue2: Double
     )
+
+    // Food Logger Methods
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertIngredient(ingredient: Ingredient)
+
+    @Update
+    suspend fun updateIngredient(ingredient: Ingredient)
+
+    @Delete
+    suspend fun deleteIngredient(ingredient: Ingredient)
+
+    @Query("SELECT * FROM Ingredient ORDER BY originalName ASC")
+    suspend fun getAllIngredients(): List<Ingredient>
+
+    @Query("SELECT * FROM Ingredient ORDER BY originalName ASC")
+    fun getAllIngredientsFlow(): Flow<List<Ingredient>>
+
+    @Query("SELECT * FROM Ingredient WHERE isRecipe = 1 ORDER BY originalName ASC")
+    fun getIngredientsAsRecipesFlow(): Flow<List<Ingredient>>
+
+    @Query("SELECT * FROM Ingredient WHERE id = :id")
+    suspend fun getIngredient(id: String): Ingredient?
+
+    @Query("SELECT * FROM Ingredient WHERE originalName LIKE '%' || :query || '%' OR customName LIKE '%' || :query || '%'")
+    suspend fun searchIngredients(query: String): List<Ingredient>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRecipe(recipe: Recipe)
+
+    @Update
+    suspend fun updateRecipe(recipe: Recipe)
+
+    @Delete
+    suspend fun deleteRecipe(recipe: Recipe)
+
+    @Query("SELECT * FROM Recipe ORDER BY name ASC")
+    fun getAllRecipesFlow(): Flow<List<Recipe>>
+
+    @Query("SELECT * FROM Recipe WHERE id = :id")
+    suspend fun getRecipe(id: String): Recipe?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertServingUnit(unit: ServingUnit)
+
+    @Delete
+    suspend fun deleteServingUnit(unit: ServingUnit)
+
+    @Query("SELECT * FROM ServingUnit WHERE ingredientId = :ingredientId")
+    suspend fun getUnitsForIngredient(ingredientId: String): List<ServingUnit>
+
+    @Query("SELECT * FROM ServingUnit WHERE recipeId = :recipeId")
+    suspend fun getUnitsForRecipe(recipeId: String): List<ServingUnit>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRecipeIngredient(recipeIngredient: RecipeIngredient)
+
+    @Delete
+    suspend fun deleteRecipeIngredient(recipeIngredient: RecipeIngredient)
+
+    @Query("SELECT * FROM RecipeIngredient WHERE recipeId = :recipeId")
+    suspend fun getIngredientsForRecipe(recipeId: String): List<RecipeIngredient>
+    
+    @Query("SELECT * FROM RecipeIngredient WHERE recipeId = :recipeId")
+    fun getIngredientsForRecipeFlow(recipeId: String): Flow<List<RecipeIngredient>>
 }
 
 @Database(
-    entities = [Record::class],
-    version = 1,
+    entities = [Record::class, Ingredient::class, Recipe::class, ServingUnit::class, RecipeIngredient::class],
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

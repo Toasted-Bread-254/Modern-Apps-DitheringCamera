@@ -19,4 +19,7 @@ dependencies {
 
     // room
     implementRoom(libs)
+
+    // ktor
+    implementKtor(libs)
 }

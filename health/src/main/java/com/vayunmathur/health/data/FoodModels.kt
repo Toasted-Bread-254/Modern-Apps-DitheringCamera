@@ -1,0 +1,91 @@
+package com.vayunmathur.health.data
+
+import androidx.room.Embedded
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.PrimaryKey
+import java.util.UUID
+
+@Entity
+data class Ingredient(
+    @PrimaryKey val id: String, // Unique identifier, possibly from API
+    val originalName: String,
+    val customName: String? = null,
+    val isRecipe: Boolean = false,
+    // Nutrition data is stored *per 100g* of the ingredient.
+    @Embedded(prefix = "nutrition_") val nutritionData: NutritionData
+) {
+    val displayName: String
+        get() = customName ?: originalName
+}
+
+@Entity
+data class Recipe(
+    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    val name: String
+)
+
+@Entity(
+    foreignKeys = [
+        ForeignKey(
+            entity = Ingredient::class,
+            parentColumns = ["id"],
+            childColumns = ["ingredientId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = Recipe::class,
+            parentColumns = ["id"],
+            childColumns = ["recipeId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [
+        Index("ingredientId"),
+        Index("recipeId")
+    ]
+)
+data class ServingUnit(
+    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    val ingredientId: String? = null,
+    val recipeId: String? = null,
+    val name: String, // e.g., "Cup", "Slice", "Serving", "Gram"
+    val grams: Double // Equivalent amount in grams
+)
+
+@Entity(
+    foreignKeys = [
+        ForeignKey(
+            entity = Recipe::class,
+            parentColumns = ["id"],
+            childColumns = ["recipeId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = Ingredient::class,
+            parentColumns = ["id"],
+            childColumns = ["ingredientId"],
+            // Restrict deletion of an ingredient if a recipe uses it.
+            onDelete = ForeignKey.RESTRICT
+        ),
+        ForeignKey(
+            entity = ServingUnit::class,
+            parentColumns = ["id"],
+            childColumns = ["unitId"],
+            onDelete = ForeignKey.RESTRICT
+        )
+    ],
+    indices = [
+        Index("recipeId"),
+        Index("ingredientId"),
+        Index("unitId")
+    ]
+)
+data class RecipeIngredient(
+    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    val recipeId: String,
+    val ingredientId: String,
+    val quantity: Double,
+    val unitId: String
+)
