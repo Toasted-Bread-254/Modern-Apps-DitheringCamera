@@ -90,23 +90,22 @@ fun SongScreen(backStack: NavBackStack<Route>) {
                 actions = {
                     if (currentSource != null && currentSourceName != null) {
                         TextButton(onClick = {
-                            val route = when {
-                                currentSource == "all_songs" -> Route.Home
-                                currentSource!!.startsWith("album_") -> Route.AlbumDetail(currentSource!!.removePrefix("album_").toLong())
-                                currentSource!!.startsWith("playlist_") -> Route.PlaylistDetail(currentSource!!.removePrefix("playlist_").toLong())
-                                currentSource!!.startsWith("artist_") -> Route.ArtistDetail(currentSource!!.removePrefix("artist_").toLong())
-                                else -> null
-                            }
-                            if (route != null) {
-                                backStack.clear()
-                                backStack.add(route)
-                                if (route != Route.Home && route != Route.Song) {
-                                    // if it's a detail page, we might want to be able to go back to home?
-                                    // MainNavigation handles the backstack. 
-                                    // clear() then add(Home) then add(detail) would be better?
-                                    // But clear() removes everything.
+                            when {
+                                currentSource == "all_songs" -> {
+                                    backStack.reset(Route.Home)
                                 }
-                                // Let's just add it for now.
+                                currentSource!!.startsWith("album_") -> {
+                                    val id = currentSource!!.removePrefix("album_").toLong()
+                                    backStack.reset(Route.Home, Route.Albums, Route.AlbumDetail(id))
+                                }
+                                currentSource!!.startsWith("playlist_") -> {
+                                    val id = currentSource!!.removePrefix("playlist_").toLong()
+                                    backStack.reset(Route.Home, Route.Playlists, Route.PlaylistDetail(id))
+                                }
+                                currentSource!!.startsWith("artist_") -> {
+                                    val id = currentSource!!.removePrefix("artist_").toLong()
+                                    backStack.reset(Route.Home, Route.Artists, Route.ArtistDetail(id))
+                                }
                             }
                         }) {
                             Text(
