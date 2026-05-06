@@ -117,9 +117,9 @@ fun MainPage(platform: Platform, backStack: NavBackStack<Route>, viewModel: Data
                         dbConfigs = listOf("passwords-db" to pass),
                         extraFiles = emptyList()
                     )
-                    IconButton(onClick = { backStack.add(Route.Settings) }) {
-                        IconSettings()
-                    }
+//                    IconButton(onClick = { backStack.add(Route.Settings) }) {
+//                        IconSettings()
+//                    }
                 }
             )
         },
