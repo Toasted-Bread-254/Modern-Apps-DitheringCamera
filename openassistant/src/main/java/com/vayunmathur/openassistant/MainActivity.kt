@@ -1,6 +1,8 @@
 package com.vayunmathur.openassistant
 
+import android.content.Intent
 import android.os.Bundle
+import com.vayunmathur.openassistant.util.InferenceService
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -54,7 +56,8 @@ class MainActivity : ComponentActivity() {
                 InitialDownloadChecker(ds, listOf(
                     Triple("https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm", "gemma4-4b.litertlm", "Model"),
                 )) {
-                    // Once downloads are complete, find the file in internal storage
+                    // Start the inference service immediately to pre-warm the model
+                    startService(Intent(this, InferenceService::class.java))
                     Navigation(viewModel)
                 }
             }

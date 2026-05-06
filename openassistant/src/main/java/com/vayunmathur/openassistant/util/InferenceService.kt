@@ -70,6 +70,13 @@ class InferenceService : Service() {
         super.onCreate()
         startForegroundTask()
         serviceScope.launch {
+            try {
+                ensureEngineInitialized()
+            } catch (e: Exception) {
+                Log.e("InferenceService", "Error pre-warming engine", e)
+            }
+        }
+        serviceScope.launch {
             Log.d("InferenceService", "Starting job queue processor loop")
             while (isActive) {
                 try {
