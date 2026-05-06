@@ -8,7 +8,9 @@ import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.ext.SdkExtensions
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -114,6 +116,20 @@ import java.io.FileOutputStream
 import java.util.UUID
 import java.util.concurrent.Executors
 
+fun isAdvancedPdfSupported(): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+        // Android 15 (API 35) supports this natively
+        true
+    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        // Check if the "R" extension (Android 11+) is at least Level 13
+        // This is where the PDF backport lives
+        SdkExtensions.getExtensionVersion(Build.VERSION_CODES.R) >= 13
+    } else {
+        // Device is older than Android 11
+        false
+    }
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -123,6 +139,19 @@ class MainActivity : ComponentActivity() {
         val data: Uri? = intent.data
 
         val pdfLoader = SandboxedPdfLoader(application)
+
+        if(!isAdvancedPdfSupported()) {
+            setContent {
+                DynamicTheme {
+                    Scaffold() { paddingValues ->
+                        Box(Modifier.padding(paddingValues).fillMaxSize()) {
+                            Text(stringResource(R.string.unsupported_version), Modifier.align(Alignment.Center))
+                        }
+                    }
+                }
+            }
+            return
+        }
 
         setContent {
             var data by rememberSaveable { mutableStateOf(data) }

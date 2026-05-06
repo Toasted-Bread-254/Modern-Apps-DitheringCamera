@@ -16,4 +16,5 @@
     <string name="pdf_saved">PDF saved successfully</string>
     <string name="pdf_save_error">Error saving PDF</string>
     <string name="share_pdf">Share PDF</string>
+    <string name="unsupported_version">This app requires either Android 15 or Google Play Services to be fully updated. If you are unable to do either of these, your device is unfortunately unsupported.</string>
 </resources>

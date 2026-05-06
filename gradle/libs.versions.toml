@@ -40,7 +40,7 @@ room = "2.8.4"
 
 # Special Features (PDF, Maps, Health, Crypto)
 biometric = "1.2.0-alpha05"
-pdfViewer = "1.0.0-alpha16"
+pdfViewer = "1.0.0-alpha18"
 glance = "1.1.1"
 connectClient = "1.2.0-alpha04"
 cryptographyCore = "0.6.0"
