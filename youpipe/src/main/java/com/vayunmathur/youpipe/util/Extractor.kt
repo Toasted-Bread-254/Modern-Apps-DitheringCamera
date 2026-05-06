@@ -13,6 +13,10 @@ fun videoURLtoID(url: String): Long {
     return ByteBuffer.wrap(Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT).decode(url.toUri().getQueryParameter("v")!!)).long
 }
 
+fun channelURLtoID(url: String): String {
+    return url.substringAfterLast("/")
+}
+
 fun encodeVideoID(id: String): Long {
     return ByteBuffer.wrap(Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT).decode(id)).long
 }
@@ -40,7 +44,7 @@ suspend fun getVideoInfo(videoId: Long): VideoInfo = coroutineScope {
     VideoInfo(
         ex.name,
         videoId,
-        ex.duration,
+        ex.length,
         ex.viewCount,
         ex.uploadDate!!.instant.toKotlinInstant(),
         ex.thumbnails.first().url,

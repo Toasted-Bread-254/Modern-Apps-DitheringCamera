@@ -6,6 +6,7 @@ import com.vayunmathur.youpipe.ui.VideoInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 data class DownloadStatus(
     val videoInfo: VideoInfo,
@@ -22,17 +23,19 @@ object DownloadManager {
     }
 
     fun updateProgress(videoID: Long, progress: Double) {
-        _activeDownloads.value = _activeDownloads.value[videoID]?.let {
-            _activeDownloads.value + (videoID to it.copy(progress = progress))
-        } ?: _activeDownloads.value
+        _activeDownloads.update { current ->
+            current[videoID]?.let {
+                current + (videoID to it.copy(progress = progress))
+            } ?: current
+        }
     }
 
     fun finishDownload(videoID: Long) {
-        _activeDownloads.value = _activeDownloads.value - videoID
+        _activeDownloads.update { it - videoID }
     }
 
     fun cancelDownload(context: Context, videoID: Long) {
         WorkManager.getInstance(context).cancelUniqueWork("download_$videoID")
-        _activeDownloads.value = _activeDownloads.value - videoID
+        _activeDownloads.update { it - videoID }
     }
 }
