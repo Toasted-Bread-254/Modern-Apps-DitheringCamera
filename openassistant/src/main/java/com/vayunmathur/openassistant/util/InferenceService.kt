@@ -314,6 +314,9 @@ class InferenceService : Service() {
     private suspend fun ensureEngineInitialized() {
         if (engine != null) return
 
+        @OptIn(ExperimentalApi::class)
+        ExperimentalFlags.enableSpeculativeDecoding = true
+
         val modelFile = File(applicationContext.getExternalFilesDir(null)!!, "gemma4-4b.litertlm")
         if (!modelFile.exists()) throw Exception("Model file missing at ${modelFile.absolutePath}")
 
