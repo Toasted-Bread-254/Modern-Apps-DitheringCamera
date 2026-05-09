@@ -17,4 +17,5 @@
     <string name="pdf_saved">PDF 已成功保存</string>
     <string name="pdf_save_error">保存 PDF 时出错</string>
     <string name="share_pdf">分享 PDF</string>
+    <string name="unsupported_version">此应用需要 Android 15 或 Google Play 服务已完全更新。如果您无法满足上述任一条件，很遗憾，您的设备不受支持。</string>
 </resources>
