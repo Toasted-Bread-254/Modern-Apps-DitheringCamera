@@ -91,6 +91,12 @@ import com.vayunmathur.library.util.BiometricDatabaseHelper
 import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.util.ResultEffect
+import kotlin.math.roundToInt
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.ExperimentalTime
 import kotlin.time.Clock
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
@@ -103,12 +109,6 @@ import kotlinx.datetime.format.Padding
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import org.maplibre.spatialk.geojson.Position
-import kotlin.math.roundToInt
-import kotlin.time.Duration.*
-import kotlin.time.Duration.Companion.days
-import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
-import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -157,9 +157,11 @@ fun MainPage(
                 },
                 navigationIcon = {
                     if (selectedUserId != null || selectedWaypointId != null) {
-                        IconNavigation {
+                        IconButton({
                             selectedUserId = null
                             selectedWaypointId = null
+                        }) {
+                            IconNavigation(backStack)
                         }
                     }
                 },
