@@ -6,4 +6,6 @@
     <string name="voice_message">Messaggio vocale</string>
     <string name="mic_error_format">Errore del microfono: %1$s</string>
     <string name="new_conversation">Nuova conversazione</string>
+    <string name="perm_desc_inference">Consente ad altre app di accedere al servizio di inferenza AI sul dispositivo per estrarre dati strutturati.</string>
+    <string name="error_prefix">Errore: %1$s</string>
 </resources>
