@@ -1,30 +1,13 @@
 package com.vayunmathur.maps.util
 import com.vayunmathur.maps.data.SpecificFeature
 import com.vayunmathur.maps.R
-import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
-import io.ktor.serialization.kotlinx.json.json
+import com.vayunmathur.library.network.NetworkClient
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import org.maplibre.spatialk.geojson.Position
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 object RouteService {
-    private val client = HttpClient {
-        install(ContentNegotiation) {
-            json(Json {
-                ignoreUnknownKeys = true
-                encodeDefaults = true
-            })
-        }
-    }
-
     private const val ROUTES_URL = "https://api.vayunmathur.com/maps/route"
 
     suspend fun computeRoute(
@@ -45,14 +28,12 @@ object RouteService {
         )
 
         return try {
-            val response = client.post(ROUTES_URL) {
-                contentType(ContentType.Application.Json)
-                setBody(request)
-            }
-
-            // The server now returns the transformed structure directly.
-            // We deserialize into a helper DTO to handle 'Position' conversion.
-            val serverRoute = response.body<ServerRouteResponse>()
+            val serverRoute: ServerRouteResponse = NetworkClient.callJson(
+                url = ROUTES_URL,
+                method = "POST",
+                headers = mapOf("Content-Type" to "application/json"),
+                body = request
+            )
 
             return Route(
                 duration = Duration.parse(serverRoute.duration),

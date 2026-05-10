@@ -1,10 +1,6 @@
 package com.vayunmathur.crypto.util.api
 import com.vayunmathur.crypto.data.TokenInfo
-import io.ktor.client.call.body
-import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.request.parameter
-import io.ktor.client.statement.HttpResponse
+import com.vayunmathur.library.network.NetworkClient
 import org.sol4k.Keypair
 import kotlin.math.pow
 
@@ -13,11 +9,10 @@ object JupiterAPI {
 
     suspend fun getPrices(mints: List<String>): PriceResponse {
         return mints.chunked(20).map { try {
-            val response: HttpResponse = client.get("https://api.jup.ag/price/v3") {
-                header("x-api-key", API_KEY)
-                parameter("ids", it.joinToString(","))
-            }
-            response.body<PriceResponse>()
+            NetworkClient.getJson<PriceResponse>(
+                url = "https://api.jup.ag/price/v3?ids=${it.joinToString(",")}",
+                headers = mapOf("x-api-key" to API_KEY)
+            )
         } catch(_: Exception) {
             emptyMap()
         } }.fold(emptyMap()) { acc, map -> acc + map }
@@ -30,13 +25,16 @@ object JupiterAPI {
         taker: Keypair
     ): PendingOrder? {
         return try {
-            client.get("https://api.jup.ag/ultra/v1/order") {
-                header("x-api-key", API_KEY)
-                parameter("inputMint", inputToken.mintAddress)
-                parameter("outputMint", outputToken.mintAddress)
-                parameter("amount", (amount * 10.0.pow(inputToken.decimals)).toLong())
-                parameter("taker", taker.publicKey.toBase58())
-            }.body()
+            val url = "https://api.jup.ag/ultra/v1/order?" + 
+                "inputMint=${inputToken.mintAddress}&" +
+                "outputMint=${outputToken.mintAddress}&" +
+                "amount=${(amount * 10.0.pow(inputToken.decimals)).toLong()}&" +
+                "taker=${taker.publicKey.toBase58()}"
+            
+            NetworkClient.getJson<PendingOrder>(
+                url = url,
+                headers = mapOf("x-api-key" to API_KEY)
+            )
         } catch(e: Exception) {
             e.printStackTrace()
             null

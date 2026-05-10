@@ -3,23 +3,12 @@ import com.vayunmathur.findfamily.data.LocationValue
 import com.vayunmathur.findfamily.data.LocationValueCompatible
 import com.vayunmathur.findfamily.data.TemporaryLink
 import com.vayunmathur.findfamily.data.User
+import com.vayunmathur.library.network.NetworkClient
 import com.vayunmathur.library.util.DataStoreUtils
 import com.vayunmathur.library.util.DatabaseViewModel
 import dev.whyoleg.cryptography.CryptographyProvider
 import dev.whyoleg.cryptography.algorithms.RSA
 import dev.whyoleg.cryptography.algorithms.SHA512
-import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.network.sockets.ConnectTimeoutException
-import io.ktor.client.network.sockets.SocketTimeoutException
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.io.encoding.Base64
@@ -32,11 +21,6 @@ object Networking {
         ignoreUnknownKeys = true
     }
 
-    private val client = HttpClient {
-        install(ContentNegotiation) {
-            json(json)
-        }
-    }
     private val crypto = CryptographyProvider.Default.get(RSA.OAEP)
     private var publickey: RSA.OAEP.PublicKey? = null
     private var privatekey: RSA.OAEP.PrivateKey? = null
@@ -66,43 +50,37 @@ object Networking {
             val x = makeRequest()
             network_is_down = false
             return x
-        } catch(_: ConnectTimeoutException) {
+        } catch(e: Exception) {
+            // Check for timeout exceptions without direct Ktor dependency if possible, 
+            // but for now we'll just catch all and assume network might be down if it fails.
             if (!network_is_down) {
-                //TODO: notify user
-                println("network is down")
+                println("network error: ${e.message}")
             }
             network_is_down = true
-        } catch(_: SocketTimeoutException) {
-            if (!network_is_down) {
-                //TODO: notify user
-                println("network is down")
-            }
-            network_is_down = true
-        } catch(e: Throwable) {
-            println(e.printStackTrace())
         }
         return null
     }
 
     private suspend inline fun <reified T, reified I> makeRequest(path: String, body: I): T? {
         return checkNetworkDown {
-            val response = client.post("$URL$path") {
-                contentType(ContentType.Application.Json)
-                setBody(body)
+            try {
+                NetworkClient.callJson<T>(
+                    url = "$URL$path",
+                    method = "POST",
+                    headers = mapOf("Content-Type" to "application/json"),
+                    body = body
+                )
+            } catch (e: Exception) {
+                println("Request failed: ${e.message}")
+                null
             }
-            if(response.status != HttpStatusCode.OK) {
-                println(response.status)
-                return@checkNetworkDown null
-            }
-            val result = response.body<T>()
-            return@checkNetworkDown result
         }
     }
 
     private suspend fun register(): Boolean {
         @Serializable
         data class Register(val userid: ULong, val key: String)
-        return makeRequest("/api/register", Register(
+        return makeRequest<Boolean, Register>("/api/register", Register(
             userid.toULong(),
             Base64.encode(publickey!!.encodeToByteArray(RSA.PublicKey.Format.PEM))
         )
@@ -117,15 +95,17 @@ object Networking {
 
     private suspend fun getKey(userid: Long): RSA.OAEP.PublicKey? {
         return checkNetworkDown {
-            val response = client.post("$URL/api/getkey") {
-                contentType(ContentType.Application.Json)
-                setBody("{\"userid\": ${userid.toULong()}}")
-            }
-            if(response.status != HttpStatusCode.OK) {
+            val response = NetworkClient.performRequest(
+                url = "$URL/api/getkey",
+                method = "POST",
+                headers = mapOf("Content-Type" to "application/json"),
+                body = "{\"userid\": ${userid.toULong()}}"
+            )
+            if(response.status != 200) {
                 return@checkNetworkDown null
             }
             return@checkNetworkDown crypto.publicKeyDecoder(SHA512).decodeFromByteArray(RSA.PublicKey.Format.PEM,
-                Base64.decode(response.bodyAsText())
+                Base64.decode(response.body)
             )
         }
     }
@@ -141,19 +121,19 @@ object Networking {
                 viewModel.upsertAsync(user.copy(encryptionKey = keyString))
             }
         } ?: return false
-        return makeRequest("/api/location/publish", encryptLocation(location, user.id, key)) ?: false
+        return makeRequest<Boolean, LocationSharingData>("/api/location/publish", encryptLocation(location, user.id, key)) ?: false
     }
 
     suspend fun publishLocation(location: LocationValue, user: TemporaryLink): Boolean {
         val key = crypto.publicKeyDecoder(SHA512).decodeFromByteArray(RSA.PublicKey.Format.PEM,
             Base64.decode(user.publicKey)
         )
-        return makeRequest("/api/location/publish", encryptLocation(location, user.id, key)) ?: false
+        return makeRequest<Boolean, LocationSharingData>("/api/location/publish", encryptLocation(location, user.id, key)) ?: false
     }
 
     suspend fun receiveLocations(): List<LocationValue>? {
-        val strings: List<String> = makeRequest("/api/location/receive", "{\"userid\": $userid}") ?: return null
-        return strings.map { decryptLocation(it) }
+        val strings: List<String>? = makeRequest("/api/location/receive", "{\"userid\": $userid}")
+        return strings?.map { decryptLocation(it) }
     }
 
     private suspend fun encryptLocation(location: LocationValue, recipientUserID: Long, key: RSA.OAEP.PublicKey): LocationSharingData {

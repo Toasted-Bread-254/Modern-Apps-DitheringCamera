@@ -10,14 +10,10 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.vayunmathur.library.util.DataStoreUtils
 import kotlinx.coroutines.*
-import okhttp3.*
-import okio.BufferedSink
-import okio.buffer
-import okio.appendingSink
-import okio.sink
+import com.vayunmathur.library.network.NetworkClient
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
-import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import kotlin.math.pow
 
@@ -28,17 +24,13 @@ class DownloadService : Service() {
         private const val NOTIF_ID = 1001
         private const val CHANNEL_ID = "high_speed_download_channel"
         private const val MAX_RETRIES = 5
-        private const val BUFFER_SIZE = 262144L
+        private const val BUFFER_SIZE = 262144
     }
 
     private var wifiLock: WifiManager.WifiLock? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .callTimeout(0, TimeUnit.SECONDS)
-        .build()
+    private val client = NetworkClient
 
     override fun onCreate() {
         super.onCreate()
@@ -108,71 +100,58 @@ class DownloadService : Service() {
         var lastBytes = existingSize
         var lastTime = System.currentTimeMillis()
 
-        val request = Request.Builder()
-            .url(url)
-            .apply {
-                if (existingSize > 0) addHeader("Range", "bytes=$existingSize-")
-            }
-            .build()
+        val headers = if (existingSize > 0) mapOf("Range" to "bytes=$existingSize-") else emptyMap()
 
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful && response.code != 206) {
-                if (response.code == 416) {
+        client.stream(url, headers = headers) { stream, response ->
+            if (stream == null) {
+                if (response.status == 416) {
                     markAsDone(ds, fileName)
-                    return@withContext
+                } else {
+                    throw IOException("Server returned ${response.status}")
                 }
-                throw IOException("Server returned ${response.code}")
+                return@stream
             }
-
-            // Elvis operator removed as body is expected to be present if call succeeded
-            val body = response.body
-            val isResuming = response.code == 206
-            val totalSize = if (isResuming) existingSize + body.contentLength() else body.contentLength()
-
-            val source = body.source()
-            val sink: BufferedSink = if (isResuming) file.appendingSink().buffer() else file.sink().buffer()
+            val isResuming = existingSize > 0
+            val contentLength = response.contentLength
+            val totalSize = if (contentLength != null) {
+                if (isResuming) existingSize + contentLength else contentLength
+            } else null
 
             var downloaded = if (isResuming) existingSize else 0L
 
-            try {
-                sink.use { output ->
-                    source.use { input ->
-                        while (isActive && !input.exhausted()) {
-                            val read = input.read(output.buffer, BUFFER_SIZE)
-                            if (read == -1L) break
+            FileOutputStream(file, isResuming).use { output ->
+                val buffer = ByteArray(BUFFER_SIZE)
+                while (isActive && !stream.isClosedForRead) {
+                    val read = stream.read(buffer)
+                    if (read == -1) break
 
-                            output.emit()
-                            downloaded += read
+                    output.write(buffer, 0, read)
+                    downloaded += read
 
-                            val currentTime = System.currentTimeMillis()
-                            val timeDiffMs = currentTime - lastTime
+                    val currentTime = System.currentTimeMillis()
+                    val timeDiffMs = currentTime - lastTime
 
-                            if (timeDiffMs >= 1000L || downloaded == totalSize) {
-                                val progress = if (totalSize > 0) downloaded.toDouble() / totalSize else 0.0
-                                val speedMbps = ((downloaded - lastBytes) * 8.0) / 1_000_000.0 / (timeDiffMs / 1000.0)
+                    if (timeDiffMs >= 1000L || (totalSize != null && downloaded == totalSize)) {
+                        val progress = if (totalSize != null && totalSize > 0) downloaded.toDouble() / totalSize else 0.0
+                        val speedMbps = ((downloaded - lastBytes) * 8.0) / 1_000_000.0 / (timeDiffMs / 1000.0)
 
-                                ds.setDouble("progress_$fileName", progress)
-                                ds.setDouble("speed_$fileName", if (downloaded == totalSize) 0.0 else speedMbps)
+                        ds.setDouble("progress_$fileName", progress)
+                        ds.setDouble("speed_$fileName", if (totalSize != null && downloaded == totalSize) 0.0 else speedMbps)
 
-                                val speedText = if (speedMbps > 0) "${speedMbps.toInt()} Mbps" else "Finishing..."
-                                updateNotification("Downloading $fileName: ${(progress * 100).toInt()}% ($speedText)")
+                        val speedText = if (speedMbps > 0) "${speedMbps.toInt()} Mbps" else "Finishing..."
+                        updateNotification("Downloading $fileName: ${(progress * 100).toInt()}% ($speedText)")
 
-                                lastBytes = downloaded
-                                lastTime = currentTime
-                            }
-                        }
-                        output.flush()
+                        lastBytes = downloaded
+                        lastTime = currentTime
                     }
                 }
+                output.flush()
+            }
 
-                if (totalSize > 0 && downloaded >= totalSize) {
-                    markAsDone(ds, fileName)
-                } else if (isActive && totalSize > 0) {
-                    throw IOException("Connection lost: $downloaded/$totalSize bytes received")
-                }
-
-            } catch (e: Exception) {
-                throw e
+            if (totalSize != null && totalSize > 0 && downloaded >= totalSize) {
+                markAsDone(ds, fileName)
+            } else if (isActive && totalSize != null && totalSize > 0) {
+                throw IOException("Connection lost: $downloaded/$totalSize bytes received")
             }
         }
     }

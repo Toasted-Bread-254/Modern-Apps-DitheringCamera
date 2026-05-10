@@ -1,8 +1,6 @@
 package com.vayunmathur.crypto.util.api
 import com.vayunmathur.crypto.data.TokenInfo
-import io.ktor.client.call.body
-import io.ktor.client.request.get
-import io.ktor.client.request.parameter
+import com.vayunmathur.library.network.NetworkClient
 import kotlinx.serialization.Serializable
 
 object PredictionMarket {
@@ -35,8 +33,7 @@ object PredictionMarket {
     }
 
     suspend fun getPredictionMarkets(): List<Event> {
-        val content = client.get("https://api.vayunmathur.com/crypto/prediction_market_events").body<List<Event>>()
-        return content
+        return NetworkClient.getJson("https://api.vayunmathur.com/crypto/prediction_market_events")
     }
 
     suspend fun makeOrder(market: Event.Market, yes: Boolean, amount: Double, publicKey: String): PendingOrder {
@@ -44,14 +41,13 @@ object PredictionMarket {
         val inputMint = TokenInfo.USDC.mintAddress
         val slippageBps = 50
 
-        val res = client.get("https://api.vayunmathur.com/crypto/prediction_market/order") {
-            parameter("inputMint", inputMint)
-            parameter("outputMint", outputMint)
-            parameter("amount", (amount*1000000).toInt().toString())
-            parameter("slippageBps", slippageBps.toString())
-            parameter("userPublicKey", publicKey)
-        }
+        val url = "https://api.vayunmathur.com/crypto/prediction_market/order?" +
+            "inputMint=$inputMint&" +
+            "outputMint=$outputMint&" +
+            "amount=${(amount*1000000).toInt()}&" +
+            "slippageBps=$slippageBps&" +
+            "userPublicKey=$publicKey"
 
-        return res.body<PendingOrder>()
+        return NetworkClient.getJson(url)
     }
 }

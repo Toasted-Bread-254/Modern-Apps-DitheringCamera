@@ -1,26 +1,12 @@
 package com.vayunmathur.maps.util
-import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.get
-import io.ktor.serialization.kotlinx.json.json
+import com.vayunmathur.library.network.NetworkClient
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonPrimitive
 
 object Wikidata {
     suspend fun get(wikidata: String): Wikidata {
-        val client = HttpClient {
-            install(ContentNegotiation) {
-                json(Json{
-                    ignoreUnknownKeys = true
-                })
-            }
-        }
-        val wikidata = client.get("https://www.wikidata.org/w/rest.php/wikibase/v1/entities/items/${wikidata}").body<Wikidata>()
-        client.close()
-        return wikidata
+        return NetworkClient.getJson("https://www.wikidata.org/w/rest.php/wikibase/v1/entities/items/${wikidata}")
     }
 
     @Serializable

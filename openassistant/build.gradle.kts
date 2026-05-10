@@ -36,8 +36,5 @@ dependencies {
     // ai
     implementation(libs.litertlm.android)
 
-    // markdown
-    implementation(libs.compose.markdown)
-
     implementation(project(":library:downloadservice"))
 }

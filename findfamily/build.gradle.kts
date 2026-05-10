@@ -11,7 +11,7 @@ android {
 
 dependencies {
     // ktor
-    implementKtor(libs)
+    implementation(project(":library:network"))
 
     implementRoom(libs)
 

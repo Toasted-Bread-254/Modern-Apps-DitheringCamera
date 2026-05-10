@@ -7,10 +7,3 @@ fun DependencyHandlerScope.implementRoom(libs: org.gradle.accessors.dm.Libraries
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 }
-
-fun DependencyHandlerScope.implementKtor(libs: org.gradle.accessors.dm.LibrariesForLibs) {
-    implementation(libs.ktor.client.cio)
-    implementation(libs.ktor.client.core)
-    implementation(libs.ktor.client.content.negotiation)
-    implementation(libs.ktor.serialization.kotlinx.json)
-}

@@ -10,7 +10,7 @@ android {
 
 dependencies {
     // ktor
-    implementKtor(libs)
+    implementation(project(":library:network"))
 
     // solana
     implementation(libs.sol4k)

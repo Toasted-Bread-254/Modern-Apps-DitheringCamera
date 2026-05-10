@@ -20,7 +20,7 @@ dependencies {
     implementation(libs.maplibre.compose)
     implementation(libs.coil.compose)
 
-    implementKtor(libs)
+    implementation(project(":library:network"))
 
     implementation(libs.flatgeobuf)
 

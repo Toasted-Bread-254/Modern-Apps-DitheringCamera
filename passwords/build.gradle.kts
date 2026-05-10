@@ -14,7 +14,4 @@ dependencies {
     implementation(project(":library:biometric"))
     implementRoom(libs)
     implementation(libs.androidx.fragment.ktx)
-
-    // CSV parsing library for Bitwarden CSV imports
-    implementation(libs.kotlin.csv.jvm)
 }

@@ -25,6 +25,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "apps"
 include(":library")
+include(":library:network")
 include(":library:biometric")
 include(":library:downloadservice")
 include(":library:widgets")

@@ -2,42 +2,17 @@ package com.vayunmathur.health.util
 
 import com.vayunmathur.health.data.Ingredient
 import com.vayunmathur.health.data.NutritionData
-import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.get
-import io.ktor.client.request.parameter
-import io.ktor.serialization.kotlinx.json.json
+import com.vayunmathur.library.network.NetworkClient
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 
 object FoodSearchAPI {
-    private val client =
-            HttpClient(CIO) {
-                install(ContentNegotiation) {
-                    json(
-                            Json {
-                                ignoreUnknownKeys = true
-                                coerceInputValues = true
-                            }
-                    )
-                }
-            }
 
     @Serializable data class SearchResult(val id: Long, @SerialName("display_name") val displayName: String)
 
     suspend fun searchIngredients(query: String): List<SearchResult> {
         return try {
-            val response =
-                    client.get("https://api.vayunmathur.com/api/food/search") {
-                        parameter("q", query)
-                    }
-            if (response.status.value !in 200..299) {
-                android.util.Log.e("FoodSearchAPI", "API Error: ${response.status}")
-            }
-            response.body()
+            NetworkClient.getJson("https://api.vayunmathur.com/api/food/search?q=$query")
         } catch (e: Exception) {
             android.util.Log.e("FoodSearchAPI", "Search Error: ${e.message}", e)
             emptyList()
@@ -47,7 +22,7 @@ object FoodSearchAPI {
     suspend fun getIngredientData(id: Long, displayName: String): Ingredient? {
         return try {
             val nutritionData: NutritionData =
-                    client.get("https://api.vayunmathur.com/api/food/data/$id").body()
+                    NetworkClient.getJson("https://api.vayunmathur.com/api/food/data/$id")
 
             Ingredient(
                     id = id.toString(),

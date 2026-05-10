@@ -4,6 +4,6 @@ plugins {
 
 dependencies {
     implementation(project(":library"))
-    api(libs.okhttp)
+    implementation(project(":library:network"))
     api(libs.androidx.work.runtime.ktx)
 }

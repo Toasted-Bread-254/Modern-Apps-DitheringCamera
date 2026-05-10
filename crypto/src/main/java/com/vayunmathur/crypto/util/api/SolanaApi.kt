@@ -2,16 +2,7 @@ package com.vayunmathur.crypto.util.api
 import com.vayunmathur.crypto.util.api.SolanaAPI.RPCResult
 import com.vayunmathur.crypto.data.Token
 import com.vayunmathur.crypto.data.TokenInfo
-import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.HttpResponse
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
-import io.ktor.serialization.kotlinx.json.json
+import com.vayunmathur.library.network.NetworkClient
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -111,12 +102,6 @@ val JSON = Json {
     encodeDefaults = true
 }
 
-val client = HttpClient(CIO) {
-    install(ContentNegotiation) {
-        json(JSON)
-    }
-}
-
 object SolanaAPI {
 
     private val connection = Connection(RpcUrl.MAINNNET)
@@ -161,29 +146,31 @@ object SolanaAPI {
     }
 
     private suspend inline fun <reified T> rpcCallV(method: String, params: JsonArray): T? {
-        val response: HttpResponse = client.post(HELIUS_URL) {
-            contentType(ContentType.Application.Json)
-            setBody(
-                RPCRequest(
-                    method = method,
-                    params = params
-                )
-            )
+        return try {
+            NetworkClient.callJson<RPCValueResult<T>>(
+                url = HELIUS_URL,
+                method = "POST",
+                headers = mapOf("Content-Type" to "application/json"),
+                body = RPCRequest(method = method, params = params)
+            ).result.value
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
         }
-        return response.body<RPCValueResult<T>>().result.value
     }
 
     private suspend inline fun <reified T> rpcCall(method: String, params: JsonArray): T? {
-        val response: HttpResponse = client.post(HELIUS_URL) {
-            contentType(ContentType.Application.Json)
-            setBody(
-                RPCRequest(
-                    method = method,
-                    params = params
-                )
-            )
+        return try {
+            NetworkClient.callJson<RPCResult<T>>(
+                url = HELIUS_URL,
+                method = "POST",
+                headers = mapOf("Content-Type" to "application/json"),
+                body = RPCRequest(method = method, params = params)
+            ).result
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
         }
-        return response.body<RPCResult<T>>().result
     }
 
     fun transfer(from: Keypair, token: TokenInfo, recipient: PublicKey, amount: Double) {

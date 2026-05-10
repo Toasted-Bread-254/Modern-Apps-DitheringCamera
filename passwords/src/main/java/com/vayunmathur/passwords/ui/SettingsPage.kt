@@ -31,8 +31,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.vayunmathur.passwords.R
 import androidx.compose.ui.unit.dp
-import com.github.doyaaaaaken.kotlincsv.client.CsvReader
-import com.github.doyaaaaaken.kotlincsv.dsl.context.CsvReaderContext
 import com.vayunmathur.library.ui.IconNavigation
 import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.passwords.data.Password
@@ -123,9 +121,33 @@ private suspend fun importBitwardenCsvFromUri(contentResolver: ContentResolver, 
             null
         } ?: throw Exception("Unable to open selected file")
         
-        val csvReader = CsvReader(CsvReaderContext())
         val rows = try {
-            csvReader.readAll(inputStream)
+            val reader = inputStream.bufferedReader()
+            val list = mutableListOf<List<String>>()
+            var line = reader.readLine()
+            while (line != null) {
+                val row = mutableListOf<String>()
+                var current = StringBuilder()
+                var inQuotes = false
+                var i = 0
+                while (i < line.length) {
+                    val c = line[i]
+                    if (c == '\"') {
+                        if (inQuotes && i + 1 < line.length && line[i+1] == '\"') {
+                            current.append('\"')
+                            i++
+                        } else inQuotes = !inQuotes
+                    } else if (c == ',' && !inQuotes) {
+                        row.add(current.toString())
+                        current = StringBuilder()
+                    } else current.append(c)
+                    i++
+                }
+                row.add(current.toString())
+                list.add(row)
+                line = reader.readLine()
+            }
+            list
         } catch (e: Exception) {
             Log.e("SettingsPage", "Error reading CSV from input stream", e)
             emptyList<List<String>>()

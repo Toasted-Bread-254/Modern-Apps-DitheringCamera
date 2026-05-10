@@ -12,7 +12,6 @@ android {
 dependencies {
     implementation(libs.coil.compose)
     implementation(libs.newpipeextractor)
-    implementation(libs.okhttp)
 
     implementRoom(libs)
 
@@ -23,5 +22,5 @@ dependencies {
 
     implementation(libs.androidx.work.runtime.ktx)
 
-    implementKtor(libs)
+    implementation(project(":library:network"))
 }
