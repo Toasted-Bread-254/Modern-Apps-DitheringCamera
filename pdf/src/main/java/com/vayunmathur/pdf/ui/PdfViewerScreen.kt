@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.BottomAppBar
@@ -18,10 +19,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -95,13 +97,14 @@ fun PdfViewerScreen(pdfDocument: EditablePdfDocument, pdfName: String, onBack: (
     var searchIndex by remember(searchResults) { mutableIntStateOf(0) }
     var searchText by remember { mutableStateOf("") }
 
-    BackHandler(showSearchBar) {
-        showSearchBar = false
-        searchResults = emptyList()
+    BackHandler {
+        if (showSearchBar) {
+            showSearchBar = false
+            searchResults = emptyList()
+        } else {
+            onBack()
+        }
     }
-
-    // Original back handler for the whole screen
-    BackHandler(!showSearchBar) { onBack() }
 
     LaunchedEffect(pdfDocument.uri) {
         coroutineScope.launch {
@@ -164,8 +167,42 @@ fun PdfViewerScreen(pdfDocument: EditablePdfDocument, pdfName: String, onBack: (
     Scaffold(
         modifier = Modifier.fillMaxSize(), topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.pdf_viewer_title)) },
-                navigationIcon = { IconNavigation(onBack) },
+                title = {
+                    if (showSearchBar) {
+                        TextField(
+                            value = searchText,
+                            onValueChange = {
+                                searchText = it
+                                search()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(focusRequestor),
+                            placeholder = { Text(stringResource(R.string.search_label)) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                            )
+                        )
+                    } else {
+                        Text(stringResource(R.string.pdf_viewer_title))
+                    }
+                },
+                navigationIcon = {
+                    IconNavigation {
+                        if (showSearchBar) {
+                            showSearchBar = false
+                            searchResults = emptyList()
+                        } else {
+                            onBack()
+                        }
+                    }
+                },
                 actions = {
                     if (!showSearchBar) {
                         IconButton({ showSearchBar = true }) { IconSearch() }
@@ -194,26 +231,8 @@ fun PdfViewerScreen(pdfDocument: EditablePdfDocument, pdfName: String, onBack: (
                         }
                     }
                 })
-        }, bottomBar = {
-            if (showSearchBar) {
-                BottomAppBar {
-                    OutlinedTextField(
-                        searchText,
-                        {
-                            searchText = it
-                            search()
-                        },
-                        Modifier
-                            .fillMaxWidth()
-                            .focusRequester(focusRequestor),
-                        label = { Text(stringResource(R.string.search_label)) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.None),
-                    )
-                }
-            }
-        }, floatingActionButton = {
-            Column {
+        }, bottomBar = {}, floatingActionButton = {
+            Column(Modifier.imePadding()) {
                 if (showSearchBar) {
                     Column {
                         SmallFloatingActionButton({ if (searchIndex > 0) searchIndex-- }) {
