@@ -73,4 +73,7 @@
     <string name="delete_contact_name_confirm">Voulez-vous vraiment supprimer \"%1$s\" ? Cette action est irréversible.</string>
     <string name="grant_contacts_permission">Veuillez autoriser l\'accès aux contacts</string>
     <string name="delete_selected_contacts_confirm">Voulez-vous vraiment supprimer les %1$d contacts sélectionnés ? Cette action est irréversible.</string>
+    <string name="search">Rechercher</string>
+    <string name="search_contacts">Rechercher un contact</string>
+    <string name="include_year">Inclure l\'année</string>
 </resources>
