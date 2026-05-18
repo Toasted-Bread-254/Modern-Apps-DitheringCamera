@@ -27,7 +27,9 @@ fun parseMarkdown(
     mdtext: String,
     showMarkers: Boolean = true,
     process: Boolean = true,
-    softWrap: Boolean = true
+    softWrap: Boolean = true,
+    searchQuery: String = "",
+    searchIndex: Int = -1
 ): AnnotatedString {
     // 1. Preprocess text for newline rules and list normalization
     val processedText = if (process || softWrap) {
@@ -293,6 +295,26 @@ fun parseMarkdown(
             hideRange(match.range.first, match.range.last + 1)
             val lineEnd = finalText.indexOf('\n', match.range.first).let { if (it == -1) finalText.length else it }
             addStyle(SpanStyle(color = Color.Gray, fontStyle = FontStyle.Italic), match.range.first, lineEnd)
+        }
+
+        if (searchQuery.isNotEmpty()) {
+            val query = searchQuery.lowercase()
+            val text = finalText.lowercase()
+            var index = text.indexOf(query)
+            var count = 0
+            while (index >= 0) {
+                val isCurrent = count == searchIndex
+                addStyle(
+                    SpanStyle(
+                        background = if (isCurrent) Color(0xFFFFA500) else Color.Yellow,
+                        color = Color.Black
+                    ),
+                    index,
+                    index + query.length
+                )
+                index = text.indexOf(query, index + query.length)
+                count++
+            }
         }
     }
 }
