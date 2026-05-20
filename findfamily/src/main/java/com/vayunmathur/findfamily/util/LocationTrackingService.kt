@@ -56,6 +56,7 @@ import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 class LocationTrackingService : Service(), SensorEventListener {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -211,7 +212,7 @@ class LocationTrackingService : Service(), SensorEventListener {
             launch {
                 while (isActive) {
                     syncHeartbeat()
-                    delay(10_000L)
+                    delay(30.seconds)
                 }
             }
 
@@ -335,7 +336,7 @@ class LocationTrackingService : Service(), SensorEventListener {
     private fun startGps() {
         if (!isMoving) return
         val isLowPower = powerManager.isPowerSaveMode
-        val gpsInterval = if (isLowPower) 60_000L else 20_000L
+        val gpsInterval = if (isLowPower) 180_000L else 60_000L
 
         try {
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
