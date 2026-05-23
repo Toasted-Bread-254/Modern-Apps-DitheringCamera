@@ -16,6 +16,8 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.hardware.TriggerEvent
+import android.hardware.TriggerEventListener
 import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
@@ -64,7 +66,22 @@ class LocationTrackingService : Service(), SensorEventListener {
     private lateinit var sensorManager: SensorManager
     private lateinit var powerManager: PowerManager
     private var accelerometer: Sensor? = null
-    
+    private var significantMotionSensor: Sensor? = null
+
+    private val triggerEventListener = object : TriggerEventListener() {
+        override fun onTrigger(event: TriggerEvent?) {
+            isMoving = true
+            lastMovementTime = System.currentTimeMillis()
+            serviceScope.launch(Dispatchers.Main) {
+                setupLocationUpdates()
+            }
+            // Start monitoring for stillness
+            accelerometer?.let {
+                sensorManager.registerListener(this@LocationTrackingService, it, SensorManager.SENSOR_DELAY_NORMAL)
+            }
+        }
+    }
+
     private lateinit var viewModel: DatabaseViewModel
     private lateinit var bm: BatteryManager
     
@@ -173,6 +190,7 @@ class LocationTrackingService : Service(), SensorEventListener {
             val y = event.values[1]
             val z = event.values[2]
             val accel = sqrt(x*x + y*y + z*z)
+            println(accel)
             if (accel > 0.5f) {
                 lastMovementTime = System.currentTimeMillis()
                 if (!isMoving) {
@@ -183,6 +201,10 @@ class LocationTrackingService : Service(), SensorEventListener {
                 if (isMoving && (System.currentTimeMillis() - lastMovementTime > 60_000L)) {
                     isMoving = false
                     stopTrackingUpdates()
+                    if (significantMotionSensor != null) {
+                        sensorManager.unregisterListener(this, accelerometer)
+                        requestSignificantMotion()
+                    }
                 }
             }
         }
@@ -238,7 +260,19 @@ class LocationTrackingService : Service(), SensorEventListener {
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         powerManager = getSystemService(POWER_SERVICE) as PowerManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
-        sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL)
+        significantMotionSensor = sensorManager.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION)
+
+        if (significantMotionSensor != null) {
+            requestSignificantMotion()
+        } else {
+            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+    }
+
+    private fun requestSignificantMotion() {
+        significantMotionSensor?.let {
+            sensorManager.requestTriggerSensor(triggerEventListener, it)
+        }
     }
 
     private fun setupLocationUpdates() {
@@ -371,6 +405,9 @@ class LocationTrackingService : Service(), SensorEventListener {
         super.onDestroy()
         serviceScope.cancel()
         sensorManager.unregisterListener(this)
+        significantMotionSensor?.let {
+            sensorManager.cancelTriggerSensor(triggerEventListener, it)
+        }
         stopTrackingUpdates()
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
