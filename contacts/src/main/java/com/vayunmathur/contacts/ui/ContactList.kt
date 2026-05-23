@@ -180,7 +180,14 @@ fun ContactList(
                 )
             } else {
                 TopAppBar(
-                    title = { Text(stringResource(R.string.app_name)) },
+                    title = {
+                        CommonSearchBar(
+                            value = searchQuery,
+                            onValueChange = { viewModel.setSearchQuery(it) },
+                            placeholder = stringResource(R.string.search_contacts),
+                            padding = PaddingValues(0.dp)
+                        )
+                    },
                     actions = {
                         IconButton(onClick = {
                             scope.launch(Dispatchers.IO) {
@@ -215,12 +222,6 @@ fun ContactList(
         }
     ) { paddingValues ->
         Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            CommonSearchBar(
-                value = searchQuery,
-                onValueChange = { viewModel.setSearchQuery(it) },
-                placeholder = stringResource(R.string.search_contacts)
-            )
-
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),

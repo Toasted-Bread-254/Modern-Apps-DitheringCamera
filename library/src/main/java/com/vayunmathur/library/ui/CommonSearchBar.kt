@@ -1,5 +1,6 @@
 package com.vayunmathur.library.ui
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,14 +16,15 @@ fun CommonSearchBar(
     value: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    placeholder: String = "Search"
+    placeholder: String = "Search",
+    padding: PaddingValues = PaddingValues(16.dp)
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(padding),
         placeholder = { Text(placeholder) },
         leadingIcon = {
             IconSearch()
