@@ -214,6 +214,8 @@ data class AnimatedLetter(
     val progress: Animatable<Float, AnimationVector1D>
 )
 
+data class WordToAnimate(val word: String, val letterIds: List<Int>)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WordGameScreen(
@@ -243,11 +245,11 @@ fun WordGameScreen(
         )
     }
     var letterChooserPositions by remember(currentLevel) {
-        mutableStateOf<Map<Char, Offset>>(
+        mutableStateOf<Map<Int, Offset>>(
             emptyMap()
         )
     }
-    var wordToAnimate by remember(currentLevel) { mutableStateOf<String?>(null) }
+    var wordToAnimate by remember(currentLevel) { mutableStateOf<WordToAnimate?>(null) }
     var animatedLetters by remember(currentLevel) { mutableStateOf<List<AnimatedLetter>>(emptyList()) }
 
     // Animatables for shaking (we'll animate them directly when submission fails)
@@ -263,11 +265,13 @@ fun WordGameScreen(
 
 
     LaunchedEffect(wordToAnimate) {
-        wordToAnimate?.let { word ->
+        wordToAnimate?.let { animationInfo ->
+            val word = animationInfo.word
             val letterPositions = crosswordData.letterPositions[word]
             if (letterPositions != null) {
                 val letters = word.mapIndexed { index, char ->
-                    val start = (letterChooserPositions[char] ?: Offset.Zero) - rootOffset
+                    val id = animationInfo.letterIds[index]
+                    val start = (letterChooserPositions[id] ?: Offset.Zero) - rootOffset
                     val end =
                         (crosswordCellPositions[letterPositions[index]] ?: Offset.Zero) - rootOffset
 
@@ -343,7 +347,7 @@ fun WordGameScreen(
                     CrosswordBoard(
                         foundWords = foundWords,
                         crosswordData = crosswordData,
-                        wordToAnimate = wordToAnimate,
+                        wordToAnimate = wordToAnimate?.word,
                         onCellPositioned = { position, offset ->
                             if (crosswordCellPositions[position] != offset) {
                                 crosswordCellPositions =
@@ -389,7 +393,7 @@ fun WordGameScreen(
                                 }
                                 shuffledLetters = nextLetters
                             },
-                            onWordSubmitted = { word ->
+                            onWordSubmitted = { word, ids ->
 
                                 suspend fun shakeWord() {
                                     val offsets = listOf(-16f, 12f, -8f, 6f, -3f, 0f)
@@ -404,7 +408,7 @@ fun WordGameScreen(
                                 // Handle submission with shake animations for invalid cases
                                 if (word in crosswordData.solutionWords) {
                                     if (word !in foundWords) {
-                                        wordToAnimate = word
+                                        wordToAnimate = WordToAnimate(word, ids)
                                         if (word.length >= 7) achievementsManager.onAchievementUnlocked("long_word")
                                     }
                                     else shakeWord()
@@ -440,10 +444,10 @@ fun WordGameScreen(
                                 }
                             },
                             onWordBoxPositioned = { wordBoxOffset = it },
-                            onLetterPositioned = { char, offset ->
-                                if (letterChooserPositions[char] != offset) {
+                            onLetterPositioned = { id, offset ->
+                                if (letterChooserPositions[id] != offset) {
                                     letterChooserPositions =
-                                        letterChooserPositions + (char to offset)
+                                        letterChooserPositions + (id to offset)
                                 }
                             },
                             wordShakeTranslation = wordShakeAnim.value
@@ -667,9 +671,9 @@ fun CrosswordBoard(
 fun LetterChooser(
     letters: List<ChooserLetter>,
     onShuffle: () -> Unit,
-    onWordSubmitted: suspend CoroutineScope.(String) -> Unit,
+    onWordSubmitted: suspend CoroutineScope.(String, List<Int>) -> Unit,
     onWordBoxPositioned: (Offset) -> Unit,
-    onLetterPositioned: (char: Char, offset: Offset) -> Unit,
+    onLetterPositioned: (id: Int, offset: Offset) -> Unit,
     wordShakeTranslation: Float
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -762,7 +766,10 @@ fun LetterChooser(
                             onDragEnd = {
                                 coroutineScope.launch {
                                     if (selectedLettersIndices.isNotEmpty()) {
-                                        onWordSubmitted(selectedLettersIndices.map { letters[it].char }.joinToString(""))
+                                        onWordSubmitted(
+                                            selectedLettersIndices.map { letters[it].char }.joinToString(""),
+                                            selectedLettersIndices.map { letters[it].id }
+                                        )
                                     }
                                     selectedLettersIndices = emptyList()
                                     currentDragPosition = null
@@ -820,7 +827,7 @@ fun LetterChooser(
                             .align(Alignment.Center)
                             .offset(x, y)
                             .onGloballyPositioned { coordinates ->
-                                onLetterPositioned(chooserLetter.char, coordinates.localToRoot(Offset.Zero))
+                                onLetterPositioned(chooserLetter.id, coordinates.localToRoot(Offset.Zero))
                             },
                             CircleShape,
                             if (index in selectedLettersIndices) colorScheme.primary else colorScheme.secondary,
