@@ -130,8 +130,14 @@ fun MainPage(backStack: NavBackStack<Route>) {
                     }
                 }
                 val sleepD = async {
-                    HealthAPI.lastRecord(RecordType.Sleep)?.let {
-                        (it.value * 60).toLong()
+                    HealthAPI.lastRecord(RecordType.Sleep)?.let { record ->
+                        val endLocal = record.endTime.atZone(java.time.ZoneId.systemDefault())
+                        val todayStart = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant()
+                        if (record.endTime.isAfter(todayStart.minus(java.time.Duration.ofHours(12)))) {
+                            (record.value * 60).toLong()
+                        } else {
+                            null
+                        }
                     }
                 }
                 val heightD = async { HealthAPI.lastRecord(RecordType.Height)?.value }
@@ -220,7 +226,7 @@ fun MainPage(backStack: NavBackStack<Route>) {
             item { Distance(backStack,distanceToday) }
             item { HeartRate(backStack, heartRateMaxToday, heartRateMinToday) }
             item { 
-                SleepCard(backStack, sleepMinutes ?: 0L)
+                SleepCard(backStack, sleepMinutes)
             }
 
 
@@ -449,12 +455,15 @@ fun HeartRate(backStack: NavBackStack<Route>, max: Long, min: Long) {
 }
 
 @Composable
-fun SleepCard(backStack: NavBackStack<Route>, min: Long) {
+fun SleepCard(backStack: NavBackStack<Route>, min: Long?) {
     val context = LocalContext.current
-    GenericCard(stringResource(R.string.label_sleep), null, "", hoursMinutesString(context, min), stringResource(R.string.label_last_night), onClick = {
+    val dateString = if (min != null) stringResource(R.string.label_last_night) else "No Data"
+    val sleepValue = if (min != null) hoursMinutesString(context, min) else "--"
+    
+    GenericCard(stringResource(R.string.label_sleep), null, "", sleepValue, dateString, onClick = {
         backStack.add(Route.SleepDetails)
     }) {
-        ProgressBarGraphic(R.drawable.baseline_bedtime_24, min.toFloat(), 480f, Color(0xFF9C27B0))
+        ProgressBarGraphic(R.drawable.baseline_bedtime_24, min?.toFloat() ?: 0f, 480f, Color(0xFF9C27B0))
     }
 }
 

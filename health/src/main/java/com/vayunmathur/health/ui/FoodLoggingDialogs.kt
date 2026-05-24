@@ -227,10 +227,15 @@ fun LogMealDialog(initialTime: Instant? = null, onDismiss: () -> Unit) {
                         }
                     }
 
+                    val labelText = if (selectedLoggable is Loggable.IngredientWrapper) {
+                        "Quantity (x 100g)"
+                    } else {
+                        "Servings"
+                    }
                     OutlinedTextField(
                             value = quantityStr,
                             onValueChange = { quantityStr = it },
-                            label = { Text("Servings") },
+                            label = { Text(labelText) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.fillMaxWidth()
                     )

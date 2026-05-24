@@ -111,14 +111,21 @@ fun SleepDetailsPage(backStack: NavBackStack<Route>) {
                     .fillMaxSize()
             ) { page ->
                 val day = today.minus(initialPage - page, DateTimeUnit.DAY)
-                val dayStart = day.atStartOfDayIn(tz)
-                val dayEnd = dayStart.plus(24.hours)
+                val searchStart = day.atStartOfDayIn(tz).minus(12.hours)
+                val searchEnd = day.atStartOfDayIn(tz).plus(24.hours)
 
                 // Fetch records that ended during this day (most likely the sleep that ended this
                 // morning)
-                val records by HealthAPI.getAllRecordsInRange(RecordType.Sleep, dayStart, dayEnd)
+                val records by HealthAPI.getAllRecordsInRange(RecordType.Sleep, searchStart, searchEnd)
                     .collectAsState(emptyList())
-                val record = records.maxByOrNull { it.endTime }
+                val record = remember(records, day) {
+                    records.filter {
+                        val endLocal = it.endTime.atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                        endLocal.year == day.year && 
+                        endLocal.monthValue == day.monthNumber && 
+                        endLocal.dayOfMonth == day.dayOfMonth
+                    }.maxByOrNull { it.endTime }
+                }
 
                 LazyColumn(
                     modifier = Modifier
@@ -154,10 +161,8 @@ fun SleepDetailsPage(backStack: NavBackStack<Route>) {
 fun SleepSummaryHeader(record: Record) {
     val context = LocalContext.current
     val totalMinutes = (record.value * 60).toLong()
-    val startTime = Instant.fromEpochMilliseconds(record.startTime.toEpochMilli())
-        .toLocalDateTime(TimeZone.currentSystemDefault())
-    val endTime = Instant.fromEpochMilliseconds(record.endTime.toEpochMilli())
-        .toLocalDateTime(TimeZone.currentSystemDefault())
+    val startT = record.startTime.atZone(java.time.ZoneId.systemDefault())
+    val endT = record.endTime.atZone(java.time.ZoneId.systemDefault())
 
     Column {
         Text(
@@ -166,9 +171,9 @@ fun SleepSummaryHeader(record: Record) {
             fontWeight = FontWeight.Light
         )
         Text(
-            text = "${startTime.hour}:${
-                startTime.minute.toString().padStart(2, '0')
-            } - ${endTime.hour}:${endTime.minute.toString().padStart(2, '0')}",
+            text = "${startT.hour}:${
+                startT.minute.toString().padStart(2, '0')
+            } - ${endT.hour}:${endT.minute.toString().padStart(2, '0')}",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.outline
         )
@@ -285,11 +290,8 @@ fun SleepStageGraph(record: Record) {
                 .padding(start = 48.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            val startT =
-                Instant.fromEpochMilliseconds(record.startTime.toEpochMilli())
-                    .toLocalDateTime(TimeZone.currentSystemDefault())
-            val endT = Instant.fromEpochMilliseconds(record.endTime.toEpochMilli())
-                .toLocalDateTime(TimeZone.currentSystemDefault())
+            val startT = record.startTime.atZone(java.time.ZoneId.systemDefault())
+            val endT = record.endTime.atZone(java.time.ZoneId.systemDefault())
 
             fun formatHour(hour: Int): String {
                 val h = if (hour % 12 == 0) 12 else hour % 12
