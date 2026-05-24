@@ -719,8 +719,8 @@ Java_com_vayunmathur_maps_util_OfflineRouter_getTrafficTileNative(JNIEnv* env, j
                 write_tag(feat_buf, 4, 2); write_varint(feat_buf, geom_buf.size());
                 feat_buf.insert(feat_buf.end(), geom_buf.begin(), geom_buf.end());
 
-                std::string color = "#4CAF50";
-                if (speed_ratio < 0.5) color = "#F44336"; else if (speed_ratio < 0.9) color = "#FFC107";
+                std::string color = "#1B5E20";
+                if (speed_ratio < 0.5) color = "#B71C1C"; else if (speed_ratio < 0.9) color = "#E65100";
                 write_tag(feat_buf, 2, 2); std::vector<uint8_t> tag_buf;
                 write_varint(tag_buf, 0); write_varint(tag_buf, get_val_idx(color));
                 write_varint(feat_buf, tag_buf.size()); feat_buf.insert(feat_buf.end(), tag_buf.begin(), tag_buf.end());

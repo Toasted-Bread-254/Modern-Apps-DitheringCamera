@@ -123,11 +123,12 @@ fun MyMapLayers(
             width = interpolate(
                 linear(),
                 zoom(),
-                11 to const(1.0.dp),
-                12 to const(1.5.dp),
-                14 to const(3.dp),
-                18 to const(6.dp)
+                11 to const(0.8.dp),
+                12 to const(1.2.dp),
+                14 to const(2.dp),
+                18 to const(4.dp)
             ),
+            opacity = const(0.6f),
             cap = const(LineCap.Butt)
         )
 
@@ -246,7 +247,7 @@ fun MyMapLayers(
                                                 LineString(it.polyline),
                                                 JsonObject(
                                                     mapOf(
-                                                        "color" to
+                                                        "route-color" to
                                                             JsonPrimitive(
                                                                 color
                                                             )
@@ -266,7 +267,7 @@ fun MyMapLayers(
                                                         LineString(it.polyline),
                                                         JsonObject(
                                                             mapOf(
-                                                                "color" to
+                                                                "route-color" to
                                                                     JsonPrimitive(
                                                                         "#1710F1"
                                                                     )
@@ -279,7 +280,7 @@ fun MyMapLayers(
                                                         LineString(it.polyline),
                                                         JsonObject(
                                                             mapOf(
-                                                                "color" to
+                                                                "route-color" to
                                                                     JsonPrimitive(
                                                                         it.lineColor
                                                                     )
@@ -297,7 +298,7 @@ fun MyMapLayers(
                             LineLayer(
                                 "route",
                                 routeSource,
-                                color = feature["color"].cast<StringValue>().convertToColor(),
+                                color = feature["route-color"].cast<StringValue>().convertToColor(),
                                 width = const(8.dp),
                                 cap = const(LineCap.Round)
                             )
