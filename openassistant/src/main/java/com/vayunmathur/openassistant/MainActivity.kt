@@ -24,7 +24,9 @@ import java.io.File
 import com.vayunmathur.openassistant.data.AppDatabase
 import com.vayunmathur.openassistant.data.Conversation
 import com.vayunmathur.openassistant.data.Message
+import com.vayunmathur.openassistant.data.Memory
 import com.vayunmathur.openassistant.ui.LiteRTChatUi
+import com.vayunmathur.openassistant.ui.SettingsPage
 
 class MainActivity : ComponentActivity() {
 
@@ -39,7 +41,7 @@ class MainActivity : ComponentActivity() {
 
         val ds = DataStoreUtils.getInstance(this)
         val db = buildDatabase<AppDatabase>(migrations = AppDatabase.MIGRATIONS)
-        val viewModel = DatabaseViewModel(db, Conversation::class to db.conversationDao(), Message::class to db.messageDao())
+        val viewModel = DatabaseViewModel(db, Conversation::class to db.conversationDao(), Message::class to db.messageDao(), Memory::class to db.memoryDao())
 
         val oldModelFile = File(applicationContext.getExternalFilesDir(null)!!, "gemma4.litertlm")
         
@@ -69,6 +71,8 @@ class MainActivity : ComponentActivity() {
 sealed interface Route: NavKey {
     @Serializable
     data class ConversationPage(val id: Long): Route
+    @Serializable
+    data object SettingsPage: Route
 }
 
 @Composable
@@ -77,6 +81,9 @@ fun Navigation(viewModel: DatabaseViewModel) {
     MainNavigation(backStack) {
         entry<Route.ConversationPage> {
             LiteRTChatUi(backStack, it.id, viewModel)
+        }
+        entry<Route.SettingsPage> {
+            SettingsPage(backStack, viewModel)
         }
     }
 }

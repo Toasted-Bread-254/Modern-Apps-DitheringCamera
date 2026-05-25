@@ -46,7 +46,7 @@ import coil.compose.AsyncImage
 import com.vayunmathur.library.ui.IconAdd
 import com.vayunmathur.library.ui.IconClose
 import com.vayunmathur.library.ui.IconMenu
-import com.vayunmathur.library.ui.BackupButtons
+import com.vayunmathur.library.ui.IconSettings
 import com.vayunmathur.library.ui.IconDelete
 import com.vayunmathur.library.ui.IconCopy
 import com.vayunmathur.library.util.DatabaseHelper
@@ -149,11 +149,7 @@ fun LiteRTChatUi(backStack: NavBackStack<Route>, conversationId: Long, viewModel
                     CenterAlignedTopAppBar(
                         title = { Text(activeConversation?.title ?: newConv, fontWeight = FontWeight.Bold) },
                         actions = {
-                            val pass = remember { DatabaseHelper(context).getPassphrase() }
-                            BackupButtons(
-                                dbConfigs = listOf("passwords-db" to pass),
-                                extraFiles = emptyList()
-                            )
+                            IconButton({ backStack.add(Route.SettingsPage) }) { IconSettings() }
                             if (conversationId != 0L) IconButton({ backStack.reset(Route.ConversationPage(0)) }) { IconAdd() }
                         },
                         navigationIcon = { if (navType == NavigationSuiteType.None && allConversations.isNotEmpty()) IconButton({ scope.launch { drawerState.open() } }) { IconMenu() } }

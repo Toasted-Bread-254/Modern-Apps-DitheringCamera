@@ -35,6 +35,13 @@ data class Message(
     override val id: Long = 0,
 ): DatabaseItem
 
+@Entity
+data class Memory(
+    val content: String,
+    @PrimaryKey(autoGenerate = true)
+    override val id: Long = 0,
+): DatabaseItem
+
 
 @Dao
 interface ConversationDao: TrueDao<Conversation>
@@ -42,17 +49,26 @@ interface ConversationDao: TrueDao<Conversation>
 @Dao
 interface MessageDao: TrueDao<Message>
 
+@Dao
+interface MemoryDao: TrueDao<Memory>
+
 @TypeConverters(DefaultConverters::class)
-@Database(entities = [Conversation::class, Message::class], version = 2)
+@Database(entities = [Conversation::class, Message::class, Memory::class], version = 3)
 abstract class AppDatabase: RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
+    abstract fun memoryDao(): MemoryDao
 
     companion object {
         val MIGRATIONS = listOf(
             object : Migration(1, 2) {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL("ALTER TABLE Message ADD COLUMN missingAppPackage TEXT")
+                }
+            },
+            object : Migration(2, 3) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `Memory` (`content` TEXT NOT NULL, `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL)")
                 }
             }
         )

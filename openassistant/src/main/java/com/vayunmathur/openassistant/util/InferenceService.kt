@@ -23,6 +23,7 @@ import kotlin.time.Clock
 import com.vayunmathur.openassistant.data.AppDatabase
 import com.vayunmathur.openassistant.data.Conversation
 import com.vayunmathur.openassistant.data.Message
+import com.vayunmathur.openassistant.data.Memory
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -63,7 +64,7 @@ class InferenceService : Service() {
     private var currentConversationId: Long = -1L
 
     val db by lazy { buildDatabase<AppDatabase>(migrations = AppDatabase.MIGRATIONS) }
-    val viewModel by lazy { DatabaseViewModel(db, Conversation::class to db.conversationDao(), Message::class to db.messageDao()) }
+    val viewModel by lazy { DatabaseViewModel(db, Conversation::class to db.conversationDao(), Message::class to db.messageDao(), Memory::class to db.memoryDao()) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -344,7 +345,12 @@ class InferenceService : Service() {
     private fun setupConversation(id: Long, history: List<Message>) {
         val systemPrompt = """
             You are a helpful Android assistant.
-            On the first request the user sends to you, you MUST define a title for the conversation. You may optionally change the title if the topic of conversation changes sufficiently
+            On the first request the user sends to you, you MUST define a title for the conversation. You may optionally change the title if the topic of conversation changes sufficiently.
+            
+            You have a memory feature. Use it to provide a personalized and consistent experience:
+            - Whenever the user shares information that might be useful in future conversations (e.g., their name, preferences, family details, or important facts), use 'add_to_memory' to store it.
+            - Whenever the user asks a question or makes a request where past context might be relevant, use 'get_memories' to retrieve stored information.
+            - If a stored memory is no longer accurate or requested to be forgotten, use 'remove_memory'.
             """.trimIndent()
 
         val initialMessages = history.map { msg ->

@@ -17,6 +17,7 @@ import com.vayunmathur.library.intents.music.PlayMusicData
 import com.vayunmathur.openassistant.MainActivity
 import com.vayunmathur.library.intents.notes.NoteData
 import com.vayunmathur.library.util.DatabaseViewModel
+import com.vayunmathur.openassistant.data.Memory
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.Json
@@ -408,6 +409,33 @@ class AssistantToolSet(
 
     @Tool(description = "Get weather")
     fun get_weather(latitude: Double, longitude: Double): String = "Weather: 22°C, Sunny."
+
+    @Tool(description = "Get a list of all memories")
+    fun get_memories(): String = runBlocking {
+        if (viewModel == null) return@runBlocking "Error: ViewModel is null"
+        try {
+            val memories = viewModel.getAll<Memory>()
+            memories.joinToString("\n") { "[${it.id}] ${it.content}" }
+        } catch (e: Exception) { "Error: ${e.message}" }
+    }
+
+    @Tool(description = "Remove a memory by its id")
+    fun remove_memory(id: Double): String = runBlocking {
+        if (viewModel == null) return@runBlocking "Error: ViewModel is null"
+        try {
+            viewModel.deleteIf<Memory>("id = ${id.toLong()}")
+            "Success: Removed memory with id ${id.toLong()}"
+        } catch (e: Exception) { "Error: ${e.message}" }
+    }
+
+    @Tool(description = "Add a new memory to the list of memories")
+    fun add_to_memory(content: String): String = runBlocking {
+        if (viewModel == null) return@runBlocking "Error: ViewModel is null"
+        try {
+            viewModel.upsert(Memory(content))
+            "Success: Added memory"
+        } catch (e: Exception) { "Error: ${e.message}" }
+    }
 }
 
 class MissingAppException(val packageName: String) : Exception("App $packageName is not installed.")
