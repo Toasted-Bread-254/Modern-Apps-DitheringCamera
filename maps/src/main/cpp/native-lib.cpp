@@ -220,7 +220,7 @@ inline const NodeMaster& get_node(uint32_t global_id) {
         if (global_id < g_zone_offsets[i+1]) { zone = i; break; }
     }
     if (!g_node_zones[zone]) {
-        static NodeMaster null_node = {0,0,0,0};
+        static NodeMaster null_node = {0,0,0,0,0,0};
         return null_node;
     }
     return g_node_zones[zone][global_id - g_zone_offsets[zone]];
@@ -318,28 +318,37 @@ inline uint32_t get_transit_edge_time_10ms(int zone, const Edge& edge, uint32_t 
 
     const char* route_name = (edge.name_offset < g_road_names_size) ? (g_road_names + edge.name_offset) : "Unknown";
 
-    if (feed_off != 0xFFFFFFFF) {
+    if (feed_off != 0xFFFFFFFF && feed_off < g_road_names_size) {
         const char* feed_name = g_road_names + feed_off;
         if (g_present_feeds.find(feed_name) == g_present_feeds.end()) {
             LOGD("TRANSIT_DEBUG: Feed %s not present for route %s, using immediate pickup", feed_name, route_name);
-            // Feed not present, immediate pickup. Use first voyage duration as estimate.
             TransitVoyage* base = g_transit_voyages[zone] + voyage_offset;
             return base[0].arr_10ms - base[0].dep_10ms;
         }
     }
 
     uint32_t abs_now = (start_time_abs + current_time_from_start) % (24 * 3600 * 100);
+    const uint32_t DAY_10MS = 24 * 3600 * 100;
 
     TransitVoyage* base = g_transit_voyages[zone] + voyage_offset;
     uint32_t best_wait = 0xFFFFFFFF;
     uint32_t best_travel = 0;
 
     for (uint32_t i = 0; i < voyage_count; ++i) {
-        if (base[i].dep_10ms >= abs_now) {
-            uint32_t wait = base[i].dep_10ms - abs_now;
-            if (wait < best_wait) {
-                best_wait = wait;
-                best_travel = base[i].arr_10ms - base[i].dep_10ms;
+        uint32_t dep = base[i].dep_10ms;
+        uint32_t wait = 0;
+        if (dep >= abs_now) {
+            wait = dep - abs_now;
+        } else {
+            wait = (DAY_10MS - abs_now) + dep;
+        }
+        if (wait < best_wait) {
+            best_wait = wait;
+            // Robust Travel Time crossing midnight boundary logic
+            if (base[i].arr_10ms >= dep) {
+                best_travel = base[i].arr_10ms - dep;
+            } else {
+                best_travel = (DAY_10MS - dep) + base[i].arr_10ms;
             }
         }
     }
@@ -348,7 +357,7 @@ inline uint32_t get_transit_edge_time_10ms(int zone, const Edge& edge, uint32_t 
         LOGD("TRANSIT_DEBUG: No voyage found for route %s after time %u (abs_now)", route_name, abs_now);
         return 0xFFFFFFFF;
     }
-    const uint32_t BOARDING_PENALTY = 12000; // 2 minutes
+    const uint32_t BOARDING_PENALTY = 12000; // 2 minutes platform loading penalty
     LOGD("TRANSIT_DEBUG: Route %s considered. Wait: %u s, Travel: %u s", route_name, best_wait / 100, best_travel / 100);
     return best_wait + best_travel + BOARDING_PENALTY;
 }
@@ -447,6 +456,8 @@ SnappedEdge find_nearest_edge(double lat, double lon, int mode) {
             uint32_t e_ptr = (i + 1 < zone_node_count) ? g_node_zones[z][i+1].edge_ptr : (uint32_t)g_edge_count_in_zone[z];
             for (uint32_t j = node_u.edge_ptr; j < e_ptr; ++j) {
                 Edge& e = g_edge_zones[z][j];
+                // Snapping directly to transit lines is forbidden.
+                if (e.type & TRANSIT_FLAG) continue;
                 if (!is_mode_allowed(e.type, mode)) continue;
                 int zone_v = get_zone_for_id(e.target);
                 if (!is_zone_mapped(zone_v)) continue;
@@ -509,7 +520,7 @@ void perform_search_loop(JNIEnv* env, jobject thiz, int mode, RoutingContext& ct
         if (zone_u < 0 || !g_node_zones[zone_u]) continue;
         const auto& n_u = g_node_zones[zone_u][u - g_zone_offsets[zone_u]];
 
-        if (mode == PUBLIC_TRANSIT && n_u.stop_code_off != 0xFFFFFFFF) {
+        if (mode == PUBLIC_TRANSIT && n_u.stop_code_off != 0xFFFFFFFF && n_u.stop_code_off < g_road_names_size) {
             const char* stop_code = g_road_names + n_u.stop_code_off;
             LOGD("TRANSIT_DEBUG: Reached transit node at stop %s (G=%u)", stop_code, u_g);
         }
@@ -624,7 +635,7 @@ jobjectArray reconstruct_path(JNIEnv* env, int mode, const RoutingContext& ctx) 
     for (size_t i = 0; i < path_nodes.size() - 1; ++i) {
         uint32_t u = path_nodes[i], v = path_nodes[i+1];
         int z_u = get_zone_for_id(u);
-        if (z_u < 0) continue;
+        if (z_u < 0 || !g_node_zones[z_u]) continue;
         const auto& node_u = g_node_zones[z_u][u - g_zone_offsets[z_u]];
         const auto& node_v = get_node(v);
 
@@ -643,7 +654,11 @@ jobjectArray reconstruct_path(JNIEnv* env, int mode, const RoutingContext& ctx) 
 
         const Edge& e = g_edge_zones[z_u][best_e_idx];
         uint32_t d = e.dist_mm;
-        if (d == 0) d = accurate_dist_mm(node_u.lat_e7, node_u.lon_e7, node_v.lat_e7, node_v.lon_e7);
+        // Since e.dist_mm serves as the voyage offsets on transit edges,
+        // it cannot be treated as physical distance. Calculate dynamically.
+        if (d == 0 || (e.type & TRANSIT_FLAG)) {
+            d = accurate_dist_mm(node_u.lat_e7, node_u.lon_e7, node_v.lat_e7, node_v.lon_e7);
+        }
 
         add_segment(node_u.lat_e7 * 1e-7, node_u.lon_e7 * 1e-7, node_v.lat_e7 * 1e-7, node_v.lon_e7 * 1e-7,
                     e.name_offset, e.type, e.speed_limit, d, z_u, best_e_idx, node_u.feed_name_off, node_u.stop_code_off);
@@ -713,7 +728,7 @@ Java_com_vayunmathur_maps_util_OfflineRouter_init(JNIEnv* env, jobject thiz, jst
             env->DeleteLocalRef(s);
         }
     }
-    // ...
+
     auto m_file = [&](const std::string& p, size_t& s) -> void* {
         s = 0; int fd = open(p.c_str(), O_RDONLY); if (fd < 0) return nullptr;
         s = lseek(fd, 0, SEEK_END); void* a = mmap(nullptr, s, PROT_READ, MAP_SHARED, fd, 0); close(fd);
@@ -745,9 +760,15 @@ Java_com_vayunmathur_maps_util_OfflineRouter_init(JNIEnv* env, jobject thiz, jst
         g_lon_to_mm_scale[i] = (uint32_t)((111139000.0 / 1e7) * cos(lat_deg * DEG_TO_RAD) * 1024.0);
     }
     auto calc_scale = [](double speed_m_s) { return (uint64_t)((100.0 / (speed_m_s * 1000.0)) * 4294967296.0); };
-    g_time_scale_fixed[WALK] = calc_scale(WALK_SPEED_M_S); g_time_scale_fixed[BICYCLE] = calc_scale(BICYCLE_SPEED_M_S);
+
+    // HEURISTIC SCALES FIX: We increase transit speed bounds (using a highly optimistic 80 km/h)
+    // to ensure the heuristic remains optimistic/admissible, keeping search components directed
+    // without over-penalizing transit extensions and yielding flat routes instead of jagged ones.
+    g_time_scale_fixed[WALK] = calc_scale(WALK_SPEED_M_S);
+    g_time_scale_fixed[BICYCLE] = calc_scale(BICYCLE_SPEED_M_S);
     g_time_scale_fixed[DRIVING] = calc_scale(105.0 / 3.6);
-    g_time_scale_fixed[PUBLIC_TRANSIT] = calc_scale(WALK_SPEED_M_S);
+    g_time_scale_fixed[PUBLIC_TRANSIT] = calc_scale(80.0 / 3.6); // Optimistic 80 km/h transit velocity
+
     for (int m = 0; m < 4; ++m) {
         for (int r = 0; r < 16; ++r) {
             double speed_m_s = 1.0;
@@ -793,7 +814,7 @@ Java_com_vayunmathur_maps_util_OfflineRouter_updateTrafficNative(JNIEnv* env, jo
     jsize len = env->GetArrayLength(edge_ids); jint* ids_ptr = env->GetIntArrayElements(edge_ids, nullptr);
     jbyte* speeds_ptr = env->GetByteArrayElements(speeds, nullptr);
     std::lock_guard<std::mutex> lock(g_traffic_mutex);
-    
+
     if (g_db) {
         sqlite3_exec(g_db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
         sqlite3_stmt* stmt;
@@ -812,7 +833,7 @@ Java_com_vayunmathur_maps_util_OfflineRouter_updateTrafficNative(JNIEnv* env, jo
     }
 
     auto& segments = g_traffic_by_square[packed_square];
-    segments.clear(); 
+    segments.clear();
     size_t total_edges_in_zone = g_edge_count_in_zone[zone_id];
     for (jsize i = 0; i < len; i++) {
         uint32_t local_id = (uint32_t)ids_ptr[i]; uint8_t speed = (uint8_t)speeds_ptr[i];

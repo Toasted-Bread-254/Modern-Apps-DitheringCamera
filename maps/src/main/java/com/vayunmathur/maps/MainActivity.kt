@@ -22,6 +22,7 @@ import com.vayunmathur.maps.ui.DownloadedMapsPage
 import com.vayunmathur.maps.ui.MapPage
 import com.vayunmathur.maps.ui.SearchPage
 import com.vayunmathur.maps.util.SelectedFeatureViewModel
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import org.maplibre.android.log.Logger
 import java.io.File
@@ -48,6 +49,14 @@ class MainActivity : ComponentActivity() {
         val ds = DataStoreUtils.getInstance(this)
         ensurePmtilesReady(this)
         Logger.setVerbosity(Logger.INFO)
+
+//        runBlocking {
+//            ds.setBoolean("dbSetupComplete", false)
+//            ds.setBoolean("done_metadata.bin", false)
+//            ds.setBoolean("done_road_names.bin", false)
+//            File(getExternalFilesDir(null), "metadata.bin").delete()
+//            File(getExternalFilesDir(null), "road_names.bin").delete()
+//        }
 
         setContent {
             DynamicTheme {

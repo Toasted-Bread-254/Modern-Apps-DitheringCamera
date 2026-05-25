@@ -42,10 +42,8 @@ class SelectedFeatureViewModel(application: Application): AndroidViewModel(appli
     @OptIn(ExperimentalCoroutinesApi::class)
     val routes = selectedFeature
         .flatMapLatest { feature ->
+            val pos = userPosition.value
             val routeFeature = feature as? SpecificFeature.Route ?: return@flatMapLatest flowOf(null)
-
-            val testStart = Position(-120.67038923732842, 35.2701490097368)
-            val testEnd = Position(-120.64915135737779, 35.29074806257016)
 
             // Create a flow that emits results one by one
             flow {
@@ -55,18 +53,14 @@ class SelectedFeatureViewModel(application: Application): AndroidViewModel(appli
                 // Run calculations for each mode
                 RouteService.TravelMode.entries.forEach { mode ->
                     var result: RouteService.RouteType? = try {
-                        OfflineRouter.getRoute(application, testStart, testEnd, mode)
+                        OfflineRouter.getRoute(application, routeFeature, pos, mode)
                     } catch (_: Exception) {
                         null
                     }
 
                     if (result == null || result is RouteService.EmptyRoute) {
                         result = try {
-                            val testRouteFeature = SpecificFeature.Route(listOf(
-                                SpecificFeature.GenericPlace("Test Start", null, null, null, testStart),
-                                SpecificFeature.GenericPlace("Test End", null, null, null, testEnd)
-                            ))
-                            RouteService.computeRoute(testRouteFeature, testStart, mode)
+                            RouteService.computeRoute(routeFeature, pos, mode)
                         } catch (_: Exception) {
                             null
                         }

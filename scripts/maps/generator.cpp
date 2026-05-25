@@ -21,6 +21,7 @@
 #include <queue>
 #include <condition_variable>
 #include <functional>
+#include <sstream>
 
 using namespace std;
 
@@ -85,7 +86,7 @@ struct TmpEdge {
     uint32_t dist_mm;
     uint32_t name_offset;
     uint8_t type;
-    uint8_t speed_limit; // Added
+    uint8_t speed_limit;
     uint32_t sort_key() const { return source_lid; }
 };
 
@@ -94,10 +95,47 @@ struct CachedWay {
     uint32_t first_node_idx;
     uint16_t node_count;
     uint8_t type;
-    uint8_t speed_limit; // Added
+    uint8_t speed_limit;
     bool oneway;
 };
 #pragma pack(pop)
+
+// ==========================================
+// THREAD-SAFE CONCURRENT ATOMIC BITSET
+// Prevents OOM crashes from allocating 20GB.
+// ==========================================
+class AtomicBitset {
+    std::atomic<uint8_t>* bits;
+    uint64_t num_bytes;
+public:
+    AtomicBitset(uint64_t size) {
+        num_bytes = size / 8 + 1;
+        bits = new std::atomic<uint8_t>[num_bytes];
+        for (uint64_t i = 0; i < num_bytes; ++i) {
+            bits[i].store(0, std::memory_order_relaxed);
+        }
+    }
+    ~AtomicBitset() {
+        delete[] bits;
+    }
+    bool set(uint64_t idx) {
+        uint64_t byte_idx = idx / 8;
+        uint8_t bit_mask = 1 << (idx % 8);
+        uint8_t current = bits[byte_idx].load(std::memory_order_relaxed);
+        while (!(current & bit_mask)) {
+            uint8_t new_val = current | bit_mask;
+            if (bits[byte_idx].compare_exchange_weak(current, new_val, std::memory_order_relaxed)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    bool get(uint64_t idx) const {
+        uint64_t byte_idx = idx / 8;
+        uint8_t bit_mask = 1 << (idx % 8);
+        return (bits[byte_idx].load(std::memory_order_relaxed) & bit_mask) != 0;
+    }
+};
 
 // ==========================================
 // THREAD POOL & WORKER UTILITIES
@@ -351,17 +389,20 @@ int main(int argc, char* argv[]) {
         ifstream transit_in(argv[2]);
         string line;
         while (getline(transit_in, line)) {
-            // u_osm,v_osm,line_name,dep,arr
             stringstream ss(line);
             string u_s, v_s, name, dep_s, arr_s;
             if (getline(ss, u_s, ',') && getline(ss, v_s, ',') && getline(ss, name, ',') &&
                 getline(ss, dep_s, ',') && getline(ss, arr_s, ',')) {
-                transit_inputs.push_back({stoull(u_s), stoull(v_s), name, parse_time_10ms(dep_s), parse_time_10ms(arr_s)});
+                try {
+                    transit_inputs.push_back({stoull(u_s), stoull(v_s), name, parse_time_10ms(dep_s), parse_time_10ms(arr_s)});
+                } catch (...) {
+                    continue;
+                }
             }
         }
     }
 
-    uint8_t* useful_nodes_mask = (uint8_t*)calloc(BITSET_SIZE, sizeof(uint8_t));
+    AtomicBitset useful_nodes_mask(BITSET_SIZE);
     atomic<uint64_t> total_useful_nodes{0};
     atomic<uint64_t> total_edges{0};
 
@@ -376,13 +417,24 @@ int main(int argc, char* argv[]) {
     ofstream name_out(DATA_DIR + "road_names.bin", ios::binary);
 
     {
-        osmium::io::Reader reader{argv[1], osmium::osm_entity_bits::way};
+        osmium::io::Reader reader{argv[1], osmium::osm_entity_bits::node | osmium::osm_entity_bits::way};
         uint64_t total_size = reader.file_size();
 
         while (auto buf = reader.read()) {
             pool.enqueue([&, buf = move(buf)]() mutable {
                 vector<CachedWay> local_ways;
                 vector<uint64_t> local_topology;
+
+                for (const auto& node : buf.select<osmium::Node>()) {
+                    const char* hw = node.tags().get_value_by_key("highway");
+                    const char* rw = node.tags().get_value_by_key("railway");
+                    if ((hw && (strcmp(hw, "bus_stop") == 0 || strcmp(hw, "bus_station") == 0 || strcmp(hw, "tram_stop") == 0)) ||
+                        (rw && (strcmp(rw, "station") == 0 || strcmp(rw, "halt") == 0 || strcmp(rw, "tram_stop") == 0))) {
+                        if (node.id() < BITSET_SIZE && useful_nodes_mask.set(node.id())) {
+                            total_useful_nodes++;
+                        }
+                    }
+                }
 
                 for (const auto& way : buf.select<osmium::Way>()) {
                     uint8_t hw = get_hw_id(way.tags().get_value_by_key("highway"));
@@ -410,15 +462,16 @@ int main(int argc, char* argv[]) {
 
                     uint32_t topology_start = local_topology.size();
                     for (const auto& n : nodes) {
-                        if (n.ref() < BITSET_SIZE && useful_nodes_mask[n.ref()] == 0) {
-                            useful_nodes_mask[n.ref()] = 1;
+                        if (n.ref() < BITSET_SIZE && useful_nodes_mask.set(n.ref())) {
                             total_useful_nodes++;
                         }
                         local_topology.push_back(n.ref());
                     }
 
                     local_ways.push_back({ n_off, topology_start, (uint16_t)nodes.size(), (uint8_t)(is_transit ? (hw | TRANSIT_FLAG) : hw), speed, oneway });
-                    total_edges += (nodes.size() - 1) * (oneway ? 1 : 2);
+                    if (!is_transit) {
+                        total_edges += (nodes.size() - 1) * (oneway ? 1 : 2);
+                    }
                 }
 
                 if (!local_ways.empty()) {
@@ -437,11 +490,11 @@ int main(int argc, char* argv[]) {
 
     // STEP 2: Node Collection (Pass 2 - Nodes)
     for (auto& ti : transit_inputs) {
-        if (ti.u_osm < BITSET_SIZE && useful_nodes_mask[ti.u_osm] == 0) {
-            useful_nodes_mask[ti.u_osm] = 1; total_useful_nodes++;
+        if (ti.u_osm < BITSET_SIZE && useful_nodes_mask.set(ti.u_osm)) {
+            total_useful_nodes++;
         }
-        if (ti.v_osm < BITSET_SIZE && useful_nodes_mask[ti.v_osm] == 0) {
-            useful_nodes_mask[ti.v_osm] = 1; total_useful_nodes++;
+        if (ti.v_osm < BITSET_SIZE && useful_nodes_mask.set(ti.v_osm)) {
+            total_useful_nodes++;
         }
     }
 
@@ -453,7 +506,7 @@ int main(int argc, char* argv[]) {
         while (auto buf = reader.read()) {
             pool.enqueue([&nodes_raw, &idx, &useful_nodes_mask, buf = move(buf), &pool, &name_pool, &name_pool_mtx, &name_offset, &name_out]() mutable {
                 for (const auto& n : buf.select<osmium::Node>()) {
-                    if (n.id() < BITSET_SIZE && useful_nodes_mask[n.id()]) {
+                    if (n.id() < BITSET_SIZE && useful_nodes_mask.get(n.id())) {
                         uint64_t current_idx = idx.fetch_add(1);
                         double lat = n.location().lat();
                         double lon = n.location().lon();
@@ -488,6 +541,25 @@ int main(int argc, char* argv[]) {
                             }
                         }
 
+                        if (stop_code_off == 0xFFFFFFFF) {
+                            const char* hw = n.tags().get_value_by_key("highway");
+                            const char* rw = n.tags().get_value_by_key("railway");
+                            if ((hw && (strcmp(hw, "bus_stop") == 0 || strcmp(hw, "bus_station") == 0 || strcmp(hw, "tram_stop") == 0)) ||
+                                (rw && (strcmp(rw, "station") == 0 || strcmp(rw, "halt") == 0 || strcmp(rw, "tram_stop") == 0))) {
+                                lock_guard<mutex> lock(name_pool_mtx);
+                                const char* name_tag = n.tags().get_value_by_key("name");
+                                string code = name_tag ? name_tag : "OSM_STOP";
+                                auto it_c = name_pool.find(code);
+                                if (it_c != name_pool.end()) stop_code_off = it_c->second;
+                                else {
+                                    stop_code_off = name_offset;
+                                    name_pool[code] = stop_code_off;
+                                    name_out.write(code.c_str(), code.size() + 1);
+                                    name_offset += (code.size() + 1);
+                                }
+                            }
+                        }
+
                         nodes_raw[current_idx] = { (uint64_t)n.id(), latlng_to_spatial(lat, lon), (int32_t)(lat * 1e7), (int32_t)(lon * 1e7), stop_code_off, feed_name_off };
                     }
                 }
@@ -496,8 +568,13 @@ int main(int argc, char* argv[]) {
             print_progress("Step 2: Node Scan", reader.offset(), total_size);
         }
         pool.wait_finished();
+
+        // COMPACTION FIX: Safely resize nodes_raw to discard unvisited/missing elements
+        // to avoid shifting valid nodes with spatial coordinate 0 (Null Island) values.
+        uint64_t final_nodes_count = idx.load();
+        nodes_raw.resize(final_nodes_count);
+        total_useful_nodes = final_nodes_count;
     }
-    free(useful_nodes_mask);
 
     cout << "Parallel Radix Sorting Nodes..." << endl;
     parallel_radix_sort(nodes_raw, 64);
@@ -512,6 +589,9 @@ int main(int argc, char* argv[]) {
     }
     vector<NodeTemp>().swap(nodes_raw);
 
+    // CRITICAL SORT ORDER FIX: Sort and index id_to_local mappings IMMEDIATELY
+    // before we run get_local_id_by_osm for the transit groups! Calling binary searches
+    // on unsorted lists was generating garbage indices and wild overlapping sawtooth route maps.
     cout << "Parallel Radix Sorting Mapping..." << endl;
     parallel_radix_sort(id_to_local, 64);
     build_id_tile_index(id_to_local);
@@ -537,7 +617,6 @@ int main(int argc, char* argv[]) {
 
                     uint32_t dist = accurate_dist_mm(node_masters[u_lid].lat_e7, node_masters[u_lid].lon_e7,
                                                      node_masters[v_lid].lat_e7, node_masters[v_lid].lon_e7);
-                    // Speed estimate: 40 km/h for rail (11.1 m/s), 20 km/h for others (5.5 m/s)
                     double speed_m_s = (cw.type & 0x7F) == 0 ? 11.1 : 5.5;
                     uint32_t travel_time_10ms = (uint32_t)((dist / 1000.0) / speed_m_s * 100.0);
 
@@ -572,6 +651,13 @@ int main(int argc, char* argv[]) {
             }
         }
     }
+
+    for (auto& entry : transit_groups) {
+        sort(entry.second.voyages.begin(), entry.second.voyages.end(), [](const TransitVoyage& a, const TransitVoyage& b) {
+            return a.dep_10ms < b.dep_10ms;
+        });
+    }
+
     total_edges += transit_groups.size();
 
     vector<TmpEdge> tmp_edges(total_edges);
@@ -588,6 +674,8 @@ int main(int argc, char* argv[]) {
                 local_buffer.reserve(10000);
                 for (size_t w = start_way; w < end_way; ++w) {
                     const auto& cw = cached_ways[w];
+                    if (cw.type & TRANSIT_FLAG) continue;
+
                     for (size_t i = 0; i < (size_t)cw.node_count - 1; ++i) {
                         uint64_t u_osm = way_nodes_topology[cw.first_node_idx + i];
                         uint64_t v_osm = way_nodes_topology[cw.first_node_idx + i + 1];
@@ -613,16 +701,15 @@ int main(int argc, char* argv[]) {
         }
         for (auto& task : construction_tasks) task.wait();
 
-        // Add transit edges to tmp_edges
         for (auto& entry : transit_groups) {
             uint32_t u_lid = entry.first.first;
             uint32_t v_lid = entry.first.second;
-            // dist_mm will store the voyage offset, speed_limit will store the count
-            // We'll set these correctly in the finalization step when we know the zone offsets
             tmp_edges[global_edge_idx.fetch_add(1)] = { u_lid, v_lid, 0, entry.second.name_off, TRANSIT_FLAG, (uint8_t)min((size_t)255, entry.second.voyages.size()) };
         }
 
-        cout << "Step 3: Graph Construction from Memory Complete." << endl;
+        // COMPACTION FIX: Compact edge listings to eliminate blank sorting buffers.
+        tmp_edges.resize(global_edge_idx.load());
+        cout << "Step 3: Graph Construction Complete. Real Edges Count: " << tmp_edges.size() << endl;
     }
 
     vector<IDMapping>().swap(id_to_local);
@@ -631,6 +718,87 @@ int main(int argc, char* argv[]) {
 
     cout << "Parallel Radix Sorting Edges..." << endl;
     parallel_radix_sort(tmp_edges, 32);
+
+    // --- Connect Isolated Bus Stops ---
+    {
+        cout << "Identifying Connected Components..." << endl;
+        vector<int32_t> component_id(total_useful_nodes, -1);
+        uint32_t lcc_id = 0;
+        uint32_t max_size = 0;
+
+        vector<uint32_t> node_to_edge(total_useful_nodes + 1);
+        uint32_t cur_edge = 0;
+        for (uint32_t i = 0; i < total_useful_nodes; ++i) {
+            node_to_edge[i] = cur_edge;
+            while (cur_edge < tmp_edges.size() && tmp_edges[cur_edge].source_lid == i) cur_edge++;
+        }
+        node_to_edge[total_useful_nodes] = cur_edge;
+
+        vector<uint32_t> q;
+        q.reserve(total_useful_nodes);
+
+        int32_t current_comp = 0;
+        for (uint32_t i = 0; i < total_useful_nodes; ++i) {
+            if (component_id[i] == -1) {
+                uint32_t start_idx = q.size();
+                q.push_back(i);
+                component_id[i] = current_comp;
+                uint32_t head = start_idx;
+                while (head < q.size()) {
+                    uint32_t u = q[head++];
+                    for (uint32_t e = node_to_edge[u]; e < node_to_edge[u + 1]; ++e) {
+                        uint32_t v = tmp_edges[e].target_lid;
+                        if (component_id[v] == -1) {
+                            component_id[v] = current_comp;
+                            q.push_back(v);
+                        }
+                    }
+                }
+                uint32_t comp_size = q.size() - start_idx;
+                if (comp_size > max_size) {
+                    max_size = comp_size;
+                    lcc_id = current_comp;
+                }
+                current_comp++;
+            }
+        }
+        cout << "LCC ID: " << lcc_id << ", Size: " << max_size << " / " << total_useful_nodes << endl;
+
+        vector<TmpEdge> new_edges;
+        for (uint32_t i = 0; i < total_useful_nodes; ++i) {
+            if (node_masters[i].stop_code_off != 0xFFFFFFFF && component_id[i] != (int32_t)lcc_id) {
+                uint32_t best_node = 0xFFFFFFFF;
+                uint32_t best_dist = 0xFFFFFFFF;
+
+                for (int radius = 1000; radius <= 1000000; radius *= 10) {
+                    int start = max(0, (int)i - radius);
+                    int end = min((int)total_useful_nodes, (int)i + radius);
+                    for (int j = start; j < end; ++j) {
+                        if (component_id[j] == (int32_t)lcc_id) {
+                            uint32_t d = accurate_dist_mm(node_masters[i].lat_e7, node_masters[i].lon_e7,
+                                                          node_masters[j].lat_e7, node_masters[j].lon_e7);
+                            if (d < best_dist) {
+                                best_dist = d;
+                                best_node = j;
+                            }
+                        }
+                    }
+                    if (best_node != 0xFFFFFFFF) break;
+                }
+
+                if (best_node != 0xFFFFFFFF) {
+                    new_edges.push_back({ i, best_node, best_dist, 0xFFFFFFFF, 8, 20 });
+                    new_edges.push_back({ best_node, i, best_dist, 0xFFFFFFFF, 8, 20 });
+                }
+            }
+        }
+
+        if (!new_edges.empty()) {
+            cout << "Adding " << new_edges.size() << " synthetic connections for isolated bus stops." << endl;
+            tmp_edges.insert(tmp_edges.end(), new_edges.begin(), new_edges.end());
+            parallel_radix_sort(tmp_edges, 32);
+        }
+    }
 
     // STEP 4: Finalizing & Writing
     cout << "Parallel Finalization..." << endl;

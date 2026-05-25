@@ -21,6 +21,7 @@ public:
         uint32_t g_bwd;
         uint32_t p_fwd;
         uint32_t p_bwd;
+        uint32_t last_name_off;
     };
 
 private:

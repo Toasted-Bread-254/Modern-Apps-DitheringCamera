@@ -1,3 +1,4 @@
-transit_generator
 *.pbf
 *.pmtiles
+map_data/
+generator
