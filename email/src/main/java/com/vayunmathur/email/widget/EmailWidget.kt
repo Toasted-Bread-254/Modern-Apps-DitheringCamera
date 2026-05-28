@@ -143,7 +143,11 @@ class EmailWidget : GlanceAppWidget() {
                     maxLines = 1
                 )
                 Text(
-                    text = msg.body?.take(50) ?: "",
+                    text = (if (msg.isHtml && msg.body != null) {
+                        androidx.core.text.HtmlCompat.fromHtml(msg.body, androidx.core.text.HtmlCompat.FROM_HTML_MODE_LEGACY).toString()
+                    } else {
+                        msg.body ?: ""
+                    }).take(50),
                     style = TextStyle(
                         fontSize = 12.sp,
                         color = GlanceTheme.colors.onSurfaceVariant

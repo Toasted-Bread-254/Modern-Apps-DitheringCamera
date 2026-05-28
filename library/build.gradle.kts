@@ -20,5 +20,8 @@ dependencies {
     // datastore
     implementation(libs.androidx.datastore.preferences)
 
+    // webkit
+    implementation(libs.androidx.webkit)
+
     api(libs.material)
 }

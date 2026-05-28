@@ -537,7 +537,11 @@ fun MessageListScreen(
                                     Column {
                                         Text(text = message.from.substringBefore("<").trim(), style = MaterialTheme.typography.titleSmall)
                                         Text(
-                                            text = message.body?.take(100) ?: "",
+                                            text = (if (message.isHtml && message.body != null) {
+                                                androidx.core.text.HtmlCompat.fromHtml(message.body, androidx.core.text.HtmlCompat.FROM_HTML_MODE_LEGACY).toString()
+                                            } else {
+                                                message.body ?: ""
+                                            }).take(100),
                                             style = MaterialTheme.typography.bodySmall,
                                             maxLines = 1,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -595,6 +599,7 @@ fun MessageThreadScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MessageItem(
     msg: EmailMessage, 
@@ -603,37 +608,88 @@ fun MessageItem(
     onForward: (String, String?) -> Unit
 ) {
     var attachments by remember { mutableStateOf<List<Attachment>>(emptyList()) }
+    var showDetails by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState()
+    
     LaunchedEffect(msg.id) {
         attachments = viewModel.getAttachments(msg.accountEmail, msg.id)
     }
 
+    val senderName = msg.from.substringBefore("<").trim().ifEmpty { msg.from }
+    val senderEmail = msg.from.substringAfter("<").substringBefore(">").trim()
+    val initial = senderName.take(1).uppercase()
+    val avatarColor = Color(EmailAccount(msg.accountEmail, "", "").getColor())
+
     Column {
-        ListItem(
-            overlineContent = {
-                Text(text = "From: ${msg.from}", style = MaterialTheme.typography.labelSmall)
-            },
-            headlineContent = {
-                Text(text = "To: ${msg.to ?: ""}", style = MaterialTheme.typography.labelSmall)
-            },
-            supportingContent = {
-                Text(text = msg.date, style = MaterialTheme.typography.labelSmall)
-            },
-            trailingContent = {
-                Row {
-                    IconButton(onClick = { onReply(msg.from, msg.subject, msg.serverId) }) {
-                        IconUndo()
-                    }
-                    IconButton(onClick = { onForward(msg.subject, msg.body) }) {
-                        IconChevronRight()
-                    }
+        // Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showDetails = true }
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = androidx.compose.foundation.shape.CircleShape,
+                color = avatarColor,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(text = initial, color = Color.White, style = MaterialTheme.typography.titleMedium)
                 }
             }
-        )
-        Text(
-            text = msg.body ?: "(No Content)", 
-            style = MaterialTheme.typography.bodyMedium, 
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-        )
+            
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = senderName,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    Text(
+                        text = "  •  ${msg.date.substringBeforeLast(":")}", // Simplified time
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Text(
+                    text = "to me",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Row {
+                IconButton(onClick = { onReply(msg.from, msg.subject, msg.serverId) }) {
+                    IconUndo()
+                }
+                IconButton(onClick = { /* More actions */ }) {
+                    Icon(painterResource(com.vayunmathur.library.R.drawable.drag_handle_24px), "More")
+                }
+            }
+        }
+
+        if (msg.isHtml && msg.body != null) {
+            HtmlText(
+                html = msg.body,
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .fillMaxWidth()
+                    .heightIn(max = 1000.dp) // WebView needs some constraints sometimes
+            )
+        } else {
+            Text(
+                text = msg.body ?: "(No Content)", 
+                style = MaterialTheme.typography.bodyMedium, 
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+        }
         
         if (attachments.isNotEmpty()) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -643,7 +699,86 @@ fun MessageItem(
                 }
             }
         }
+        
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = { onReply(msg.from, msg.subject, msg.serverId) },
+                modifier = Modifier.weight(1f)
+            ) {
+                IconUndo(modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Reply")
+            }
+            OutlinedButton(
+                onClick = { onForward(msg.subject, msg.body) },
+                modifier = Modifier.weight(1f)
+            ) {
+                IconForward(modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Forward")
+            }
+        }
+
         HorizontalDivider()
+    }
+
+    if (showDetails) {
+        ModalBottomSheet(
+            onDismissRequest = { showDetails = false },
+            sheetState = sheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxWidth()
+            ) {
+                Text(
+                    text = msg.date, // Full date
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.align(Alignment.End)
+                )
+                
+                DetailItem(label = "From", name = senderName, email = senderEmail, avatarColor = avatarColor)
+                // DetailItem(label = "Reply to", ...) // If available
+                DetailItem(label = "To", name = "me", email = msg.to ?: "", avatarColor = Color.Gray)
+                
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconInbox(modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(12.dp))
+                    Text(text = msg.folderName, style = MaterialTheme.typography.bodyMedium)
+                }
+                Spacer(Modifier.height(32.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun DetailItem(label: String, name: String, email: String, avatarColor: Color) {
+    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+        Text(text = label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Row(
+            modifier = Modifier.padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = androidx.compose.foundation.shape.CircleShape,
+                color = avatarColor,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(text = name.take(1).uppercase(), color = Color.White, style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+            Column(modifier = Modifier.padding(start = 12.dp)) {
+                Text(text = name, style = MaterialTheme.typography.bodyLarge)
+                Text(text = email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 

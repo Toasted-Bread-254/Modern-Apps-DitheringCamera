@@ -150,6 +150,11 @@ fun IconUndo(modifier: Modifier = Modifier, tint: Color = LocalContentColor.curr
 }
 
 @Composable
+fun IconForward(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) {
+    Icon(painterResource(R.drawable.outline_shortcut_24), "Forward", modifier = modifier, tint = tint)
+}
+
+@Composable
 fun IconDraw(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) {
     Icon(painterResource(R.drawable.pen_24px), "Draw", modifier = modifier, tint = tint)
 }
