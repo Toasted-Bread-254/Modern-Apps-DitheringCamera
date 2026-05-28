@@ -15,6 +15,7 @@ class EmailSyncWorker(appContext: Context, workerParams: WorkerParameters) :
         val accounts = dao.getAccounts()
 
         if (accounts.isEmpty()) {
+            Log.d("EmailSync", "No accounts to sync")
             return Result.success()
         }
 
@@ -23,19 +24,25 @@ class EmailSyncWorker(appContext: Context, workerParams: WorkerParameters) :
 
         for (account in accounts) {
             try {
-                Log.d("EmailSync", "Syncing account: ${account.email}")
+                Log.d("EmailSync", ">>> Starting sync for account: ${account.email}")
                 val auth = EmailManager.AuthType.OAuth2(account.accessToken)
 
                 // 1. Sync Folders
+                Log.d("EmailSync", "Fetching folders for ${account.email}...")
                 val folders = manager.fetchFolders("imap.gmail.com", account.email, auth)
                 dao.insertFolders(folders)
+                Log.d("EmailSync", "Successfully synced ${folders.size} folders.")
 
                 // 2. Sync Messages for each folder
-                for (folder in folders) {
-                    if (!folder.holdsMessages) continue
+                for ((index, folder) in folders.withIndex()) {
+                    if (!folder.holdsMessages) {
+                        Log.d("EmailSync", "Skipping container folder: ${folder.fullName}")
+                        continue
+                    }
                     
+                    Log.d("EmailSync", "[${index + 1}/${folders.size}] Syncing folder: ${folder.fullName}...")
                     try {
-                        val messages = manager.fetchMessages(
+                        val (messages, attachments) = manager.fetchMessages(
                             host = "imap.gmail.com",
                             user = account.email,
                             auth = auth,
@@ -45,10 +52,13 @@ class EmailSyncWorker(appContext: Context, workerParams: WorkerParameters) :
                             fetchBodies = true
                         )
                         dao.insertMessages(messages)
+                        dao.insertAttachments(attachments)
+                        Log.d("EmailSync", "   -> Synced ${messages.size} messages and ${attachments.size} attachments.")
                     } catch (e: Exception) {
-                        Log.e("EmailSync", "Failed to sync folder ${folder.fullName} for ${account.email}", e)
+                        Log.e("EmailSync", "   x Failed to sync folder ${folder.fullName}", e)
                     }
                 }
+                Log.d("EmailSync", "<<< Completed sync for account: ${account.email}")
             } catch (e: Exception) {
                 Log.e("EmailSync", "Failed to sync account ${account.email}", e)
                 hasErrors = true

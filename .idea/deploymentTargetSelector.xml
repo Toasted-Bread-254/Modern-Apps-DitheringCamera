@@ -131,6 +131,7 @@
       </SelectionState>
       <SelectionState runConfigName="clock">
         <option name="selectionMode" value="DROPDOWN" />
+        <DialogSelection />
       </SelectionState>
       <SelectionState runConfigName="games.alchemist">
         <option name="selectionMode" value="DROPDOWN" />

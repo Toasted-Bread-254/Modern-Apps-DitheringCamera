@@ -1,6 +1,7 @@
 package com.vayunmathur.email
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.email.data.EmailDatabase
@@ -8,10 +9,12 @@ import com.vayunmathur.email.data.EmailSyncWorker
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class EmailViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = EmailDatabase.getInstance(application).emailDao()
+    private val emailManager = EmailManager()
     
     val accounts = dao.getAccountsFlow()
     
@@ -80,6 +83,14 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
         return dao.getMessage(accountEmail, folderName, uid)
     }
 
+    fun getThread(accountEmail: String, threadId: String): Flow<List<EmailMessage>> {
+        return dao.getThreadFlow(accountEmail, threadId)
+    }
+
+    suspend fun getAttachments(accountEmail: String, messageId: Long): List<Attachment> {
+        return dao.getAttachments(accountEmail, messageId)
+    }
+
     fun logout(context: android.content.Context) {
         val currentEmail = _selectedAccountEmail.value ?: return
         viewModelScope.launch {
@@ -95,6 +106,66 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
                 EmailSyncWorker.cancelSync(context)
             } else {
                 _selectedAccountEmail.value = remaining.first().email
+            }
+        }
+    }
+
+    fun sendEmail(
+        to: String,
+        subject: String,
+        body: String,
+        cc: String? = null,
+        attachments: List<Uri> = emptyList(),
+        inReplyTo: String? = null,
+        references: String? = null,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val account = selectedAccount.value ?: return onError("No account selected")
+        viewModelScope.launch {
+            try {
+                emailManager.sendMessage(
+                    context = getApplication(),
+                    host = "smtp.gmail.com",
+                    user = account.email,
+                    auth = EmailManager.AuthType.OAuth2(account.accessToken),
+                    to = to,
+                    subject = subject,
+                    body = body,
+                    cc = cc,
+                    attachments = attachments,
+                    inReplyTo = inReplyTo,
+                    references = references
+                )
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "Unknown error")
+            }
+        }
+    }
+
+    fun downloadAttachment(
+        attachment: Attachment,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val account = selectedAccount.value ?: return onError("No account selected")
+        viewModelScope.launch {
+            try {
+                val path = emailManager.downloadAttachment(
+                    context = getApplication(),
+                    host = "imap.gmail.com",
+                    user = account.email,
+                    auth = EmailManager.AuthType.OAuth2(account.accessToken),
+                    folderName = attachment.folderName,
+                    uid = attachment.messageId,
+                    partId = attachment.partId,
+                    fileName = attachment.fileName
+                )
+                dao.updateAttachmentLocalUri(account.email, attachment.messageId, attachment.partId, path)
+                onSuccess(path)
+            } catch (e: Exception) {
+                onError(e.message ?: "Unknown error")
             }
         }
     }

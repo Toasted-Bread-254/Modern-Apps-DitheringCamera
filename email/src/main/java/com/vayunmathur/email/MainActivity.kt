@@ -5,8 +5,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -34,16 +37,17 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.io.File
 import java.security.MessageDigest
 import java.security.SecureRandom
 
 class MainActivity : ComponentActivity() {
     private val scope = CoroutineScope(Dispatchers.Main)
 
-    // Configuration Constants
     private val clientId = "827025129169-1ihnv9r1a8nd1i3qjs98tkvluo4vjbhe.apps.googleusercontent.com"
     private val redirectUri = "com.googleusercontent.apps.827025129169-1ihnv9r1a8nd1i3qjs98tkvluo4vjbhe:/oauth2redirect"
 
@@ -76,6 +80,12 @@ class MainActivity : ComponentActivity() {
             if (code != null) {
                 exchangeCodeForToken(code)
             }
+        } else if (intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SENDTO) {
+            val to = if (intent.action == Intent.ACTION_SENDTO) data?.schemeSpecificPart ?: "" else ""
+            val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT) ?: ""
+            val body = intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""
+            
+            IntentState.composerIntent = Route.Composer(to, subject, body)
         }
     }
 
@@ -93,7 +103,7 @@ class MainActivity : ComponentActivity() {
             .appendQueryParameter("code_challenge", challenge)
             .appendQueryParameter("code_challenge_method", "S256")
             .appendQueryParameter("access_type", "offline")
-            .appendQueryParameter("prompt", "select_account") // Force account selection for multiple accounts
+            .appendQueryParameter("prompt", "select_account")
             .build()
 
         startActivity(Intent(Intent.ACTION_VIEW, authUri))
@@ -163,6 +173,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+object IntentState {
+    var composerIntent by mutableStateOf<Route.Composer?>(null)
+}
+
 object TokenState {
     var codeVerifier: String? = null
 }
@@ -186,8 +200,6 @@ data class UserInfo(
 @Composable
 fun MainContent(viewModel: EmailViewModel, onGoogleLogin: () -> Unit) {
     val accounts by viewModel.accounts.collectAsState(emptyList())
-    val selectedAccountEmail by viewModel.selectedAccountEmail.collectAsState()
-
     if (accounts.isEmpty()) {
         LoginScreen(onGoogleLogin)
     } else {
@@ -228,7 +240,15 @@ sealed interface Route : NavKey {
     @Serializable
     object MessageList : Route
     @Serializable
-    data class MessageDetail(val accountEmail: String, val folderName: String, val messageId: Long) : Route
+    data class MessageThread(val accountEmail: String, val threadId: String) : Route
+    @Serializable
+    data class Composer(
+        val to: String = "",
+        val subject: String = "",
+        val body: String = "",
+        val inReplyTo: String? = null,
+        val references: String? = null
+    ) : Route
 }
 
 @Composable
@@ -244,6 +264,14 @@ fun EmailApp(viewModel: EmailViewModel, onAddAccount: () -> Unit) {
     
     val backStack = rememberNavBackStack<Route>(Route.MessageList)
 
+    val composerIntent = IntentState.composerIntent
+    LaunchedEffect(composerIntent) {
+        if (composerIntent != null) {
+            backStack.add(composerIntent)
+            IntentState.composerIntent = null
+        }
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -255,8 +283,8 @@ fun EmailApp(viewModel: EmailViewModel, onAddAccount: () -> Unit) {
                         selected = account.email == selectedAccountEmail,
                         onClick = { 
                             viewModel.selectAccount(account.email)
-                            // Optionally reset backstack to MessageList if we were in a Detail view
                             backStack.reset(Route.MessageList)
+                            scope.launch { drawerState.close() }
                         },
                         modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                     )
@@ -275,8 +303,9 @@ fun EmailApp(viewModel: EmailViewModel, onAddAccount: () -> Unit) {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 
                 Text("Folders", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.titleMedium)
-                FolderList(folders, selectedFolderName) { folderName ->
+                FolderList(folders, selectedFolderName ?: "INBOX") { folderName ->
                     viewModel.selectFolder(folderName)
+                    backStack.reset(Route.MessageList)
                     scope.launch { drawerState.close() }
                 }
                 
@@ -298,17 +327,34 @@ fun EmailApp(viewModel: EmailViewModel, onAddAccount: () -> Unit) {
                 MessageListScreen(
                     viewModel = viewModel,
                     onMessageClick = { msg ->
-                        backStack.add(Route.MessageDetail(msg.accountEmail, msg.folderName, msg.id))
+                        backStack.add(Route.MessageThread(msg.accountEmail, msg.threadId ?: msg.id.toString()))
                     },
+                    onComposeClick = { backStack.add(Route.Composer()) },
                     onOpenDrawer = { scope.launch { drawerState.open() } }
                 )
             }
-            entry<Route.MessageDetail>(metadata = ListDetailPage()) { route ->
-                MessageDetailScreen(
+            entry<Route.MessageThread>(metadata = ListDetailPage()) { route ->
+                MessageThreadScreen(
                     viewModel = viewModel,
                     accountEmail = route.accountEmail,
-                    folderName = route.folderName,
-                    messageId = route.messageId,
+                    threadId = route.threadId,
+                    onBack = { backStack.pop() },
+                    onReply = { to, sub, ref ->
+                        backStack.add(Route.Composer(to = to, subject = "Re: $sub", references = ref, inReplyTo = ref))
+                    },
+                    onForward = { sub, body ->
+                        backStack.add(Route.Composer(subject = "Fwd: $sub", body = "\n\n---------- Forwarded message ----------\n$body"))
+                    }
+                )
+            }
+            entry<Route.Composer>(metadata = ListDetailPage()) { route ->
+                ComposerScreen(
+                    viewModel = viewModel,
+                    initialTo = route.to,
+                    initialSubject = route.subject,
+                    initialBody = route.body,
+                    inReplyTo = route.inReplyTo,
+                    references = route.references,
                     onBack = { backStack.pop() }
                 )
             }
@@ -373,6 +419,7 @@ fun androidx.compose.foundation.lazy.LazyListScope.renderFolderTree(
 fun MessageListScreen(
     viewModel: EmailViewModel,
     onMessageClick: (EmailMessage) -> Unit,
+    onComposeClick: () -> Unit,
     onOpenDrawer: () -> Unit
 ) {
     val messages by viewModel.messages.collectAsState(emptyList())
@@ -417,6 +464,11 @@ fun MessageListScreen(
                     }
                 )
             }
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = onComposeClick) {
+                IconAdd()
+            }
         }
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -440,6 +492,9 @@ fun MessageListScreen(
                                 Text(text = message.from, style = MaterialTheme.typography.labelMedium)
                                 Text(text = message.subject, style = MaterialTheme.typography.titleMedium)
                                 Text(text = message.date, style = MaterialTheme.typography.labelSmall)
+                                if (message.hasAttachments) {
+                                    Icon(painterResource(com.vayunmathur.library.R.drawable.outline_content_copy_24), "Attachments", modifier = Modifier.size(16.dp))
+                                }
                             }
                         }
                     }
@@ -451,48 +506,167 @@ fun MessageListScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MessageDetailScreen(
+fun MessageThreadScreen(
     viewModel: EmailViewModel,
     accountEmail: String,
-    folderName: String,
-    messageId: Long,
+    threadId: String,
+    onBack: () -> Unit,
+    onReply: (String, String, String?) -> Unit,
+    onForward: (String, String?) -> Unit
+) {
+    val messages by viewModel.getThread(accountEmail, threadId).collectAsState(emptyList())
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Conversation") },
+                navigationIcon = { IconNavigation(onBack) }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(messages) { msg ->
+                MessageItem(msg, viewModel, onReply, onForward)
+            }
+        }
+    }
+}
+
+@Composable
+fun MessageItem(
+    msg: EmailMessage, 
+    viewModel: EmailViewModel,
+    onReply: (String, String, String?) -> Unit,
+    onForward: (String, String?) -> Unit
+) {
+    var attachments by remember { mutableStateOf<List<Attachment>>(emptyList()) }
+    LaunchedEffect(msg.id) {
+        attachments = viewModel.getAttachments(msg.accountEmail, msg.id)
+    }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(text = "From: ${msg.from}", style = MaterialTheme.typography.titleSmall)
+                    Text(text = "To: ${msg.to ?: ""}", style = MaterialTheme.typography.labelSmall)
+                    Text(text = msg.date, style = MaterialTheme.typography.labelSmall)
+                }
+                IconButton(onClick = { onReply(msg.from, msg.subject, msg.serverId) }) {
+                    Icon(painterResource(com.vayunmathur.library.R.drawable.undo_24px), "Reply")
+                }
+                IconButton(onClick = { onForward(msg.subject, msg.body) }) {
+                    Icon(painterResource(com.vayunmathur.library.R.drawable.chevron_right_24px), "Forward")
+                }
+            }
+            Text(text = msg.subject, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider()
+            Text(text = msg.body ?: "(No Content)", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 8.dp))
+            
+            if (attachments.isNotEmpty()) {
+                Text("Attachments:", style = MaterialTheme.typography.labelLarge)
+                attachments.forEach { att ->
+                    AttachmentItem(att, viewModel)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AttachmentItem(attachment: Attachment, viewModel: EmailViewModel) {
+    var downloading by remember { mutableStateOf(false) }
+    var localPath by remember { mutableStateOf(attachment.localUri) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = attachment.fileName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+        if (localPath != null) {
+            Text("Downloaded", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+        } else {
+            IconButton(onClick = { 
+                downloading = true
+                viewModel.downloadAttachment(attachment, { path -> 
+                    downloading = false
+                    localPath = path
+                }, { downloading = false })
+            }, enabled = !downloading) {
+                if (downloading) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                else Icon(painterResource(com.vayunmathur.library.R.drawable.baseline_upload_24), "Download", modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ComposerScreen(
+    viewModel: EmailViewModel,
+    initialTo: String = "",
+    initialSubject: String = "",
+    initialBody: String = "",
+    inReplyTo: String? = null,
+    references: String? = null,
     onBack: () -> Unit
 ) {
-    var message by remember { mutableStateOf<EmailMessage?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
-
-    LaunchedEffect(accountEmail, folderName, messageId) {
-        message = viewModel.getMessage(accountEmail, folderName, messageId)
-        isLoading = false
+    var to by remember { mutableStateOf(initialTo) }
+    var subject by remember { mutableStateOf(initialSubject) }
+    var body by remember { mutableStateOf(initialBody) }
+    var sending by remember { mutableStateOf(false) }
+    var attachments by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    
+    val attachmentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { attachments = attachments + it }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Message Detail") },
-                navigationIcon = {
-                    IconNavigation(onBack)
+                title = { Text("Compose") },
+                navigationIcon = { IconNavigation(onBack) },
+                actions = {
+                    IconButton(onClick = { attachmentLauncher.launch("*/*") }) {
+                        Icon(painterResource(com.vayunmathur.library.R.drawable.outline_content_copy_24), "Attach")
+                    }
+                    IconButton(onClick = {
+                        sending = true
+                        viewModel.sendEmail(
+                            to = to, 
+                            subject = subject, 
+                            body = body, 
+                            attachments = attachments,
+                            inReplyTo = inReplyTo, 
+                            references = references, 
+                            onSuccess = {
+                                sending = false
+                                onBack()
+                            }, 
+                            onError = { sending = false }
+                        )
+                    }, enabled = !sending) {
+                        if (sending) CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        else Icon(painterResource(com.vayunmathur.library.R.drawable.baseline_upload_24), "Send")
+                    }
                 }
             )
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (isLoading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            } else {
-                message?.let { msg ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp)
-                    ) {
-                        Text(text = "From: ${msg.from}", style = MaterialTheme.typography.titleMedium)
-                        Text(text = "Subject: ${msg.subject}", style = MaterialTheme.typography.titleLarge)
-                        Text(text = "Date: ${msg.date}", style = MaterialTheme.typography.labelMedium)
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-                        Text(text = msg.body ?: "(No Content Offline)", style = MaterialTheme.typography.bodyLarge)
-                    }
-                } ?: Text("Message not found offline.", modifier = Modifier.align(Alignment.Center))
+        Column(modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(value = to, onValueChange = { to = it }, label = { Text("To") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = subject, onValueChange = { subject = it }, label = { Text("Subject") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = body, onValueChange = { body = it }, label = { Text("Body") }, modifier = Modifier.fillMaxWidth().weight(1f))
+            
+            if (attachments.isNotEmpty()) {
+                Text("Attachments:", style = MaterialTheme.typography.labelLarge)
+                attachments.forEach { uri ->
+                    Text(uri.toString(), style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
     }

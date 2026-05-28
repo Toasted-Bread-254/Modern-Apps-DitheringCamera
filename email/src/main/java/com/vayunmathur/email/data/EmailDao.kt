@@ -1,6 +1,7 @@
 package com.vayunmathur.email.data
 
 import androidx.room.*
+import com.vayunmathur.email.Attachment
 import com.vayunmathur.email.EmailAccount
 import com.vayunmathur.email.EmailFolder
 import com.vayunmathur.email.EmailMessage
@@ -29,6 +30,9 @@ interface EmailDao {
     @Query("SELECT * FROM EmailMessage WHERE accountEmail = :accountEmail AND folderName = :folderName ORDER BY id DESC")
     fun getMessagesFlow(accountEmail: String, folderName: String): Flow<List<EmailMessage>>
 
+    @Query("SELECT * FROM EmailMessage WHERE accountEmail = :accountEmail AND threadId = :threadId ORDER BY id ASC")
+    fun getThreadFlow(accountEmail: String, threadId: String): Flow<List<EmailMessage>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessages(messages: List<EmailMessage>)
 
@@ -43,4 +47,14 @@ interface EmailDao {
 
     @Query("SELECT * FROM EmailMessage WHERE accountEmail = :accountEmail AND folderName = :folderName AND (subject LIKE '%' || :query || '%' OR `from` LIKE '%' || :query || '%' OR body LIKE '%' || :query || '%') ORDER BY id DESC")
     fun searchMessagesFlow(accountEmail: String, folderName: String, query: String): Flow<List<EmailMessage>>
+
+    // Attachments
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAttachments(attachments: List<Attachment>)
+
+    @Query("SELECT * FROM Attachment WHERE accountEmail = :accountEmail AND messageId = :uid")
+    suspend fun getAttachments(accountEmail: String, uid: Long): List<Attachment>
+
+    @Query("UPDATE Attachment SET localUri = :uri WHERE accountEmail = :accountEmail AND messageId = :uid AND partId = :partId")
+    suspend fun updateAttachmentLocalUri(accountEmail: String, uid: Long, partId: String, uri: String)
 }

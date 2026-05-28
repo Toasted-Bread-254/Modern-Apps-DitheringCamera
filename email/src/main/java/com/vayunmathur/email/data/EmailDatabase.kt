@@ -7,8 +7,9 @@ import androidx.room.RoomDatabase
 import com.vayunmathur.email.EmailFolder
 import com.vayunmathur.email.EmailMessage
 import com.vayunmathur.email.EmailAccount
+import com.vayunmathur.email.Attachment
 
-@Database(entities = [EmailFolder::class, EmailMessage::class, EmailAccount::class], version = 3, exportSchema = false)
+@Database(entities = [EmailFolder::class, EmailMessage::class, EmailAccount::class, Attachment::class], version = 4, exportSchema = false)
 abstract class EmailDatabase : RoomDatabase() {
     abstract fun emailDao(): EmailDao
 
