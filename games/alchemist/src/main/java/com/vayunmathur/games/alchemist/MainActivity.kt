@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.vayunmathur.games.alchemist.data.AlchemyItem
@@ -30,6 +31,7 @@ import com.vayunmathur.library.util.rememberNavBackStack
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
 class MainActivity : ComponentActivity() {
@@ -61,14 +63,18 @@ sealed interface Route: NavKey {
 fun Navigation(ds: DataStoreUtils, viewModel: AlchemistViewModel) {
     val backStack = rememberNavBackStack<Route>(Route.Home)
     val achievementsManager = rememberAchievementsManager()
-    val newAchievement by achievementsManager.newAchievement.collectAsState()
+    val newAchievement = achievementsManager?.newAchievement?.collectAsState()?.value
 
     var showingUnlock by remember { mutableStateOf(false) }
     var currentUnlocks by remember { mutableStateOf(emptyList<AlchemyItem>()) }
 
     LaunchedEffect(achievementsManager) {
-        launch { achievementsManager.checkExistingAchievements() }
-        viewModel.bindAchievements(achievementsManager)
+        if (achievementsManager != null) {
+            launch { achievementsManager.checkExistingAchievements() }
+            viewModel.bindAchievements(achievementsManager)
+        }
+    }
+    LaunchedEffect(viewModel) {
         viewModel.newUnlocksEvent.collectLatest { items ->
             currentUnlocks = items
             showingUnlock = true
@@ -86,17 +92,19 @@ fun Navigation(ds: DataStoreUtils, viewModel: AlchemistViewModel) {
                 ItemDetailsScreen(backStack, ds, viewModel, it.item)
             }
             entry<Route.GameCenter> {
-                com.vayunmathur.library.ui.GameCenterScreen(
-                    backupAgent = com.vayunmathur.games.alchemist.util.AppBackupAgent(),
-                    manager = achievementsManager,
-                    onBack = { backStack.pop() }
-                )
+                achievementsManager?.let {
+                    com.vayunmathur.library.ui.GameCenterScreen(
+                        backupAgent = com.vayunmathur.games.alchemist.util.AppBackupAgent(),
+                        manager = it,
+                        onBack = { backStack.pop() }
+                    )
+                }
             }
         }
 
-        newAchievement?.let {
-            com.vayunmathur.library.ui.AchievementNotification(it) {
-                achievementsManager.dismissNotification()
+        newAchievement?.let { ach ->
+            com.vayunmathur.library.ui.AchievementNotification(ach) {
+                achievementsManager?.dismissNotification()
             }
         }
 
@@ -108,10 +116,15 @@ fun Navigation(ds: DataStoreUtils, viewModel: AlchemistViewModel) {
 }
 
 @Composable
-fun rememberAchievementsManager(): AchievementsManager {
+fun rememberAchievementsManager(): AchievementsManager? {
     val context = LocalContext.current
-    return remember {
-        val json = context.assets.open("achievements.json").bufferedReader().use { it.readText() }
-        com.vayunmathur.games.alchemist.util.AlchemistAchievementsManager(context, json)
+    // Load + parse the JSON catalog off the main thread; first composition
+    // sees null and the manager appears once IO completes.
+    val state = produceState<AchievementsManager?>(initialValue = null, context) {
+        value = withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val json = context.assets.open("achievements.json").bufferedReader().use { it.readText() }
+            com.vayunmathur.games.alchemist.util.AlchemistAchievementsManager(context, json)
+        }
     }
+    return state.value
 }

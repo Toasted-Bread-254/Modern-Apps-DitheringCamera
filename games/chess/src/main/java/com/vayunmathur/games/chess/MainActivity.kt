@@ -94,6 +94,10 @@ class MainActivity : ComponentActivity() {
             DynamicTheme {
                 val backStack = rememberNavBackStack<Route>(Route.Game)
                 val achievementsManager = rememberAchievementsManager()
+                if (achievementsManager == null) {
+                    Box(Modifier.fillMaxSize())
+                    return@DynamicTheme
+                }
                 val newAchievement by achievementsManager.newAchievement.collectAsState()
 
                 LaunchedEffect(Unit) {
@@ -500,10 +504,13 @@ sealed interface Route: NavKey {
 }
 
 @Composable
-fun rememberAchievementsManager(): AchievementsManager {
+fun rememberAchievementsManager(): AchievementsManager? {
     val context = LocalContext.current
-    return remember {
-        val json = context.assets.open("achievements.json").bufferedReader().use { it.readText() }
-        com.vayunmathur.games.chess.util.ChessAchievementsManager(context, json)
+    val state = androidx.compose.runtime.produceState<AchievementsManager?>(initialValue = null, context) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val json = context.assets.open("achievements.json").bufferedReader().use { it.readText() }
+            com.vayunmathur.games.chess.util.ChessAchievementsManager(context, json)
+        }
     }
+    return state.value
 }

@@ -122,11 +122,14 @@ class MainActivity : ComponentActivity() {
                         WordMakerGameLoader(backStack, viewModel)
                     }
                     entry<Route.GameCenter> {
-                        GameCenterScreen(
-                            backupAgent = AppBackupAgent(),
-                            manager = rememberAchievementsManager(viewModel.levelDataStore),
-                            onBack = { backStack.pop() }
-                        )
+                        val gcManager = rememberAchievementsManager(viewModel.levelDataStore)
+                        if (gcManager != null) {
+                            GameCenterScreen(
+                                backupAgent = AppBackupAgent(),
+                                manager = gcManager,
+                                onBack = { backStack.pop() }
+                            )
+                        }
                     }
                 }
             }
@@ -135,12 +138,17 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun rememberAchievementsManager(levelDataStore: LevelDataStore): AchievementsManager {
+fun rememberAchievementsManager(levelDataStore: LevelDataStore): AchievementsManager? {
     val context = androidx.compose.ui.platform.LocalContext.current
-    return remember {
-        val json = context.assets.open("achievements.json").bufferedReader().use { it.readText() }
-        com.vayunmathur.games.wordmaker.util.WordMakerAchievementsManager(context, json, levelDataStore)
+    // Read + parse the achievements JSON off the main thread; first composition
+    // sees null and the manager appears once IO completes.
+    val state = androidx.compose.runtime.produceState<AchievementsManager?>(initialValue = null, context, levelDataStore) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val json = context.assets.open("achievements.json").bufferedReader().use { it.readText() }
+            com.vayunmathur.games.wordmaker.util.WordMakerAchievementsManager(context, json, levelDataStore)
+        }
     }
+    return state.value
 }
 
 @Composable
@@ -150,6 +158,12 @@ fun WordMakerGameLoader(backStack: NavBackStack<Route>, viewModel: WordMakerView
     val error by viewModel.error.collectAsState()
 
     val achievementsManager = rememberAchievementsManager(viewModel.levelDataStore)
+    if (achievementsManager == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
     val newAchievement by achievementsManager.newAchievement.collectAsState()
 
     LaunchedEffect(Unit) {
