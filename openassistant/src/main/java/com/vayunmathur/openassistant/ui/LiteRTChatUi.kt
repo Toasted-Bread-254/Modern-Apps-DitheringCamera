@@ -33,8 +33,7 @@ import com.vayunmathur.openassistant.R
 import com.vayunmathur.openassistant.Route
 import com.vayunmathur.openassistant.data.Conversation
 import com.vayunmathur.openassistant.data.Message
-import com.vayunmathur.openassistant.util.InferenceService
-import com.vayunmathur.openassistant.util.WavRecorder
+import com.vayunmathur.openassistant.util.AssistantViewModel
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -57,16 +56,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.time.Clock
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LiteRTChatUi(backStack: NavBackStack<Route>, conversationId: Long, viewModel: DatabaseViewModel) {
+fun LiteRTChatUi(
+    backStack: NavBackStack<Route>,
+    conversationId: Long,
+    viewModel: DatabaseViewModel,
+    assistantViewModel: AssistantViewModel,
+) {
     val activeConversation by viewModel.getNullable<Conversation>(conversationId)
-    val allMessages by viewModel.data<Message>().collectAsState(initial = emptyList())
-    val filteredMessages = remember(allMessages, conversationId) {
-        allMessages.filter { it.conversationId == conversationId }.sortedBy { it.timestamp }
-    }
+    val filteredMessages by assistantViewModel.messagesFor(conversationId).collectAsState(initial = emptyList())
+    val isRecording by assistantViewModel.isRecording.collectAsState()
+    val recordedAudioPath by assistantViewModel.recordedAudioPath.collectAsState()
 
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -77,9 +79,6 @@ fun LiteRTChatUi(backStack: NavBackStack<Route>, conversationId: Long, viewModel
     var inputText by remember { mutableStateOf("") }
     val selectedImageUris = remember { mutableStateListOf<Uri>() }
     val selectedImageFiles = remember { mutableStateListOf<File>() }
-    var isRecording by remember { mutableStateOf(false) }
-    var audioRecorder by remember { mutableStateOf<WavRecorder?>(null) }
-    var recordedAudioFile by remember { mutableStateOf<File?>(null) }
 
     LaunchedEffect(filteredMessages.size) {
         if (filteredMessages.isNotEmpty()) listState.animateScrollToItem(filteredMessages.size - 1)
@@ -87,14 +86,10 @@ fun LiteRTChatUi(backStack: NavBackStack<Route>, conversationId: Long, viewModel
 
     val recordAudioPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
         if (isGranted) {
-            val file = File(context.cacheDir, "recording_${Clock.System.now().toEpochMilliseconds()}.wav")
-            recordedAudioFile = file
-            try {
-                audioRecorder = WavRecorder(context, file, scope).apply { start() }
-                isRecording = true
-            } catch (e: Exception) {
+            assistantViewModel.startRecording()
+            if (!assistantViewModel.isRecording.value && assistantViewModel.recordedAudioPath.value == null) {
                 scope.launch {
-                    snackbarHostState.showSnackbar(resources.getString(R.string.mic_error_format, e.localizedMessage ?: ""))
+                    snackbarHostState.showSnackbar(resources.getString(R.string.mic_error_format, ""))
                 }
             }
         }
@@ -165,36 +160,30 @@ fun LiteRTChatUi(backStack: NavBackStack<Route>, conversationId: Long, viewModel
                         onAddImage = { imagePicker.launch("image/*") },
                         onRecord = {
                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                                val file = File(context.cacheDir, "recording_${Clock.System.now().toEpochMilliseconds()}.wav")
-                                recordedAudioFile = file
-                                try {
-                                    audioRecorder = WavRecorder(context, file, scope).apply { start() }
-                                    isRecording = true
-                                } catch (e: Exception) {}
+                                assistantViewModel.startRecording()
                             } else recordAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
                         },
                         onSend = {
-                            if (isRecording) { audioRecorder?.stop(); audioRecorder = null; isRecording = false }
+                            if (isRecording) assistantViewModel.stopRecording()
                             val newConv = resources.getString(R.string.new_conversation)
+                            val imagePaths = selectedImageFiles.map { it.absolutePath }
+                            val audioPath = recordedAudioPath
+                            val textToSend = inputText
                             scope.launch {
                                 var currentId = conversationId
                                 if (currentId == 0L) {
                                     currentId = viewModel.upsert(Conversation(newConv))
                                     backStack.reset(Route.ConversationPage(currentId))
                                 }
-                                viewModel.upsert(Message(currentId, inputText, "user", selectedImageFiles.map { it.absolutePath }, recordedAudioFile != null))
-                                context.startService(Intent(context, InferenceService::class.java).apply {
-                                    putExtra("conversation_id", currentId)
-                                    putExtra("user_text", inputText)
-                                    putExtra("image_paths", selectedImageFiles.map { it.absolutePath }.toTypedArray())
-                                    putExtra("audio_path", recordedAudioFile?.absolutePath)
-                                })
-                                inputText = ""; selectedImageFiles.clear(); selectedImageUris.clear(); recordedAudioFile = null
+                                viewModel.upsert(Message(currentId, textToSend, "user", imagePaths, audioPath != null))
+                                assistantViewModel.requestInference(currentId, textToSend, imagePaths, audioPath)
+                                inputText = ""; selectedImageFiles.clear(); selectedImageUris.clear()
+                                assistantViewModel.consumeRecordedAudio()
                             }
                         },
                         onCancelMedia = {
                             selectedImageUris.clear(); selectedImageFiles.clear()
-                            audioRecorder?.stop(); audioRecorder = null; isRecording = false; recordedAudioFile = null
+                            assistantViewModel.cancelRecording()
                         }
                     )
                 }
