@@ -231,7 +231,7 @@ class LocationTrackingService : Service(), SensorEventListener {
 
     private fun startTracking() {
         serviceScope.launch {
-            val db = buildDatabase<FFDatabase>(listOf(Migration_1_2, Migration_2_3))
+            val db = buildDatabase<FFDatabase>()
             viewModel = DatabaseViewModel(db,
                 User::class to db.userDao(),
                 Waypoint::class to db.waypointDao(),

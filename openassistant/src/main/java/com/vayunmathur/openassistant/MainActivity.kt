@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
         intentLauncher = IntentLauncher(this)
 
         val ds = DataStoreUtils.getInstance(this)
-        val db = buildDatabase<AppDatabase>(migrations = AppDatabase.MIGRATIONS)
+        val db = buildDatabase<AppDatabase>()
         viewModel = DatabaseViewModel(db, Conversation::class to db.conversationDao(), Message::class to db.messageDao(), Memory::class to db.memoryDao())
 
         setContent {

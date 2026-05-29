@@ -87,7 +87,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val db = buildDatabase<SubscriptionDatabase>(migrations = listOf(MIGRATION_1_2))
+        val db = buildDatabase<SubscriptionDatabase>()
         viewModel = DatabaseViewModel(db,
             Subscription::class to db.subscriptionDao(),
             SubscriptionVideo::class to db.subscriptionVideoDao(),

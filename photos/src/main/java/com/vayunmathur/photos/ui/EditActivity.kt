@@ -34,7 +34,7 @@ class EditActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val db = buildDatabase<PhotoDatabase>(PhotoDatabase.ALL_MIGRATIONS)
+        val db = buildDatabase<PhotoDatabase>()
         viewModel = DatabaseViewModel(db, Photo::class to db.photoDao())
 
         setContent {

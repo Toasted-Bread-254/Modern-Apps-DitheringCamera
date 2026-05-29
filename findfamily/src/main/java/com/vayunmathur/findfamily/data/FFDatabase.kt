@@ -38,4 +38,18 @@ abstract class FFDatabase : RoomDatabase() {
     abstract fun waypointDao(): WaypointDao
     abstract fun locationValueDao(): LocationValueDao
     abstract fun temporaryLinkDao(): TemporaryLinkDao
+
+    companion object : com.vayunmathur.library.util.DatabaseMigrations {
+        override val migrations: List<androidx.room.migration.Migration> = listOf(
+            androidx.room.migration.Migration(1, 2) {
+                it.execSQL("CREATE INDEX IF NOT EXISTS index_LocationValue_timestamp ON LocationValue (timestamp)")
+            },
+            androidx.room.migration.Migration(2, 3) {
+                it.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_LocationValue_userid_timestamp` " +
+                        "ON `LocationValue` (`userid`, `timestamp`)"
+                )
+            }
+        )
+    }
 }

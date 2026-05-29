@@ -33,7 +33,7 @@ import kotlinx.coroutines.withContext
 class PhotoGlanceWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
 
-        val db = context.buildDatabase<PhotoDatabase>(PhotoDatabase.ALL_MIGRATIONS)
+        val db = context.buildDatabase<PhotoDatabase>()
         val viewModel = DatabaseViewModel(db, Photo::class to db.photoDao())
         val photos = viewModel.getAll<Photo>()
 

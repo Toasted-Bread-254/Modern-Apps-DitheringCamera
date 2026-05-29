@@ -74,7 +74,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val db = buildDatabase<PhotoDatabase>(PhotoDatabase.ALL_MIGRATIONS)
+        val db = buildDatabase<PhotoDatabase>()
         viewModel = DatabaseViewModel(db, Photo::class to db.photoDao())
         ImageLoader.init(this)
         setContent {

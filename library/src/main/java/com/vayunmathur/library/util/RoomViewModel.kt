@@ -355,6 +355,25 @@ suspend inline fun <reified E : DatabaseItem> TrueDao<E>.getNullable(id: Long): 
 
 val databases: MutableMap<KClass<*>, RoomDatabase> = mutableMapOf()
 
+/**
+ * Implemented by a [RoomDatabase] companion object to declare the migrations
+ * for that database in one place — alongside the schema definition itself
+ * rather than scattered across every `buildDatabase()` call site.
+ *
+ * Example:
+ * ```
+ * abstract class NotesDatabase : RoomDatabase() {
+ *     abstract fun notesDao(): NotesDao
+ *     companion object : DatabaseMigrations {
+ *         override val migrations = listOf(MIGRATION_1_2, MIGRATION_2_3)
+ *     }
+ * }
+ * ```
+ */
+interface DatabaseMigrations {
+    val migrations: List<Migration>
+}
+
 private var sqlCipherLoaded = false
 fun loadSqlCipher() {
     if (sqlCipherLoaded) return
@@ -367,12 +386,24 @@ fun loadSqlCipher() {
 }
 
 inline fun <reified T : RoomDatabase> Context.buildDatabase(
-    migrations: List<Migration> = emptyList(),
+    migrations: List<Migration>? = null,
     encryptionPassword: String? = null,
     dbName: String = "passwords-db",
     useDeviceProtectedStorage: Boolean = false
 ): T {
     loadSqlCipher()
+
+    // Resolve migrations: explicit arg wins; otherwise read from the
+    // database's companion object if it implements [DatabaseMigrations].
+    val resolvedMigrations: List<Migration> = migrations ?: run {
+        val companionField = try {
+            T::class.java.getDeclaredField("Companion").apply { isAccessible = true }
+        } catch (_: NoSuchFieldException) {
+            null
+        }
+        val companionInstance = companionField?.get(null)
+        (companionInstance as? DatabaseMigrations)?.migrations ?: emptyList()
+    }
 
     val targetContext = if (useDeviceProtectedStorage) {
         val deviceContext = this.createDeviceProtectedStorageContext()
@@ -412,7 +443,7 @@ inline fun <reified T : RoomDatabase> Context.buildDatabase(
             targetContext,
             T::class.java,
             dbName
-        ).addMigrations(*migrations.toTypedArray())
+        ).addMigrations(*resolvedMigrations.toTypedArray())
 
         builder.openHelperFactory(SupportOpenHelperFactory(password.toByteArray(StandardCharsets.UTF_8)))
 

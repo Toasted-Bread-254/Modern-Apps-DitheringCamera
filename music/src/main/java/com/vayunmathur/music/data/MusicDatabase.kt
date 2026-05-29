@@ -26,6 +26,10 @@ abstract class MusicDatabase: RoomDatabase() {
     abstract fun artistDao(): ArtistDao
     abstract fun playlistDao(): PlaylistDao
     abstract fun matchingDao(): MatchingDao
+
+    companion object : com.vayunmathur.library.util.DatabaseMigrations {
+        override val migrations: List<Migration> = listOf(MIGRATION_1_2, MIGRATION_2_3)
+    }
 }
 
 val MIGRATION_1_2 = Migration(1, 2) {

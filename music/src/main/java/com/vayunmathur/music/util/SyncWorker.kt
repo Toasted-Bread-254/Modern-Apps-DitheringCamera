@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit
 
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): WorkResult = withContext(Dispatchers.IO) {
-        val database = applicationContext.buildDatabase<MusicDatabase>(listOf(MIGRATION_1_2, MIGRATION_2_3))
+        val database = applicationContext.buildDatabase<MusicDatabase>()
         val viewModel = DatabaseViewModel(
             database,
             Music::class to database.musicDao(),

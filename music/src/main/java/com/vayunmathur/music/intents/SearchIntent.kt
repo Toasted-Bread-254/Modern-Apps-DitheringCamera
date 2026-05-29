@@ -18,7 +18,7 @@ import kotlinx.serialization.serializer
 class SearchIntent: AssistantIntent<String, List<MusicSearchResult>>(serializer<String>(), serializer<List<MusicSearchResult>>()) {
 
     override suspend fun performCalculation(input: String): List<MusicSearchResult> {
-        val db = buildDatabase<MusicDatabase>(listOf(MIGRATION_1_2, MIGRATION_2_3))
+        val db = buildDatabase<MusicDatabase>()
         val viewModel = DatabaseViewModel(db, Music::class to db.musicDao(), Album::class to db.albumDao(), Artist::class to db.artistDao(), Playlist::class to db.playlistDao())
         
         val results = mutableListOf<MusicSearchResult>()

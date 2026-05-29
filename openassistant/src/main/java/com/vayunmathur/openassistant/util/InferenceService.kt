@@ -63,7 +63,7 @@ class InferenceService : Service() {
     private var currentConversation: com.google.ai.edge.litertlm.Conversation? = null
     private var currentConversationId: Long = -1L
 
-    val db by lazy { buildDatabase<AppDatabase>(migrations = AppDatabase.MIGRATIONS) }
+    val db by lazy { buildDatabase<AppDatabase>() }
     val viewModel by lazy { DatabaseViewModel(db, Conversation::class to db.conversationDao(), Message::class to db.messageDao(), Memory::class to db.memoryDao()) }
 
     override fun onBind(intent: Intent?): IBinder? = null

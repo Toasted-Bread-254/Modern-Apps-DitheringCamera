@@ -47,4 +47,8 @@ abstract class SubscriptionDatabase : RoomDatabase() {
     abstract fun historyVideoDao(): HistoryVideoDao
     abstract fun subscriptionCategoryDao(): SubscriptionCategoryDao
     abstract fun downloadedVideoDao(): DownloadedVideoDao
+
+    companion object : com.vayunmathur.library.util.DatabaseMigrations {
+        override val migrations: List<Migration> = listOf(MIGRATION_1_2)
+    }
 }

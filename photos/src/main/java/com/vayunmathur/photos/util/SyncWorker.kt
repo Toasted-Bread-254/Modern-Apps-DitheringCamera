@@ -45,7 +45,7 @@ import java.util.concurrent.TimeUnit
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): WorkResult = withContext(Dispatchers.IO) {
         setForeground(createForegroundInfo())
-        val database = applicationContext.buildDatabase<PhotoDatabase>(PhotoDatabase.ALL_MIGRATIONS)
+        val database = applicationContext.buildDatabase<PhotoDatabase>()
         val dataStore = DataStoreUtils.getInstance(applicationContext)
         
         val triggeredUris = triggeredContentUris
@@ -140,7 +140,7 @@ class OCRWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
         ocrMutex.withLock {
             setForeground(createForegroundInfo())
             val database =
-                applicationContext.buildDatabase<PhotoDatabase>(PhotoDatabase.ALL_MIGRATIONS)
+                applicationContext.buildDatabase<PhotoDatabase>()
             val photos = database.photoDao().getAll<Photo>()
             runOCR(photos, database, applicationContext)
             WorkResult.success()

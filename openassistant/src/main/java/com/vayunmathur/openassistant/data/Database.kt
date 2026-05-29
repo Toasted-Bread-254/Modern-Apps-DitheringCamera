@@ -59,8 +59,8 @@ abstract class AppDatabase: RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun memoryDao(): MemoryDao
 
-    companion object {
-        val MIGRATIONS = listOf(
+    companion object : com.vayunmathur.library.util.DatabaseMigrations {
+        override val migrations: List<Migration> = listOf(
             object : Migration(1, 2) {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL("ALTER TABLE Message ADD COLUMN missingAppPackage TEXT")
