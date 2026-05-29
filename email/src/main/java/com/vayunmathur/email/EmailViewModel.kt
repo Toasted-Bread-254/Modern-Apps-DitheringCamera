@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.email.data.EmailDatabase
+import com.vayunmathur.email.data.EmailSyncState
 import com.vayunmathur.email.data.EmailSyncWorker
 import com.vayunmathur.email.data.OutboxManager
 import com.vayunmathur.email.data.OutboxSendWorker
@@ -20,6 +21,10 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
     private val emailManager = EmailManager()
     
     val accounts = dao.getAccountsFlow()
+
+    /** Active sync state — drives the linear progress bar at the top of the inbox. */
+    val isSyncing: StateFlow<Boolean> = EmailSyncState.isSyncing
+    val syncProgress: StateFlow<Float> = EmailSyncState.progress
 
     val outbox: Flow<List<OutboxEntry>> = dao.getOutboxFlow()
     
@@ -219,6 +224,42 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
                 onError(msg)
+            }
+        }
+    }
+
+    /**
+     * Lazy-load the body + attachments for a single message. Called by
+     * MessageItem when a stored row has `body == null` (the sync only fetches
+     * headers — bodies are downloaded on first open). Updates the row in the
+     * DB; the Flow-based UI will recompose automatically.
+     */
+    fun fetchBodyIfNeeded(message: EmailMessage) {
+        if (message.body != null) return
+        viewModelScope.launch {
+            val account = dao.getAccounts().find { it.email == message.accountEmail } ?: return@launch
+            suspend fun attempt(acct: EmailAccount): Triple<String?, Boolean, List<Attachment>> {
+                return emailManager.fetchMessageBody(
+                    host = "imap.gmail.com",
+                    user = acct.email,
+                    auth = EmailManager.AuthType.OAuth2(acct.accessToken),
+                    folderName = message.folderName,
+                    uid = message.id,
+                )
+            }
+            try {
+                val (body, isHtml, attachments) = try {
+                    attempt(account)
+                } catch (e: javax.mail.AuthenticationFailedException) {
+                    val refreshed = TokenRefresher.refresh(getApplication(), account) ?: throw e
+                    attempt(refreshed)
+                }
+                if (body != null || attachments.isNotEmpty()) {
+                    dao.insertMessages(listOf(message.copy(body = body, isHtml = isHtml, hasAttachments = attachments.isNotEmpty())))
+                    if (attachments.isNotEmpty()) dao.insertAttachments(attachments)
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("EmailViewModel", "fetchBodyIfNeeded for ${message.id} failed: ${e.message}")
             }
         }
     }

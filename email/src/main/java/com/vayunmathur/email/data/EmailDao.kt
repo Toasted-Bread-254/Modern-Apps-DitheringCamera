@@ -40,6 +40,18 @@ interface EmailDao {
     @Query("SELECT * FROM EmailMessage WHERE accountEmail = :accountEmail AND id = :uid AND folderName = :folderName")
     suspend fun getMessage(accountEmail: String, folderName: String, uid: Long): EmailMessage?
 
+    /** UIDs already stored for a given folder — used to skip body re-fetch in sync. */
+    @Query("SELECT id FROM EmailMessage WHERE accountEmail = :accountEmail AND folderName = :folderName")
+    suspend fun getKnownUids(accountEmail: String, folderName: String): List<Long>
+
+    /**
+     * Messages we have headers for but no body yet. Used by the sync worker to
+     * back-fill bodies in the background once the per-folder header sync is done.
+     * Newest first because the user is most likely to open recent mail.
+     */
+    @Query("SELECT * FROM EmailMessage WHERE accountEmail = :accountEmail AND body IS NULL ORDER BY id DESC LIMIT :limit")
+    suspend fun getMessagesWithoutBody(accountEmail: String, limit: Int): List<EmailMessage>
+
     @Query("DELETE FROM EmailFolder WHERE accountEmail = :accountEmail")
     suspend fun clearFolders(accountEmail: String)
 

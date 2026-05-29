@@ -495,6 +495,8 @@ fun MessageListScreen(
     val selectedFolderName by viewModel.selectedFolderName.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedUids by viewModel.selectedMessageUids.collectAsState()
+    val isSyncing by viewModel.isSyncing.collectAsState()
+    val syncProgress by viewModel.syncProgress.collectAsState()
     var isSearching by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -553,13 +555,10 @@ fun MessageListScreen(
                     title = { Text(selectedFolderName ?: "Unified Inbox") },
                     navigationIcon = {
                         IconButton(onClick = onOpenDrawer) {
-                            IconForward()
+                            IconMenu()
                         }
                     },
                     actions = {
-                        IconButton(onClick = { viewModel.refresh(context) }) {
-                            IconRestore()
-                        }
                         IconButton(onClick = { isSearching = true }) {
                             IconSearch()
                         }
@@ -575,16 +574,34 @@ fun MessageListScreen(
             }
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (messages.isEmpty() && searchQuery.isEmpty()) {
-                Text(
-                    text = "No messages found. Try refreshing.",
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize()
-                ) {
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            // Thin progress bar while a sync is in flight. We use a `Box` of
+            // fixed 2.dp height so the bar's presence never shifts the LazyColumn
+            // (the bar is rendered on top of an invisible track).
+            Box(modifier = Modifier.fillMaxWidth().height(2.dp)) {
+                if (isSyncing) {
+                    LinearProgressIndicator(
+                        progress = { syncProgress },
+                        modifier = Modifier.fillMaxWidth().height(2.dp),
+                    )
+                }
+            }
+            androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+                isRefreshing = isSyncing,
+                onRefresh = { viewModel.refresh(context) },
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                if (messages.isEmpty() && searchQuery.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Text(
+                            text = "No messages found. Pull down to refresh.",
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
                     items(messages) { message ->
                         val accountColor = Color(EmailAccount(message.accountEmail, "", "").getColor())
                         val isSelected = message.id in selectedUids
@@ -669,6 +686,7 @@ fun MessageListScreen(
                     }
                 }
             }
+            }
         }
     }
 }
@@ -720,6 +738,12 @@ fun MessageItem(
     
     LaunchedEffect(msg.id) {
         attachments = viewModel.getAttachments(msg.accountEmail, msg.id)
+        // If we only have the header for this message (sync skips bodies), pull
+        // the body now. The DB row update will flow back through the Thread Flow
+        // and trigger a recomposition with the body visible.
+        if (msg.body == null) {
+            viewModel.fetchBodyIfNeeded(msg)
+        }
     }
 
     val senderName = msg.from.substringBefore("<").trim().ifEmpty { msg.from }
