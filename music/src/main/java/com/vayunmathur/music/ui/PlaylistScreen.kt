@@ -15,36 +15,35 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.vayunmathur.library.ui.IconAdd
 import com.vayunmathur.library.ui.ListPage
-import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.music.util.AlbumArt
 import com.vayunmathur.music.util.MusicViewModel
 import com.vayunmathur.music.util.SyncWorker
 import com.vayunmathur.music.R
 import com.vayunmathur.music.Route
-import com.vayunmathur.music.data.Music
 import com.vayunmathur.music.data.Playlist
 
 @Composable
-fun PlaylistsTabContent(backStack: NavBackStack<Route>, viewModel: DatabaseViewModel, musicViewModel: MusicViewModel) {
+fun PlaylistsTabContent(backStack: NavBackStack<Route>, musicViewModel: MusicViewModel) {
     val context = LocalContext.current
     val resources = LocalResources.current
+    val playlists by musicViewModel.playlists.collectAsState()
 
     LaunchedEffect(Unit) {
         SyncWorker.runOnce(context)
         SyncWorker.enqueue(context)
     }
 
-    ListPage<Playlist, Route, Route.Song>(backStack, viewModel, stringResource(R.string.page_title_playlists), { Text(it.name) }, {
+    ListPage<Playlist, Route, Route.Song>(backStack, playlists, stringResource(R.string.page_title_playlists), { Text(it.name) }, {
     }, {
         Route.PlaylistDetail(it)
     }, leadingContent = { playlist ->
-        val songIds by viewModel.getMatchesState<Playlist, Music>(playlist.id)
-        val allMusic by viewModel.data<Music>().collectAsState()
+        val songIds by musicViewModel.matchedMusicForPlaylist(playlist.id)
+        val allMusic by musicViewModel.music.collectAsState()
         val musicUris = allMusic.filter { it.id in songIds }.map { it.uri.toUri() }
         AlbumArt(musicUris, Modifier.size(40.dp))
     }, searchEnabled = true, fab = {
-        ShufflePlayFab(viewModel, musicViewModel)
+        ShufflePlayFab(musicViewModel)
     }, sortOrder = Comparator.comparing { it.name }, otherActions = {
         IconButton(onClick = {
             musicViewModel.createPlaylist(resources.getString(R.string.new_playlist))

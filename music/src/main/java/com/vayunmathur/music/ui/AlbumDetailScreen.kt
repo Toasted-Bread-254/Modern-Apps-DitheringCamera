@@ -4,7 +4,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.vayunmathur.library.util.NavBackStack
-import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.music.Route
 import com.vayunmathur.music.data.Album
 import com.vayunmathur.music.data.Music
@@ -37,9 +36,9 @@ import com.vayunmathur.music.util.formatDuration
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AlbumDetailScreen(backStack: NavBackStack<Route>, viewModel: DatabaseViewModel, musicViewModel: MusicViewModel, albumId: Long) {
-    val album by viewModel.getState<Album>(albumId)
-    val allMusic by viewModel.data<Music>().collectAsState()
+fun AlbumDetailScreen(backStack: NavBackStack<Route>, musicViewModel: MusicViewModel, albumId: Long) {
+    val album by musicViewModel.albumState(albumId)
+    val allMusic by musicViewModel.music.collectAsState()
     val musicInAlbum = remember(allMusic, albumId) {
         allMusic.filter { it.albumId == albumId }.sortedBy { it.trackNumber }
     }
@@ -87,7 +86,7 @@ fun AlbumDetailScreen(backStack: NavBackStack<Route>, viewModel: DatabaseViewMod
                     ListItem({
                         Text(album.name, style = MaterialTheme.typography.titleLarge)
                     }, Modifier, {Text(stringResource(R.string.label_album))}, {
-                        Text(stringResource(R.string.album_info_format, album.artistString(viewModel), albumYear, musicInAlbum.size, formatDuration(totalDurationMs)))
+                        Text(stringResource(R.string.album_info_format, album.artistString(musicViewModel), albumYear, musicInAlbum.size, formatDuration(totalDurationMs)))
                     })
                 }
             }

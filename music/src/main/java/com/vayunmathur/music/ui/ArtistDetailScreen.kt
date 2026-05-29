@@ -44,7 +44,6 @@ import androidx.core.net.toUri
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.ui.IconNavigation
 import com.vayunmathur.library.ui.IconPlay
-import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.music.util.AddToPlaylistButton
 import com.vayunmathur.music.util.AlbumArt
 import com.vayunmathur.music.util.MusicViewModel
@@ -58,17 +57,17 @@ import kotlinx.coroutines.runBlocking
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ArtistDetailScreen(backStack: NavBackStack<Route>, viewModel: DatabaseViewModel, musicViewModel: MusicViewModel, artistId: Long) {
-    val artist by viewModel.getState<Artist>(artistId)
-    val allMusic by viewModel.data<Music>().collectAsState()
+fun ArtistDetailScreen(backStack: NavBackStack<Route>, musicViewModel: MusicViewModel, artistId: Long) {
+    val artist by musicViewModel.artistState(artistId)
+    val allMusic by musicViewModel.music.collectAsState()
     val artistsMusic = remember(allMusic, artistId) {
         allMusic.filter { it.artistId == artistId }
     }
     val artistTotalDurationMs = remember(artistsMusic) {
         artistsMusic.sumOf { it.duration }
     }
-    val albumIds by viewModel.getMatchesState<Artist, Album>(artistId)
-    val allAlbums by viewModel.data<Album>().collectAsState()
+    val albumIds by musicViewModel.matchedAlbumsForArtist(artistId)
+    val allAlbums by musicViewModel.albums.collectAsState()
     val albums by remember { derivedStateOf {
         albumIds.map { id -> allAlbums.find { it.id == id }!! }
     } }
@@ -98,8 +97,8 @@ fun ArtistDetailScreen(backStack: NavBackStack<Route>, viewModel: DatabaseViewMo
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    val albumIds by viewModel.getMatchesState<Artist, Album>(artist.id)
-                    val allAlbums by viewModel.data<Album>().collectAsState()
+                    val albumIds by musicViewModel.matchedAlbumsForArtist(artist.id)
+                    val allAlbums by musicViewModel.albums.collectAsState()
                     val albumsUris by remember { derivedStateOf { allAlbums.filter { it.id in albumIds }.map { it.uri.toUri() } } }
 
                     AlbumArt(albumsUris, Modifier

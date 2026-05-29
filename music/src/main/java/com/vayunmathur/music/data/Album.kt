@@ -6,7 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.vayunmathur.library.util.DatabaseItem
-import com.vayunmathur.library.util.DatabaseViewModel
+import com.vayunmathur.music.util.MusicViewModel
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -17,18 +17,18 @@ data class Album(
     val uri: String
 ): DatabaseItem {
     @Composable
-    fun artistString(viewModel: DatabaseViewModel): String {
-        val artistIDs by viewModel.getMatchesState<Album, Artist>(id)
-        val artists by viewModel.data<Artist>().collectAsState()
-        
+    fun artistString(musicViewModel: MusicViewModel): String {
+        val artistIDs by musicViewModel.matchedArtistsForAlbum(id)
+        val artists by musicViewModel.artists.collectAsState()
+
         return remember(artistIDs, artists) {
             if (artistIDs.size > 2) {
                 "Various Artists"
             } else if (artistIDs.isEmpty()) {
                 ""
             } else {
-                artistIDs.mapNotNull { artistId -> 
-                    artists.find { it.id == artistId }?.name 
+                artistIDs.mapNotNull { artistId ->
+                    artists.find { it.id == artistId }?.name
                 }.joinToString()
             }
         }

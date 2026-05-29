@@ -20,7 +20,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.music.R
 import com.vayunmathur.music.Route
@@ -46,7 +45,6 @@ import kotlinx.coroutines.launch
 @Composable
 fun MusicTabsScreen(
     backStack: NavBackStack<Route>,
-    viewModel: DatabaseViewModel,
     musicViewModel: MusicViewModel,
 ) {
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 4 })
@@ -90,10 +88,10 @@ fun MusicTabsScreen(
             modifier = Modifier.padding(bottom = padding.calculateBottomPadding()),
         ) { page ->
             when (page) {
-                0 -> HomeTabContent(backStack, viewModel, musicViewModel)
-                1 -> AlbumsTabContent(backStack, viewModel, musicViewModel)
-                2 -> ArtistsTabContent(backStack, viewModel, musicViewModel)
-                3 -> PlaylistsTabContent(backStack, viewModel, musicViewModel)
+                0 -> HomeTabContent(backStack, musicViewModel)
+                1 -> AlbumsTabContent(backStack, musicViewModel)
+                2 -> ArtistsTabContent(backStack, musicViewModel)
+                3 -> PlaylistsTabContent(backStack, musicViewModel)
             }
         }
     }

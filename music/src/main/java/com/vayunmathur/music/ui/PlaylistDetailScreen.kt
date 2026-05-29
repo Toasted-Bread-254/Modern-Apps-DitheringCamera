@@ -22,7 +22,6 @@ import androidx.core.net.toUri
 import com.vayunmathur.library.ui.IconClose
 import com.vayunmathur.library.ui.IconNavigation
 import com.vayunmathur.library.ui.IconPlay
-import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.music.util.AlbumArt
 import com.vayunmathur.music.util.MusicViewModel
@@ -34,14 +33,14 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlaylistDetailScreen(backStack: NavBackStack<Route>, viewModel: DatabaseViewModel, musicViewModel: MusicViewModel, playlistId: Long) {
-    val playlist by viewModel.getState<Playlist>(playlistId)
-    val allMusic by viewModel.data<Music>().collectAsState()
+fun PlaylistDetailScreen(backStack: NavBackStack<Route>, musicViewModel: MusicViewModel, playlistId: Long) {
+    val playlist by musicViewModel.playlistState(playlistId)
+    val allMusic by musicViewModel.music.collectAsState()
     var musicInPlaylist by remember { mutableStateOf(emptyList<Music>()) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(allMusic, playlistId) {
-        val musicIds = viewModel.getMatches<Playlist, Music>(playlistId)
+        val musicIds = musicViewModel.getMusicInPlaylist(playlistId)
         musicInPlaylist = allMusic.filter { musicIds.contains(it.id) }
     }
 
@@ -176,10 +175,11 @@ fun PlaylistDetailScreen(backStack: NavBackStack<Route>, viewModel: DatabaseView
                         },
                     trailingContent = {
                         IconButton({
-                            scope.launch {
-                                viewModel.unmatch<Playlist, Music>(playlistId, music.id)
-                                val musicIds = viewModel.getMatches<Playlist, Music>(playlistId)
-                                musicInPlaylist = allMusic.filter { musicIds.contains(it.id) }
+                            musicViewModel.removeMusicFromPlaylist(playlistId, music.id) {
+                                scope.launch {
+                                    val musicIds = musicViewModel.getMusicInPlaylist(playlistId)
+                                    musicInPlaylist = allMusic.filter { musicIds.contains(it.id) }
+                                }
                             }
                         }) {
                             IconClose()

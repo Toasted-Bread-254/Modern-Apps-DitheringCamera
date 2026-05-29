@@ -38,7 +38,6 @@ import com.vayunmathur.library.ui.IconPause
 import com.vayunmathur.library.ui.IconPlay
 import com.vayunmathur.library.ui.ListPage
 import com.vayunmathur.library.ui.invisibleClickable
-import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.music.util.AlbumArt
 import com.vayunmathur.music.util.MusicViewModel
 import com.vayunmathur.music.util.SyncWorker
@@ -53,32 +52,33 @@ import com.vayunmathur.music.data.Music
  * the TopAppBar with the embedded search bar and the shuffle FAB).
  */
 @Composable
-fun HomeTabContent(backStack: NavBackStack<Route>, viewModel: DatabaseViewModel, musicViewModel: MusicViewModel) {
+fun HomeTabContent(backStack: NavBackStack<Route>, musicViewModel: MusicViewModel) {
     val context = LocalContext.current
     val currentMediaItem by musicViewModel.currentMediaItem.collectAsState()
     val currentSource by musicViewModel.currentSource.collectAsState()
+    val music by musicViewModel.music.collectAsState()
 
     LaunchedEffect(Unit) {
         SyncWorker.runOnce(context)
         SyncWorker.enqueue(context)
     }
 
-    ListPage<Music, Route, Route.Song>(backStack, viewModel, stringResource(R.string.page_title_music), { music ->
-        val isPlaying = currentMediaItem?.mediaId == music.id.toString() && currentSource == "all_songs"
+    ListPage<Music, Route, Route.Song>(backStack, music, stringResource(R.string.page_title_music), { song ->
+        val isPlaying = currentMediaItem?.mediaId == song.id.toString() && currentSource == "all_songs"
         Text(
-            text = music.title,
+            text = song.title,
             color = if (isPlaying) MaterialTheme.colorScheme.primary else Color.Unspecified,
             fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Normal
         )
     }, {
         Text(it.artist)
     }, { toPlay ->
-        val allSongs = viewModel.getAll<Music>()
+        val allSongs = musicViewModel.music.value
         val toPlayIndex = allSongs.indexOfFirst { it.id == toPlay }
         musicViewModel.playSong(allSongs, toPlayIndex, sourceId = "all_songs", sourceName = "All Songs")
         Route.Song
-    }, leadingContent = { music ->
-        val isPlaying = currentMediaItem?.mediaId == music.id.toString() && currentSource == "all_songs"
+    }, leadingContent = { song ->
+        val isPlaying = currentMediaItem?.mediaId == song.id.toString() && currentSource == "all_songs"
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (isPlaying) {
                 Icon(
@@ -88,22 +88,22 @@ fun HomeTabContent(backStack: NavBackStack<Route>, viewModel: DatabaseViewModel,
                     tint = MaterialTheme.colorScheme.primary
                 )
             }
-            AlbumArt(music.uri.toUri(), Modifier.size(40.dp))
+            AlbumArt(song.uri.toUri(), Modifier.size(40.dp))
         }
-    }, trailingContent = { music ->
-        AddToPlaylistButton(backStack, music)
-    }, itemModifier = { music ->
-        val isPlaying = currentMediaItem?.mediaId == music.id.toString() && currentSource == "all_songs"
+    }, trailingContent = { song ->
+        AddToPlaylistButton(backStack, song)
+    }, itemModifier = { song ->
+        val isPlaying = currentMediaItem?.mediaId == song.id.toString() && currentSource == "all_songs"
         if (isPlaying) Modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.secondaryContainer)
         else Modifier
     }, searchEnabled = true, fab = {
-        ShufflePlayFab(viewModel, musicViewModel)
+        ShufflePlayFab(musicViewModel)
     }, sortOrder = Comparator.comparing { it.title })
 }
 
 @Composable
-fun ShufflePlayFab(viewModel: DatabaseViewModel, musicViewModel: MusicViewModel) {
-    val allSongs by viewModel.data<Music>().collectAsState()
+fun ShufflePlayFab(musicViewModel: MusicViewModel) {
+    val allSongs by musicViewModel.music.collectAsState()
 
     if(allSongs.isNotEmpty()) {
         FloatingActionButton({

@@ -14,16 +14,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.music.R
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.music.Route
-import com.vayunmathur.music.data.Playlist
 import com.vayunmathur.music.util.MusicViewModel
 
 @Composable
-fun AddToPlaylistDialog(backStack: NavBackStack<Route>, viewModel: DatabaseViewModel, musicViewModel: MusicViewModel, musicId: Long) {
-    val playlists by viewModel.data<Playlist>().collectAsState(initial = emptyList())
+fun AddToPlaylistDialog(backStack: NavBackStack<Route>, musicViewModel: MusicViewModel, musicId: Long) {
+    val playlists by musicViewModel.playlists.collectAsState()
     var selectedPlaylistId by remember { mutableStateOf<Long?>(null) }
 
     AlertDialog(

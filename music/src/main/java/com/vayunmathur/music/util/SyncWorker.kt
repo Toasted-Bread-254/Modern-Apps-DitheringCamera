@@ -13,16 +13,14 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.ListenableWorker.Result as WorkResult
 import com.vayunmathur.library.util.DataStoreUtils
-import com.vayunmathur.library.util.DatabaseViewModel
+import com.vayunmathur.library.util.ManyManyMatching
 import com.vayunmathur.library.util.buildDatabase
 import com.vayunmathur.library.util.getAll
-import com.vayunmathur.music.data.MIGRATION_1_2
 import com.vayunmathur.music.data.Album
 import com.vayunmathur.music.data.Artist
-import com.vayunmathur.music.data.MIGRATION_2_3
 import com.vayunmathur.music.data.Music
 import com.vayunmathur.music.data.MusicDatabase
-import com.vayunmathur.music.data.Playlist
+import com.vayunmathur.music.data.TYPE_ALBUM_ARTIST
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
@@ -30,31 +28,23 @@ import java.util.concurrent.TimeUnit
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): WorkResult = withContext(Dispatchers.IO) {
         val database = applicationContext.buildDatabase<MusicDatabase>()
-        val viewModel = DatabaseViewModel(
-            database,
-            Music::class to database.musicDao(),
-            Album::class to database.albumDao(),
-            Artist::class to database.artistDao(),
-            Playlist::class to database.playlistDao(),
-            matchingDao = database.matchingDao()
-        )
-        
+
         val dataStore = DataStoreUtils.getInstance(applicationContext)
         val lastGeneration = dataStore.getLong("last_music_generation") ?: 0L
         val currentGeneration = MediaStore.getGeneration(applicationContext, MediaStore.VOLUME_EXTERNAL)
 
         val triggeredUris = triggeredContentUris
         if (triggeredUris.isNotEmpty()) {
-            syncMusic(applicationContext, database, viewModel, triggeredUris.toList())
+            syncMusic(applicationContext, database, triggeredUris.toList())
         } else {
-            syncMusic(applicationContext, database, viewModel, null, lastGeneration)
+            syncMusic(applicationContext, database, null, lastGeneration)
         }
 
         dataStore.setLong("last_music_generation", currentGeneration)
-        
+
         // Enqueue next observation
         enqueue(applicationContext)
-        
+
         WorkResult.success()
     }
 
@@ -88,8 +78,11 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     }
 }
 
-suspend fun syncMusic(context: Context, database: MusicDatabase, viewModel: DatabaseViewModel, uris: List<Uri>? = null, lastGeneration: Long = 0L) {
+suspend fun syncMusic(context: Context, database: MusicDatabase, uris: List<Uri>? = null, lastGeneration: Long = 0L) {
     val musicDao = database.musicDao()
+    val albumDao = database.albumDao()
+    val artistDao = database.artistDao()
+    val matchingDao = database.matchingDao()
 
     // 1. Get all current IDs in MediaStore to handle deletions correctly
     val allMediaStoreIds = mutableSetOf<Long>()
@@ -203,7 +196,9 @@ suspend fun syncMusic(context: Context, database: MusicDatabase, viewModel: Data
     }
 
     if (uris == null && lastGeneration == 0L) {
-        viewModel.replaceAll(musicList)
+        // Full refresh: wipe + reinsert.
+        musicDao.observeNothing(SimpleSQLiteQuery("DELETE FROM Music"))
+        musicDao.upsertAll(musicList)
     } else {
         musicDao.upsertAll(musicList)
     }
@@ -211,20 +206,25 @@ suspend fun syncMusic(context: Context, database: MusicDatabase, viewModel: Data
     // 4. Always refresh Albums and Artists completely to ensure consistency
     val albums = getAlbums(context)
     val artists = getArtists(context)
-    
-    viewModel.replaceAll(albums)
-    viewModel.replaceAll(artists)
-    
+
+    albumDao.observeNothing(SimpleSQLiteQuery("DELETE FROM Album"))
+    albumDao.upsertAll(albums)
+    artistDao.observeNothing(SimpleSQLiteQuery("DELETE FROM Artist"))
+    artistDao.upsertAll(artists)
+
     // 5. Rebuild relationship matchings
     val allMusic = musicDao.getAll<Music>()
-    val allAlbums = database.albumDao().getAll<Album>()
-    val allArtists = database.artistDao().getAll<Artist>()
-    
+    val allAlbums = albumDao.getAll<Album>()
+    val allArtists = artistDao.getAll<Artist>()
+
     Log.d("MusicSyncWorker", "Rebuilding matchings: Music=${allMusic.size}, Albums=${allAlbums.size}, Artists=${allArtists.size}")
-    
+
     val pairs = albumArtistPairs(allMusic, allArtists, allAlbums)
     Log.d("MusicSyncWorker", "Rebuilding matchings: ${pairs.size} pairs found")
-    
-    viewModel.clearMatchings<Album, Artist>()
-    viewModel.addPairs(pairs)
+
+    // Album index (1) < Artist index (2) → album is left, artist is right.
+    matchingDao.deleteByType(TYPE_ALBUM_ARTIST)
+    matchingDao.upsert(pairs.map { (album, artist) ->
+        ManyManyMatching(album.id, artist.id, TYPE_ALBUM_ARTIST)
+    })
 }
