@@ -616,17 +616,30 @@ fun MessageListScreen(
                                 ) {}
                             }
                             ListItem(
+                                leadingContent = {
+                                    // Unread indicator: small filled circle on the left.
+                                    // For read messages we render an invisible spacer of
+                                    // the same size so the subject stays aligned across rows.
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .background(
+                                                color = if (message.isRead) Color.Transparent else MaterialTheme.colorScheme.primary,
+                                                shape = androidx.compose.foundation.shape.CircleShape
+                                            )
+                                    )
+                                },
                                 headlineContent = {
                                     Text(
-                                        text = message.subject, 
-                                        style = if (message.isRead) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
+                                        text = message.subject,
+                                        style = MaterialTheme.typography.bodyLarge
                                     )
                                 },
                                 supportingContent = {
                                     Column {
                                         Text(
-                                            text = message.from.substringBefore("<").trim(), 
-                                            style = if (message.isRead) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                            text = message.from.substringBefore("<").trim(),
+                                            style = MaterialTheme.typography.titleSmall
                                         )
                                         Text(
                                             text = (if (message.isHtml && message.body != null) {
