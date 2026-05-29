@@ -1,5 +1,6 @@
 package com.vayunmathur.library.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -80,6 +81,12 @@ inline fun <reified T : DatabaseItem, Route : NavKey, reified EditPage : Route> 
         val filtered = dbDataUnfiltered.filter { searchQuery.isBlank() || searchString(it).contains(searchQuery, true) }
         if(sortOrder != null) filtered.sortedWith(sortOrder) else filtered
     } }
+
+    // Back gesture / button while the search bar has text → just clear the text
+    // (the back press is consumed). Empty search bar lets back propagate normally.
+    BackHandler(enabled = searchEnabled && searchQuery.isNotEmpty()) {
+        searchQuery = ""
+    }
 
     // 1. Initialize the reorderable state
     val listState = rememberLazyListState()
@@ -165,6 +172,12 @@ inline fun <reified T : ReorderableDatabaseItem<T>, Route : NavKey, reified Edit
     val dbDataUnfiltered by viewModel.data<T>().collectAsState(listOf())
     var searchQuery by remember { mutableStateOf("") }
     val dbData by remember { derivedStateOf { dbDataUnfiltered.filter { searchQuery.isBlank() || searchString(it).contains(searchQuery, true) } } }
+
+    // Back gesture / button while the search bar has text → just clear the text
+    // (the back press is consumed). Empty search bar lets back propagate normally.
+    BackHandler(enabled = searchEnabled && searchQuery.isNotEmpty()) {
+        searchQuery = ""
+    }
 
     val hapticFeedback = LocalHapticFeedback.current
 

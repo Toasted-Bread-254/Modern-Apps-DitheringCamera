@@ -143,6 +143,12 @@ fun ContactList(
 
     val searchQuery by viewModel.searchQuery.collectAsState()
 
+    // While the search bar has text, intercept back to clear it instead of
+    // popping the screen. Empty search → back propagates normally.
+    androidx.activity.compose.BackHandler(enabled = searchQuery.isNotEmpty() && !isSelectionMode) {
+        viewModel.setSearchQuery("")
+    }
+
     Scaffold(
         topBar = {
             if (isSelectionMode) {

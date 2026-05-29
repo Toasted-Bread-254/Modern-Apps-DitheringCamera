@@ -83,7 +83,13 @@ fun NotePage(
     }
 
     BackHandler(enabled = showSearchBar) {
-        showSearchBar = false
+        if (searchText.isNotEmpty()) {
+            // Non-empty search field: clear the text first instead of closing the bar.
+            searchText = ""
+            searchIndex = 0
+        } else {
+            showSearchBar = false
+        }
     }
 
     LaunchedEffect(showSearchBar) {

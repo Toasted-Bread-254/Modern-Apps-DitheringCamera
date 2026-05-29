@@ -525,9 +525,12 @@ fun MessageListScreen(
     androidx.activity.compose.BackHandler(enabled = isSearching || selectedUids.isNotEmpty()) {
         if (selectedUids.isNotEmpty()) {
             viewModel.clearSelection()
-        } else {
-            isSearching = false
+        } else if (searchQuery.isNotEmpty()) {
+            // Non-empty search bar: first back press just clears the text.
             viewModel.setSearchQuery("")
+        } else {
+            // Already empty: collapse the search bar.
+            isSearching = false
         }
     }
 
