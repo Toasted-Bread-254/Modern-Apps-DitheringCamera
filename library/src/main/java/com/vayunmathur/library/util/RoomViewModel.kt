@@ -207,7 +207,7 @@ class DatabaseViewModel(val database: RoomDatabase, vararg daos: Pair<KClass<*>,
 
                 // 3. Clean up the observer when the UI stops listening
                 awaitClose { database.invalidationTracker.removeObserver(observer) }
-            }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
         } as StateFlow<List<E>>
     }
 
