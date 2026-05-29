@@ -53,15 +53,15 @@ class GalleryViewModel(
     val selectedIds: StateFlow<Set<Long>> = _selectedIds.asStateFlow()
 
     val ocrCount: StateFlow<Int> = photoDao.getOCRCountFlow()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val ocrTargetCount: StateFlow<Int> = photoDao.getOCRTargetCountFlow()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     val isFeatureEnabled: StateFlow<Boolean> = dataStore.booleanFlow("image_understanding_enabled")
         .onStart { emit(dataStore.getBoolean("image_understanding_enabled", false)) }
         .stateIn(
             viewModelScope,
-            SharingStarted.Eagerly,
+            SharingStarted.WhileSubscribed(5_000),
             dataStore.getBoolean("image_understanding_enabled", false),
         )
 
