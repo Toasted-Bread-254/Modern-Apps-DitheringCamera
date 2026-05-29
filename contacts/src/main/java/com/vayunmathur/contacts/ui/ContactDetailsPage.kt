@@ -181,80 +181,101 @@ fun ContactDetailsPage(
                 )
             }
 
-            items(details.phoneNumbers, key = { it.id }) { phone ->
-                var showCallDropdown by remember { mutableStateOf(false) }
-                var showSmsDropdown by remember { mutableStateOf(false) }
-                val hasAlternativeApps = isSignalInstalled || isWhatsAppInstalled
+            if (details.phoneNumbers.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        details.phoneNumbers.forEachIndexed { index, phone ->
+                            var showCallDropdown by remember(phone.id) { mutableStateOf(false) }
+                            var showSmsDropdown by remember(phone.id) { mutableStateOf(false) }
+                            val hasAlternativeApps = isSignalInstalled || isWhatsAppInstalled
 
-                DetailItem(
-                    icon = painterResource(R.drawable.outline_call_24),
-                    data = formatPhoneNumber(phone.number),
-                    label = phone.typeString(context),
-                    trailingIcon = painterResource(R.drawable.outline_chat_24),
-                    onTrailingIconClick = {
-                        if (hasAlternativeApps) {
-                            showSmsDropdown = true
-                        } else {
-                            val intent = Intent(Intent.ACTION_SENDTO)
-                            intent.data = "sms:${phone.number}".toUri()
-                            context.startActivity(intent)
+                            DetailItem(
+                                icon = painterResource(R.drawable.outline_call_24),
+                                data = formatPhoneNumber(phone.number),
+                                label = phone.typeString(context),
+                                trailingIcon = painterResource(R.drawable.outline_chat_24),
+                                onTrailingIconClick = {
+                                    if (hasAlternativeApps) {
+                                        showSmsDropdown = true
+                                    } else {
+                                        val intent = Intent(Intent.ACTION_SENDTO)
+                                        intent.data = "sms:${phone.number}".toUri()
+                                        context.startActivity(intent)
+                                    }
+                                },
+                                onClick = {
+                                    if (hasAlternativeApps) {
+                                        showCallDropdown = true
+                                    } else {
+                                        val intent = Intent(Intent.ACTION_DIAL)
+                                        intent.data = "tel:${phone.number}".toUri()
+                                        context.startActivity(intent)
+                                    }
+                                },
+                                dropdownContent = {
+                                    CommunicationDropdown(
+                                        expanded = showCallDropdown,
+                                        onDismiss = { showCallDropdown = false },
+                                        number = phone.number,
+                                        type = CommunicationType.CALL,
+                                        isSignalInstalled = isSignalInstalled,
+                                        isWhatsAppInstalled = isWhatsAppInstalled
+                                    )
+                                },
+                                trailingDropdownContent = {
+                                    CommunicationDropdown(
+                                        expanded = showSmsDropdown,
+                                        onDismiss = { showSmsDropdown = false },
+                                        number = phone.number,
+                                        type = CommunicationType.SMS,
+                                        isSignalInstalled = isSignalInstalled,
+                                        isWhatsAppInstalled = isWhatsAppInstalled
+                                    )
+                                },
+                                shape = groupShape(index, details.phoneNumbers.size),
+                            )
                         }
-                    },
-                    onClick = {
-                        if (hasAlternativeApps) {
-                            showCallDropdown = true
-                        } else {
-                            val intent = Intent(Intent.ACTION_DIAL)
-                            intent.data = "tel:${phone.number}".toUri()
-                            context.startActivity(intent)
+                    }
+                }
+            }
+            if (details.emails.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        details.emails.forEachIndexed { index, email ->
+                            DetailItem(
+                                icon = painterResource(R.drawable.outline_mail_24),
+                                data = email.address,
+                                label = email.typeString(context),
+                                onClick = {
+                                    val intent = Intent(Intent.ACTION_SENDTO)
+                                    intent.data = "mailto:${email.address}".toUri()
+                                    context.startActivity(intent)
+                                },
+                                shape = groupShape(index, details.emails.size),
+                            )
                         }
-                    },
-                    dropdownContent = {
-                        CommunicationDropdown(
-                            expanded = showCallDropdown,
-                            onDismiss = { showCallDropdown = false },
-                            number = phone.number,
-                            type = CommunicationType.CALL,
-                            isSignalInstalled = isSignalInstalled,
-                            isWhatsAppInstalled = isWhatsAppInstalled
-                        )
-                    },
-                    trailingDropdownContent = {
-                        CommunicationDropdown(
-                            expanded = showSmsDropdown,
-                            onDismiss = { showSmsDropdown = false },
-                            number = phone.number,
-                            type = CommunicationType.SMS,
-                            isSignalInstalled = isSignalInstalled,
-                            isWhatsAppInstalled = isWhatsAppInstalled
-                        )
                     }
-                )
+                }
             }
-            items(details.emails, key = { it.id }) { email ->
-                DetailItem(
-                    icon = painterResource(R.drawable.outline_mail_24),
-                    data = email.address,
-                    label = email.typeString(context),
-                    onClick = {
-                        val intent = Intent(Intent.ACTION_SENDTO)
-                        intent.data = "mailto:${email.address}".toUri()
-                        context.startActivity(intent)
+            if (details.addresses.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        details.addresses.forEachIndexed { index, address ->
+                            DetailItem(
+                                icon = painterResource(R.drawable.outline_location_on_24),
+                                data = address.formattedAddress,
+                                label = address.typeString(context),
+                                trailingIcon = painterResource(R.drawable.outline_directions_24),
+                                onTrailingIconClick = {
+                                    val gmmIntentURI = "geo:0,0?q=${Uri.encode(address.formattedAddress)}".toUri()
+                                    val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentURI)
+                                    context.startActivity(mapIntent)
+                                },
+                                shape = groupShape(index, details.addresses.size),
+                            )
+                        }
                     }
-                )
-            }
-            items(details.addresses, key = { it.id }) { address ->
-                DetailItem(
-                    icon = painterResource(R.drawable.outline_location_on_24),
-                    data = address.formattedAddress,
-                    label = address.typeString(context),
-                    trailingIcon = painterResource(R.drawable.outline_directions_24),
-                    onTrailingIconClick = {
-                        val gmmIntentURI = "geo:0,0?q=${Uri.encode(address.formattedAddress)}".toUri()
-                        val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentURI)
-                        context.startActivity(mapIntent)
-                    }
-                )
+                }
             }
 
             if(details.dates.isNotEmpty()) {
@@ -475,10 +496,16 @@ fun DetailItem(
     onTrailingIconClick: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     dropdownContent: (@Composable () -> Unit)? = null,
-    trailingDropdownContent: (@Composable () -> Unit)? = null
+    trailingDropdownContent: (@Composable () -> Unit)? = null,
+    /**
+     * Outer shape of the card. Pass [groupShape] when this item is part of a
+     * vertically stacked sibling group so corners between siblings are
+     * squared off while the group's outer corners stay rounded.
+     */
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(16.dp),
 ) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = shape,
         color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier
             .fillMaxWidth()
@@ -509,6 +536,35 @@ fun DetailItem(
 }
 
 enum class CommunicationType { CALL, SMS }
+
+/**
+ * Outer shape for a card that sits at a given [index] inside a vertically
+ * stacked sibling group of [size] items. Outer corners (top of first item,
+ * bottom of last item) stay rounded at [outerRadius]; inner corners are
+ * flattened to [innerRadius] (≈ a small right-angle) so each card reads as a
+ * distinct row but the whole group still feels like one section.
+ *
+ * Pass [flatTop] / [flatBottom] when the group is visually attached to
+ * another card above/below — e.g. an expanded group header that bleeds into
+ * its contacts list — so the boundary corners between them stay flat.
+ */
+fun groupShape(
+    index: Int,
+    size: Int,
+    outerRadius: androidx.compose.ui.unit.Dp = 16.dp,
+    innerRadius: androidx.compose.ui.unit.Dp = 4.dp,
+    flatTop: Boolean = false,
+    flatBottom: Boolean = false,
+): androidx.compose.ui.graphics.Shape {
+    val isFirst = index == 0 && !flatTop
+    val isLast = index == size - 1 && !flatBottom
+    return RoundedCornerShape(
+        topStart = if (isFirst) outerRadius else innerRadius,
+        topEnd = if (isFirst) outerRadius else innerRadius,
+        bottomStart = if (isLast) outerRadius else innerRadius,
+        bottomEnd = if (isLast) outerRadius else innerRadius,
+    )
+}
 
 @Composable
 fun CommunicationDropdown(

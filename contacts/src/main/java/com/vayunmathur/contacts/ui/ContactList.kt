@@ -243,33 +243,31 @@ fun ContactList(
                 if (favorites.isNotEmpty()) {
                     item(key = "favorites-header") { FavoritesHeader() }
                     item(key = "favorites-card") {
-                        ContactSectionCard {
-                            favorites.forEachIndexed { idx, contact ->
-                                if (idx > 0) ContactRowDivider()
-                                ContactItem(
-                                    contact = contact,
-                                    isSelected = if (isSelectionMode) contact.id in selectedIds else selectedID == contact.id,
-                                    showAccountLabels = showAccountLabels,
-                                    viewModel = viewModel,
-                                    embeddedInCard = true,
-                                    onClick = {
-                                        if (isSelectionMode) {
-                                            if (contact.id in selectedIds) {
-                                                selectedIds.remove(contact.id)
-                                            } else {
-                                                selectedIds.add(contact.id)
-                                            }
+                        GroupedContactSection(count = favorites.size) { idx ->
+                            val contact = favorites[idx]
+                            ContactItem(
+                                contact = contact,
+                                isSelected = if (isSelectionMode) contact.id in selectedIds else selectedID == contact.id,
+                                showAccountLabels = showAccountLabels,
+                                viewModel = viewModel,
+                                embeddedInCard = true,
+                                onClick = {
+                                    if (isSelectionMode) {
+                                        if (contact.id in selectedIds) {
+                                            selectedIds.remove(contact.id)
                                         } else {
-                                            onContactClick(contact)
-                                        }
-                                    },
-                                    onLongClick = {
-                                        if (!isSelectionMode) {
                                             selectedIds.add(contact.id)
                                         }
+                                    } else {
+                                        onContactClick(contact)
                                     }
-                                )
-                            }
+                                },
+                                onLongClick = {
+                                    if (!isSelectionMode) {
+                                        selectedIds.add(contact.id)
+                                    }
+                                }
+                            )
                         }
                     }
                 }
@@ -277,33 +275,31 @@ fun ContactList(
                 groupedContacts.forEach { (letter, contactsInGroup) ->
                     item(key = "letter-header-$letter") { LetterHeader(letter) }
                     item(key = "letter-card-$letter") {
-                        ContactSectionCard {
-                            contactsInGroup.forEachIndexed { idx, contact ->
-                                if (idx > 0) ContactRowDivider()
-                                ContactItem(
-                                    contact = contact,
-                                    isSelected = if (isSelectionMode) contact.id in selectedIds else selectedID == contact.id,
-                                    showAccountLabels = showAccountLabels,
-                                    viewModel = viewModel,
-                                    embeddedInCard = true,
-                                    onClick = {
-                                        if (isSelectionMode) {
-                                            if (contact.id in selectedIds) {
-                                                selectedIds.remove(contact.id)
-                                            } else {
-                                                selectedIds.add(contact.id)
-                                            }
+                        GroupedContactSection(count = contactsInGroup.size) { idx ->
+                            val contact = contactsInGroup[idx]
+                            ContactItem(
+                                contact = contact,
+                                isSelected = if (isSelectionMode) contact.id in selectedIds else selectedID == contact.id,
+                                showAccountLabels = showAccountLabels,
+                                viewModel = viewModel,
+                                embeddedInCard = true,
+                                onClick = {
+                                    if (isSelectionMode) {
+                                        if (contact.id in selectedIds) {
+                                            selectedIds.remove(contact.id)
                                         } else {
-                                            onContactClick(contact)
-                                        }
-                                    },
-                                    onLongClick = {
-                                        if (!isSelectionMode) {
                                             selectedIds.add(contact.id)
                                         }
+                                    } else {
+                                        onContactClick(contact)
                                     }
-                                )
-                            }
+                                },
+                                onLongClick = {
+                                    if (!isSelectionMode) {
+                                        selectedIds.add(contact.id)
+                                    }
+                                }
+                            )
                         }
                     }
                 }
@@ -333,11 +329,8 @@ fun ContactListPick(mimeType: String?, contacts: List<Contact>, onClick: (Uri) -
             if (favorites.isNotEmpty()) {
                 item(key = "pick-favorites-header") { FavoritesHeader() }
                 item(key = "pick-favorites-card") {
-                    ContactSectionCard {
-                        favorites.forEachIndexed { idx, contact ->
-                            if (idx > 0) ContactRowDivider()
-                            ContactItemPick(contact, mimeType, onClick)
-                        }
+                    GroupedContactSection(count = favorites.size) { idx ->
+                        ContactItemPick(favorites[idx], mimeType, onClick)
                     }
                 }
             }
@@ -345,11 +338,8 @@ fun ContactListPick(mimeType: String?, contacts: List<Contact>, onClick: (Uri) -
             groupedContacts.forEach { (letter, contactsInGroup) ->
                 item(key = "pick-letter-header-$letter") { LetterHeader(letter) }
                 item(key = "pick-letter-card-$letter") {
-                    ContactSectionCard {
-                        contactsInGroup.forEachIndexed { idx, contact ->
-                            if (idx > 0) ContactRowDivider()
-                            ContactItemPick(contact, mimeType, onClick)
-                        }
+                    GroupedContactSection(count = contactsInGroup.size) { idx ->
+                        ContactItemPick(contactsInGroup[idx], mimeType, onClick)
                     }
                 }
             }
@@ -480,6 +470,34 @@ fun ContactSectionCard(
         color = containerColor,
     ) {
         Column { content() }
+    }
+}
+
+/**
+ * Grouped-cards pattern: each row is its own rounded [Surface], but the
+ * corners that meet a sibling in the same group are flattened so the group
+ * reads as one section while remaining visually distinct cards. Mirrors what
+ * [DetailItem]+[groupShape] does on the contact details page.
+ *
+ * [row] should render a flat row (e.g. [ContactItem] with `embeddedInCard =
+ * true`) — the outer Surface handles the background and clipping.
+ */
+@Composable
+fun GroupedContactSection(
+    count: Int,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+    topAttached: Boolean = false,
+    row: @Composable (index: Int) -> Unit,
+) {
+    if (count == 0) return
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        for (i in 0 until count) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = groupShape(i, count, flatTop = topAttached && i == 0),
+                color = containerColor,
+            ) { row(i) }
+        }
     }
 }
 

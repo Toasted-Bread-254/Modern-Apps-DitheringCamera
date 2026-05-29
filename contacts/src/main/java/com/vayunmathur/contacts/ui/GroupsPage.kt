@@ -1,5 +1,8 @@
 package com.vayunmathur.contacts.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -58,82 +61,107 @@ fun GroupsPage(viewModel: ContactViewModel, backStack: NavBackStack<Route>, expa
         ) {
             groups.forEach { group ->
                 val isExpanded = group.id in expandedGroups
-                // Each group has its own item key. The contacts card (when
-                // expanded) is a separate item so its insertion animates.
-                item(key = "group-header-${group.id}") {
-                    // Collect the count here too — small flow, just one .size read.
+                // Combine each group's header + (optional) expanded contacts
+                // into ONE item so we can:
+                //   - share the same `getContactsForGroup` collect between
+                //     "show count" and "render rows",
+                //   - animate the header color + bottom-corner radius alongside
+                //     the contacts list's expand/collapse without the LazyColumn
+                //     swapping items underneath us mid-animation.
+                item(key = "group-${group.id}") {
                     val contactsInGroup by viewModel.getContactsForGroup(group.id).collectAsState(initial = emptyList())
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Spacer(Modifier.height(4.dp))
-                        ListItem(
-                            headlineContent = {
-                                Text(
-                                    text = group.name,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Medium
-                                )
+                    val attachContacts = isExpanded && contactsInGroup.isNotEmpty()
+
+                    val collapsedColor = MaterialTheme.colorScheme.surfaceVariant
+                    val expandedColor = MaterialTheme.colorScheme.secondaryContainer
+                    val headerColor by animateColorAsState(
+                        targetValue = if (attachContacts) expandedColor else collapsedColor,
+                        label = "groupHeaderColor",
+                    )
+                    val bottomRadius by animateDpAsState(
+                        targetValue = if (attachContacts) 4.dp else 16.dp,
+                        label = "groupHeaderBottomRadius",
+                    )
+                    val headerShape = RoundedCornerShape(
+                        topStart = 16.dp, topEnd = 16.dp,
+                        bottomStart = bottomRadius, bottomEnd = bottomRadius,
+                    )
+
+                    Column {
+                        Surface(
+                            onClick = {
+                                if (isExpanded) {
+                                    expandedGroups.remove(group.id)
+                                } else {
+                                    expandedGroups.add(group.id)
+                                }
                             },
-                            supportingContent = {
-                                Text("${contactsInGroup.size} contacts")
-                            },
-                            leadingContent = {
-                                Box(
-                                    modifier = Modifier
-                                        .size(50.dp)
-                                        .background(
-                                            color = getAvatarColor(group.id),
-                                            shape = CircleShape
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.baseline_group_24),
-                                        contentDescription = null,
-                                        tint = Color.White
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = headerShape,
+                            color = headerColor,
+                        ) {
+                            ListItem(
+                                headlineContent = {
+                                    Text(
+                                        text = group.name,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Medium
                                     )
-                                }
-                            },
-                            trailingContent = {
-                                IconButton(onClick = { viewModel.deleteGroup(group.id) }) {
-                                    IconDelete()
-                                }
-                            },
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
-                                .clickable {
-                                    if (isExpanded) {
-                                        expandedGroups.remove(group.id)
-                                    } else {
-                                        expandedGroups.add(group.id)
+                                },
+                                supportingContent = {
+                                    Text("${contactsInGroup.size} contacts")
+                                },
+                                leadingContent = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(50.dp)
+                                            .background(
+                                                color = getAvatarColor(group.id),
+                                                shape = CircleShape
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.baseline_group_24),
+                                            contentDescription = null,
+                                            tint = Color.White
+                                        )
                                     }
                                 },
-                            colors = ListItemDefaults.colors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        )
-                    }
-                }
-
-                if (isExpanded) {
-                    item(key = "group-contacts-${group.id}") {
-                        val contactsInGroup by viewModel.getContactsForGroup(group.id).collectAsState(initial = emptyList())
-                        // Different background colour from the group header so
-                        // the relationship is obvious without indentation.
-                        ContactSectionCard(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                        ) {
-                            contactsInGroup.forEachIndexed { idx, contact ->
-                                if (idx > 0) ContactRowDivider()
-                                ContactItem(
-                                    contact = contact,
-                                    isSelected = false,
-                                    showAccountLabels = false,
-                                    viewModel = viewModel,
-                                    embeddedInCard = true,
-                                    onClick = {
-                                        backStack.add(Route.ContactDetail(contact.id))
+                                trailingContent = {
+                                    IconButton(onClick = { viewModel.deleteGroup(group.id) }) {
+                                        IconDelete()
                                     }
-                                )
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            )
+                        }
+
+                        // Animate the contacts list expanding/collapsing in
+                        // sync with the header's shape+color animation. The
+                        // 2dp gap is part of the visible block so it appears
+                        // and disappears with the list rather than leaving a
+                        // gap when collapsed.
+                        AnimatedVisibility(visible = attachContacts) {
+                            Column {
+                                Spacer(Modifier.height(2.dp))
+                                GroupedContactSection(
+                                    count = contactsInGroup.size,
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    topAttached = true,
+                                ) { idx ->
+                                    val contact = contactsInGroup[idx]
+                                    ContactItem(
+                                        contact = contact,
+                                        isSelected = false,
+                                        showAccountLabels = false,
+                                        viewModel = viewModel,
+                                        embeddedInCard = true,
+                                        onClick = {
+                                            backStack.add(Route.ContactDetail(contact.id))
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
