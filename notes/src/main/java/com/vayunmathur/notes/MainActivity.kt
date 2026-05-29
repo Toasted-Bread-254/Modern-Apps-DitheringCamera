@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.vayunmathur.library.ui.DynamicTheme
-import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.library.util.IntentHelper
 import com.vayunmathur.library.util.ListDetailPage
 import com.vayunmathur.library.util.ListPage
@@ -20,7 +19,7 @@ import com.vayunmathur.library.util.NavKey
 import com.vayunmathur.library.util.buildDatabase
 import com.vayunmathur.library.util.onFileDrop
 import com.vayunmathur.library.util.rememberNavBackStack
-import com.vayunmathur.notes.data.Note
+import com.vayunmathur.notes.data.NoteDao
 import com.vayunmathur.notes.data.NoteDatabase
 import com.vayunmathur.notes.ui.NotePage
 import com.vayunmathur.notes.ui.NotesListPage
@@ -29,16 +28,16 @@ import com.vayunmathur.notes.util.NotesViewModelFactory
 import kotlinx.serialization.Serializable
 
 class MainActivity : ComponentActivity() {
-    private lateinit var viewModel: DatabaseViewModel
+    private lateinit var noteDao: NoteDao
     private val notesViewModel: NotesViewModel by viewModels {
-        NotesViewModelFactory(application, viewModel)
+        NotesViewModelFactory(application, noteDao)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val db = buildDatabase<NoteDatabase>(dbName = "notes-db")
-        viewModel = DatabaseViewModel(db, Note::class to db.noteDao())
+        noteDao = db.noteDao()
 
         handleIntent(intent)
 
@@ -47,7 +46,7 @@ class MainActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize().onFileDrop { uris ->
                     notesViewModel.importFiles(uris)
                 }) {
-                    Navigation(viewModel, notesViewModel)
+                    Navigation(notesViewModel)
                 }
             }
         }
@@ -77,14 +76,14 @@ sealed interface Route: NavKey {
 }
 
 @Composable
-fun Navigation(viewModel: DatabaseViewModel, notesViewModel: NotesViewModel) {
+fun Navigation(notesViewModel: NotesViewModel) {
     val backStack = rememberNavBackStack<Route>(Route.NotesList)
     MainNavigation(backStack) {
         entry<Route.NotesList>(metadata = ListPage()) {
-            NotesListPage(backStack, viewModel)
+            NotesListPage(backStack, notesViewModel)
         }
         entry<Route.Note>(metadata = ListDetailPage()) {
-            NotePage(backStack, viewModel, notesViewModel, it.id)
+            NotePage(backStack, notesViewModel, it.id)
         }
     }
 }

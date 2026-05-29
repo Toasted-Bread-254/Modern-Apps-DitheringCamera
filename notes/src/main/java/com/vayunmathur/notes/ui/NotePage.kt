@@ -51,7 +51,6 @@ import com.vayunmathur.library.ui.IconNavigation
 import com.vayunmathur.library.ui.IconSearch
 import com.vayunmathur.library.ui.IconShare
 import com.vayunmathur.library.ui.IconVisible
-import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.R as LibraryR
 import com.vayunmathur.notes.Route
@@ -62,11 +61,10 @@ import com.vayunmathur.notes.util.NotesViewModel
 @Composable
 fun NotePage(
     backStack: NavBackStack<Route>,
-    viewModel: DatabaseViewModel,
     notesViewModel: NotesViewModel,
     noteID: Long,
 ) {
-    var note by viewModel.getEditable<Note>(noteID) { Note(0, "", "") }
+    var note by notesViewModel.editableNote(noteID) { Note(0, "", "") }
 
     if (noteID != 0L && note.id == 0L) return
 
@@ -163,7 +161,7 @@ fun NotePage(
                     IconShare()
                 }
                 IconButton(onClick = {
-                    viewModel.delete(note)
+                    notesViewModel.delete(note)
                     backStack.pop()
                 }) {
                     IconDelete()

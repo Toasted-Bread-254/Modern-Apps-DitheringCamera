@@ -3,20 +3,32 @@ package com.vayunmathur.notes.util
 import android.app.Application
 import android.net.Uri
 import android.util.Log
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.AnnotatedString
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.library.util.IntentHelper
 import com.vayunmathur.library.util.parseMarkdown
 import com.vayunmathur.notes.data.Note
+import com.vayunmathur.notes.data.NoteDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -25,22 +37,76 @@ import java.io.File
  * ViewModel for the Notes app.
  *
  * Owns:
+ *  - the notes [StateFlow] (collected by screens)
+ *  - DB write helpers (upsert / delete / upsertAll) that dispatch on IO
+ *  - per-note editable state for the editor screen
  *  - file import / drop handling (content-resolver + DB upsert)
  *  - share-URI generation (cache file write + FileProvider URI)
  *  - parsed-markdown cache (process-wide, keyed by content + search context)
- *
- * The shared [DatabaseViewModel] is injected so this VM can persist imported notes
- * without leaking Compose state. Composables continue to use [DatabaseViewModel.getEditable]
- * for per-note editing.
  */
 class NotesViewModel(
     application: Application,
-    private val databaseViewModel: DatabaseViewModel,
+    private val noteDao: NoteDao,
 ) : AndroidViewModel(application) {
 
-    private val _shareUris = MutableSharedFlow<Uri>(extraBufferCapacity = 1)
-    /** Emits a URI for a share intent each time [requestShare] completes. */
-    val shareUris: SharedFlow<Uri> = _shareUris.asSharedFlow()
+    val notes: StateFlow<List<Note>> = noteDao.getAllFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun upsert(note: Note) {
+        viewModelScope.launch(Dispatchers.IO) { noteDao.upsert(note) }
+    }
+
+    fun delete(note: Note) {
+        viewModelScope.launch(Dispatchers.IO) { noteDao.delete(note) }
+    }
+
+    fun upsertAll(notes: List<Note>) {
+        viewModelScope.launch(Dispatchers.IO) { noteDao.upsertAll(notes) }
+    }
+
+    /**
+     * Returns a [MutableState] backed by the DB row with the given id.
+     *
+     * On set, the new value is optimistically published locally and pushed to
+     * the database off-thread. If [initialId] was 0L (a new row), the id is
+     * updated after the first upsert returns so subsequent edits target the
+     * same row.
+     */
+    @Composable
+    fun editableNote(initialId: Long, default: () -> Note): MutableState<Note> {
+        var currentId by remember { mutableLongStateOf(initialId) }
+
+        val noteFlow = remember(currentId) { noteDao.getByIdFlow(currentId) }
+        val dbNote by noteFlow.collectAsState(initial = null)
+
+        val localState = remember { mutableStateOf<Note?>(null) }
+
+        LaunchedEffect(dbNote, currentId) {
+            val item = dbNote
+            if (item != null) {
+                localState.value = item
+            }
+        }
+
+        return remember {
+            object : MutableState<Note> {
+                override var value: Note
+                    get() = localState.value ?: default()
+                    set(newValue) {
+                        localState.value = newValue
+                        viewModelScope.launch(Dispatchers.IO) {
+                            val newId = noteDao.upsert(newValue)
+                            if (currentId == 0L) {
+                                currentId = newId
+                            }
+                        }
+                    }
+
+                override fun component1(): Note = value
+                override fun component2(): (Note) -> Unit = { value = it }
+            }
+        }
+    }
 
     private data class ParsedKey(
         val content: String,
@@ -95,10 +161,13 @@ class NotesViewModel(
         return count
     }
 
+    private val _shareUris = MutableSharedFlow<Uri>(extraBufferCapacity = 1)
+    /** Emits a URI for a share intent each time [requestShare] completes. */
+    val shareUris: SharedFlow<Uri> = _shareUris.asSharedFlow()
+
     /**
-     * Reads each [uri] off the main thread and upserts it as a new [Note] via
-     * the shared [DatabaseViewModel]. Errors are logged per-file and do not
-     * abort the batch.
+     * Reads each [uris] entry off the main thread and upserts it as a new [Note]
+     * via [noteDao]. Errors are logged per-file and do not abort the batch.
      */
     fun importFiles(uris: List<Uri>) {
         if (uris.isEmpty()) return
@@ -110,7 +179,7 @@ class NotesViewModel(
                         ?.bufferedReader()?.use { it.readText() }
                     if (content != null) {
                         val name = IntentHelper.getFileName(ctx, uri) ?: "Imported Note"
-                        databaseViewModel.upsertAsync(Note(0, name, content))
+                        noteDao.upsert(Note(0, name, content))
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error importing file: $uri", e)
@@ -147,16 +216,16 @@ class NotesViewModel(
     }
 }
 
-/** Factory for constructing [NotesViewModel] with the shared [DatabaseViewModel]. */
+/** Factory for constructing [NotesViewModel] with the [NoteDao]. */
 class NotesViewModelFactory(
     private val application: Application,
-    private val databaseViewModel: DatabaseViewModel,
+    private val noteDao: NoteDao,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         require(modelClass.isAssignableFrom(NotesViewModel::class.java)) {
             "Unexpected ViewModel class: $modelClass"
         }
-        return NotesViewModel(application, databaseViewModel) as T
+        return NotesViewModel(application, noteDao) as T
     }
 }
