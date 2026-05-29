@@ -55,6 +55,13 @@ fun AddAccountScreen(
     var selectedProviderId by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedProvider = selectedProviderId?.let { id -> PROVIDER_PRESETS.firstOrNull { it.id == id } }
 
+    // System back: if a provider is selected, first press returns to the
+    // picker; only after deselecting does back propagate up to whatever
+    // `onBack` does (pop nav stack, exit app, etc.).
+    androidx.activity.compose.BackHandler(enabled = selectedProvider != null) {
+        selectedProviderId = null
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
