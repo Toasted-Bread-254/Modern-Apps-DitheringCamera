@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.vayunmathur.library.util.NavBackStack
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.vayunmathur.library.util.BottomNavBar
 import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.youpipe.MAIN_BOTTOM_BAR_ITEMS
@@ -111,7 +112,10 @@ fun ChannelItem(backStack: NavBackStack<Route>, channelInfo: ChannelInfo) {
         Text(stringResource(R.string.subscribers_count, countString(context, channelInfo.subscribers)))
     }, {
         AsyncImage(
-            model = channelInfo.avatar,
+            model = ImageRequest.Builder(context)
+                .data(channelInfo.avatar)
+                .memoryCacheKey("channel-avatar-${'$'}{channelInfo.channelID}")
+                .build(),
             contentDescription = null,
             Modifier.size(50.dp).clip(CircleShape)
         )

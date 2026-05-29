@@ -30,6 +30,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.res.stringResource
 import com.vayunmathur.library.util.NavBackStack
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.youpipe.R
 import com.vayunmathur.youpipe.Route
@@ -49,6 +50,7 @@ fun CreateSubscriptionCategory(backStack: NavBackStack<Route>, viewModel: Databa
     val subscriptionsAlreadyInCategory = categories.filter { it.category == categoryName }.map { it.subscriptionID }.map { id -> subscriptions.first { it.id == id } }
     var selectedSubscriptions by remember { mutableStateOf(subscriptionsAlreadyInCategory) }
     val coroutineScope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
     Dialog({backStack.pop()}) {
         Card {
             Column(Modifier.padding(16.dp)) {
@@ -73,7 +75,10 @@ fun CreateSubscriptionCategory(backStack: NavBackStack<Route>, viewModel: Databa
                             })
                         }, leadingContent = {
                             AsyncImage(
-                                model = subscription.avatarURL,
+                                model = ImageRequest.Builder(context)
+                                    .data(subscription.avatarURL)
+                                    .memoryCacheKey("sub-avatar-${'$'}{subscription.id}")
+                                    .build(),
                                 contentDescription = null,
                                 Modifier.size(24.dp).clip(CircleShape)
                             )

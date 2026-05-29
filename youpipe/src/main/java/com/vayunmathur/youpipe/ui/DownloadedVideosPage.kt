@@ -40,6 +40,7 @@ import com.vayunmathur.youpipe.Route
 import com.vayunmathur.youpipe.data.DownloadedVideo
 import com.vayunmathur.youpipe.util.DownloadManager
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 
@@ -114,7 +115,10 @@ fun DownloadedVideosPage(backStack: NavBackStack<Route>, viewModel: DatabaseView
                         modifier = Modifier.weight(1f),
                         leadingContent = {
                             AsyncImage(
-                                model = status.videoInfo.thumbnailURL,
+                                model = ImageRequest.Builder(context)
+                                    .data(status.videoInfo.thumbnailURL)
+                                    .memoryCacheKey("dl-thumb-${'$'}{status.id}")
+                                    .build(),
                                 contentDescription = null,
                                 modifier = Modifier.size(80.dp, 45.dp).clip(RoundedCornerShape(8.dp)),
                             )

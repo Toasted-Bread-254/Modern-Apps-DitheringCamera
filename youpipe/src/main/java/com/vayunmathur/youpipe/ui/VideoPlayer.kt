@@ -71,6 +71,7 @@ import androidx.media3.ui.compose.PlayerSurface
 import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
 import androidx.media3.ui.compose.material3.buttons.PlayPauseButton
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.google.common.util.concurrent.MoreExecutors
 import com.vayunmathur.library.ui.IconClose
 import com.vayunmathur.library.util.DatabaseViewModel
@@ -467,7 +468,10 @@ fun VideoPlayer(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 AsyncImage(
-                                    model = chapter.previewURL,
+                                    model = ImageRequest.Builder(context)
+                                        .data(chapter.previewURL)
+                                        .memoryCacheKey("chapter-${'$'}{chapter.time}")
+                                        .build(),
                                     contentDescription = null,
                                     modifier = Modifier.width(120.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(4.dp)).background(Color.DarkGray),
                                     contentScale = ContentScale.Crop

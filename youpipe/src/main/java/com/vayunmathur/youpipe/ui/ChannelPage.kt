@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.text.HtmlCompat
 import com.vayunmathur.library.util.NavBackStack
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.vayunmathur.library.ui.invisibleClickable
 import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.youpipe.R
@@ -133,7 +134,10 @@ fun VideoItem(
         Box(Modifier.weight(1f)) {
             Box(Modifier.padding(start = 8.dp, top = 8.dp, bottom = 8.dp).clip(RoundedCornerShape(12.dp))) {
                 AsyncImage(
-                    model = videoInfo.thumbnailURL,
+                    model = ImageRequest.Builder(context)
+                        .data(videoInfo.thumbnailURL)
+                        .memoryCacheKey("video-thumb-${'$'}{videoInfo.videoID}")
+                        .build(),
                     contentDescription = null,
                     Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                 )
@@ -176,7 +180,10 @@ fun ChannelHeader(channelInfo: ChannelInfo) {
         Text(stringResource(R.string.channel_info, countString(context, channelInfo.subscribers), channelInfo.videos))
     }, {
         AsyncImage(
-            model = channelInfo.avatar,
+            model = ImageRequest.Builder(context)
+                .data(channelInfo.avatar)
+                .memoryCacheKey("channel-avatar-${'$'}{channelInfo.channelID}")
+                .build(),
             contentDescription = null,
             Modifier.size(52.dp).clip(CircleShape)
         )

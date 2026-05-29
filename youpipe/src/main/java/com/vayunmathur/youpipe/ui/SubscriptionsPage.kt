@@ -23,6 +23,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.text.HtmlCompat
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.vayunmathur.library.ui.IconAdd
 import com.vayunmathur.library.ui.IconEdit
 import com.vayunmathur.library.util.BottomNavBar
@@ -46,6 +47,7 @@ fun SubscriptionsPage(
     val subscriptionCategoryPairs by viewModel.data<SubscriptionCategory>().collectAsState()
     val categories = subscriptionCategoryPairs.map { it.category }.distinct()
     val fetchProgress by ypvm.fetchProgress.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Scaffold(topBar = {
         TopAppBar({ Text(stringResource(R.string.title_subscriptions)) })
@@ -106,7 +108,10 @@ fun SubscriptionsPage(
                     backStack.add(Route.ChannelPage(it.channelID))
                 }, {}, {}, {
                     AsyncImage(
-                        model = it.avatarURL,
+                        model = ImageRequest.Builder(context)
+                            .data(it.avatarURL)
+                            .memoryCacheKey("sub-avatar-${'$'}{it.id}")
+                            .build(),
                         contentDescription = null,
                         Modifier.size(24.dp).clip(CircleShape)
                     )

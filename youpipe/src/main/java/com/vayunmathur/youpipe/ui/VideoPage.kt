@@ -61,6 +61,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.vayunmathur.library.util.NavBackStack
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.vayunmathur.library.util.DatabaseViewModel
 import com.vayunmathur.library.util.round
 import com.vayunmathur.youpipe.data.DownloadedVideo
@@ -380,7 +381,10 @@ fun VideoDetails(
             Text(stringResource(R.string.video_info_format, videoData.author, countString(context, videoData.views), uploadTimeAgo(context, videoData.uploadDate)))
         }, {
             AsyncImage(
-                model = videoData.authorThumbnail,
+                model = ImageRequest.Builder(context)
+                    .data(videoData.authorThumbnail)
+                    .memoryCacheKey("author-thumb-${'$'}{videoData.authorURL}")
+                    .build(),
                 contentDescription = null,
                 Modifier.size(32.dp).clip(CircleShape).clickable{
                     backStack.add(Route.ChannelPage(videoData.authorURL))
