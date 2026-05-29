@@ -1,5 +1,6 @@
 package com.vayunmathur.email
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import kotlinx.serialization.Serializable
@@ -65,17 +66,31 @@ data class EmailAccount(
      * `custom`. Used to (a) skip Gmail-only behaviour (virtual folder filtering,
      * OAuth token refresh) for non-Gmail accounts, and (b) display the provider
      * name in account-picker UIs.
+     *
+     * `@ColumnInfo(defaultValue = ...)` is required so the schema generated
+     * from this entity matches `MIGRATION_6_7`, which `ALTER TABLE`s these
+     * columns in with a SQL default. Without it Room would throw
+     * `IllegalStateException: Migration didn't properly handle: EmailAccount`
+     * at startup for users upgrading from v6.
      */
+    @ColumnInfo(defaultValue = "gmail")
     val provider: String = "gmail",
     /** IMAP hostname this account fetches from. Hard-coded to Gmail's pre-multi-provider migration. */
+    @ColumnInfo(defaultValue = "imap.gmail.com")
     val imapHost: String = "imap.gmail.com",
+    @ColumnInfo(defaultValue = "993")
     val imapPort: Int = 993,
     /** true = implicit SSL/TLS on connect, false = plaintext + STARTTLS upgrade. */
+    @ColumnInfo(defaultValue = "1")
     val imapUseSsl: Boolean = true,
+    @ColumnInfo(defaultValue = "smtp.gmail.com")
     val smtpHost: String = "smtp.gmail.com",
+    @ColumnInfo(defaultValue = "465")
     val smtpPort: Int = 465,
+    @ColumnInfo(defaultValue = "1")
     val smtpUseSsl: Boolean = true,
     /** `oauth2` (Google) or `password` (app passwords / IMAP+SMTP). */
+    @ColumnInfo(defaultValue = "oauth2")
     val authType: String = "oauth2",
     /** AES-256-GCM ciphertext of the app password — null for OAuth2 accounts. */
     val passwordEncrypted: ByteArray? = null,
