@@ -303,11 +303,13 @@ fun ContactList(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ContactListPick(mimeType: String?, contacts: List<Contact>, onClick: (Uri) -> Unit) {
-    val (favorites, otherContacts) = contacts.partition { it.isFavorite }
+    val (favorites, otherContacts) = remember(contacts) { contacts.partition { it.isFavorite } }
 
-    val groupedContacts = otherContacts
-        .groupBy { it.name.value.first().uppercaseChar() }
-        .toSortedMap()
+    val groupedContacts = remember(otherContacts) {
+        otherContacts
+            .groupBy { it.name.value.first().uppercaseChar() }
+            .toSortedMap()
+    }
 
     Scaffold(topBar = { TopAppBar({ Text(stringResource(R.string.app_name)) }) }) { paddingValues ->
         LazyColumn(
