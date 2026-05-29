@@ -73,8 +73,7 @@ abstract class ContactDatabase : RoomDatabase() {
                     context.applicationContext,
                     ContactDatabase::class.java,
                     "contacts_database"
-                ).fallbackToDestructiveMigration()
-                    .build()
+                ).build()
                 INSTANCE = instance
                 instance
             }

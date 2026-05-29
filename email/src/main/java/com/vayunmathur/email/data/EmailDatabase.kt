@@ -78,9 +78,6 @@ abstract class EmailDatabase : RoomDatabase() {
                     "email-db"
                 )
                     .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
-                    // Last-resort: if a schema mismatch shows up that we don't have a
-                    // migration for, wipe rather than crash the app.
-                    .fallbackToDestructiveMigration()
                     .build().also { instance = it }
             }
         }
