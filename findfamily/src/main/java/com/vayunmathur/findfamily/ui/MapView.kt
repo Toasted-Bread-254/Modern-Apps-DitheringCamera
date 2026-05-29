@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.vayunmathur.findfamily.data.Coord
 import com.vayunmathur.findfamily.data.User
 import com.vayunmathur.findfamily.data.Waypoint
@@ -228,6 +229,7 @@ val ColorFilter.Companion.GrayScale: ColorFilter
 
 @Composable
 fun UserPicture(userPhoto: String?, firstChar: Char, size: Dp, grayscale: Boolean, onClick: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val modifier = Modifier.clip(CircleShape).size(size).border(2.dp, MaterialTheme.colorScheme.primary, CircleShape).invisibleClickable(onClick)
     if(userPhoto != null) {
         val userOutput: Any = if(userPhoto.startsWith("data")) {
@@ -235,7 +237,10 @@ fun UserPicture(userPhoto: String?, firstChar: Char, size: Dp, grayscale: Boolea
             Base64.UrlSafe.decode(cleanString)
         } else userPhoto
         AsyncImage(
-            userOutput,
+            ImageRequest.Builder(context)
+                .data(userOutput)
+                .memoryCacheKey("user-photo-${userPhoto.hashCode()}")
+                .build(),
             null,
             modifier,
             contentScale = ContentScale.FillWidth,
