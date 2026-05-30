@@ -11,6 +11,7 @@ android {
 
 dependencies {
     implementation(project(":library:network"))
+    implementation(project(":library:widgets"))
     implementation(libs.androidx.datastore.preferences)
     implementRoom(libs)
 }
