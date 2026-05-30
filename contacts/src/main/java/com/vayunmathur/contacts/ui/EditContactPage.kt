@@ -156,6 +156,7 @@ fun EditContactPage(backStack: NavBackStack<Route>, viewModel: ContactViewModel,
             if (isNewContact) {
                 AccountChooser(currentDraft.accountName, accounts) { name, type ->
                     viewModel.updateEditDraft { it.copy(accountName = name, accountType = type) }
+                    viewModel.setLastSelectedAccount(name, type)
                 }
                 Spacer(Modifier.height(16.dp))
             }

@@ -9,11 +9,18 @@ package com.vayunmathur.messages.data
  * keep their semantics ("msgs:<id>").
  */
 enum class MessageSource {
-    MESSAGES_WEB;
+    /** SMS conversations relayed through the user's phone via the
+     *  Google-Messages-for-Web pairing. */
+    MESSAGES_WEB,
+
+    /** Conversations on the user's Google Voice number, accessed via
+     *  cookie-based authentication against voice.google.com. */
+    VOICE;
 
     /** Prefix for compound primary keys (e.g. "msgs:<thread_id>"). */
     val idPrefix: String get() = when (this) {
         MESSAGES_WEB -> "msgs"
+        VOICE -> "voice"
     }
 }
 
