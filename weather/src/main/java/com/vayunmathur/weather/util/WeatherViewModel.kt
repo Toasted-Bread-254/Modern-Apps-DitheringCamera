@@ -43,7 +43,6 @@ class WeatherViewModel(
 ) : AndroidViewModel(application) {
 
     private val prefs = UnitsPrefs(application)
-    private val tilePrefs = TileOrderPrefs(application)
     private val json = Json { ignoreUnknownKeys = true }
 
     val tempUnit: StateFlow<TemperatureUnit> = prefs.tempUnit
@@ -51,9 +50,6 @@ class WeatherViewModel(
 
     val windUnit: StateFlow<WindUnit> = prefs.windUnit
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WindUnit.KmH)
-
-    val tileOrder: StateFlow<List<WeatherTile>> = tilePrefs.order
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeatherTile.entries.toList())
 
     val savedLocations: StateFlow<List<SavedLocation>> = dao.observeLocations()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -68,10 +64,6 @@ class WeatherViewModel(
 
     fun setWindUnit(unit: WindUnit) {
         viewModelScope.launch { prefs.setWindUnit(unit) }
-    }
-
-    fun setTileOrder(order: List<WeatherTile>) {
-        viewModelScope.launch { tilePrefs.setOrder(order) }
     }
 
     /**

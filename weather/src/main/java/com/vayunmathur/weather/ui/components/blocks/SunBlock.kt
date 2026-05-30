@@ -1,0 +1,135 @@
+package com.vayunmathur.weather.ui.components.blocks
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.dp
+import com.vayunmathur.weather.R
+import com.vayunmathur.weather.ui.components.WeatherIconBox
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.time.Instant
+
+/**
+ * Direct port of WeatherMaster's `SunBlock` minus the background SVG (we
+ * canvas-draw the arc directly). Square `extraLarge` surface with a curved
+ * sun-track arc + sun marker positioned by today's elapsed-daylight
+ * progress, and a translucent bottom panel with sunrise / sunset times.
+ */
+@Composable
+fun SunBlock(sunriseEpochSec: Long?, sunsetEpochSec: Long?) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = MaterialTheme.shapes.extraLarge,
+        shadowElevation = 2.dp,
+    ) {
+        Box(modifier = Modifier.fillMaxSize().aspectRatio(1f)) {
+            Box(Modifier.align(Alignment.TopStart)) {
+                BlockHeader(iconRes = R.drawable.outline_clear_day_24, title = "Sun")
+            }
+
+            val arcColor = MaterialTheme.colorScheme.tertiaryContainer
+            val sunColor = MaterialTheme.colorScheme.primary
+            val now = System.currentTimeMillis() / 1000
+
+            val progress: Float = if (sunriseEpochSec != null && sunsetEpochSec != null && sunsetEpochSec > sunriseEpochSec) {
+                ((now - sunriseEpochSec).toDouble() / (sunsetEpochSec - sunriseEpochSec))
+                    .coerceIn(0.0, 1.0).toFloat()
+            } else 0f
+
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
+                // Half-circle arc from the bottom edge.
+                val cx = w / 2f
+                val cy = h * 0.7f
+                val r = w * 0.35f
+                drawArc(
+                    color = arcColor,
+                    startAngle = 180f,
+                    sweepAngle = 180f,
+                    useCenter = false,
+                    topLeft = Offset(cx - r, cy - r),
+                    size = androidx.compose.ui.geometry.Size(r * 2, r * 2),
+                    style = Stroke(
+                        width = 3.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f)),
+                    ),
+                )
+                // Sun marker.
+                val theta = Math.toRadians(180 + 180.0 * progress)
+                val sx = (cx + r * cos(theta)).toFloat()
+                val sy = (cy + r * sin(theta)).toFloat()
+                drawCircle(color = sunColor, radius = 7.dp.toPx(), center = Offset(sx, sy))
+            }
+
+            // Bottom 40% panel with sunrise / sunset times.
+            Surface(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxHeight(0.4f).fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.5f),
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    HorizontalDivider(Modifier.align(Alignment.TopCenter))
+                    Column(
+                        Modifier.align(Alignment.Center),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        RiseSetTimeRow(
+                            text = sunriseEpochSec?.let { formatTime(it) } ?: "—",
+                            iconRes = R.drawable.outline_clear_day_24,
+                        )
+                        RiseSetTimeRow(
+                            text = sunsetEpochSec?.let { formatTime(it) } ?: "—",
+                            iconRes = R.drawable.outline_clear_night_24,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RiseSetTimeRow(text: String, iconRes: Int) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        WeatherIconBox(iconRes = iconRes, size = 18.dp, tint = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.width(5.dp))
+        Text(
+            text = text,
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.labelLarge,
+        )
+    }
+}
+
+private fun formatTime(epochSec: Long): String {
+    val ldt = Instant.fromEpochSeconds(epochSec).toLocalDateTime(TimeZone.currentSystemDefault())
+    val h = ldt.hour
+    val m = ldt.minute
+    val display = if (h % 12 == 0) 12 else h % 12
+    val ampm = if (h < 12) "AM" else "PM"
+    val mm = m.toString().padStart(2, '0')
+    return "$display:$mm $ampm"
+}

@@ -58,6 +58,9 @@ material3AdaptiveNavigationSuite = "1.4.0"
 maplibre = "0.13.0"
 foundation = "1.11.2"
 materialkolor = "4.1.1"
+protobuf = "4.28.3"
+protobufPlugin = "0.9.4"
+zxing = "3.5.3"
 
 [libraries]
 # AndroidX Core & Lifecycle
@@ -157,6 +160,9 @@ sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "s
 symbol-processing-gradle-plugin = { module = "com.google.devtools.ksp:symbol-processing-gradle-plugin", version.ref = "ksp" }
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "foundation" }
 materialkolor = { module = "com.materialkolor:material-kolor", version.ref = "materialkolor" }
+protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
+protobuf-protoc = { module = "com.google.protobuf:protoc", version.ref = "protobuf" }
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -165,3 +171,4 @@ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "ko
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 dependency-analysis = { id="com.autonomousapps.dependency-analysis", version.ref = "comAutonomousappsDependencyAnalysisGradlePlugin" }
+protobuf = { id = "com.google.protobuf", version.ref = "protobufPlugin" }

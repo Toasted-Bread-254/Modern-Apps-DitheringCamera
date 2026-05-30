@@ -1,0 +1,93 @@
+package com.vayunmathur.weather.ui.components.blocks
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import com.vayunmathur.weather.R
+import com.vayunmathur.weather.network.AirQualityCurrent
+
+/**
+ * Port of WeatherMaster's `AirQualityBlock`. Square `extraLarge` surface,
+ * header top-start, big right-aligned AQI value bottom-end, then a
+ * `LinearProgressIndicator` colored by AQI severity, then a level label.
+ */
+@Composable
+fun AirQualityBlock(air: AirQualityCurrent?) {
+    val aqi = air?.usAqi
+    val level = aqiLevel(aqi)
+    val progress = ((aqi ?: 0) / 500f).coerceIn(0f, 1f)
+
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = MaterialTheme.shapes.extraLarge,
+        shadowElevation = 2.dp,
+    ) {
+        Box(modifier = Modifier.fillMaxSize().aspectRatio(1f)) {
+            Box(Modifier.align(Alignment.TopStart)) {
+                BlockHeader(iconRes = R.drawable.outline_air_24, title = "Air quality")
+            }
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+            ) {
+                Text(
+                    text = aqi?.toString() ?: "—",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.End,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.displayMedium,
+                )
+                LinearProgressIndicator(
+                    progress = { progress },
+                    color = aqiColor(aqi),
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    modifier = Modifier.height(8.dp),
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = level,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.End,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+        }
+    }
+}
+
+private fun aqiLevel(aqi: Int?): String = when {
+    aqi == null -> "—"
+    aqi <= 50 -> "Good"
+    aqi <= 100 -> "Moderate"
+    aqi <= 150 -> "Unhealthy (sensitive)"
+    aqi <= 200 -> "Unhealthy"
+    aqi <= 300 -> "Very unhealthy"
+    else -> "Hazardous"
+}
+
+private fun aqiColor(aqi: Int?): Color = when {
+    aqi == null -> Color(0xFF9E9E9E)
+    aqi <= 50 -> Color(0xFF66BB6A)
+    aqi <= 100 -> Color(0xFFFFEB3B)
+    aqi <= 150 -> Color(0xFFFF9800)
+    aqi <= 200 -> Color(0xFFEF5350)
+    aqi <= 300 -> Color(0xFFAA00FF)
+    else -> Color(0xFF6A1B9A)
+}

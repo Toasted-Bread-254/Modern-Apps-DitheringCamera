@@ -12,7 +12,5 @@ android {
 dependencies {
     implementation(project(":library:network"))
     implementation(libs.androidx.datastore.preferences)
-    implementation(libs.materialkolor)
-    implementation(libs.reorderable)
     implementRoom(libs)
 }
