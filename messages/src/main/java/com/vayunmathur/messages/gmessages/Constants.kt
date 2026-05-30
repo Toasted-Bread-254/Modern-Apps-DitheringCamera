@@ -39,6 +39,11 @@ object Endpoints {
     const val ReceiveMessagesUrl = "$MessagingBase/ReceiveMessages"
     const val SendMessageUrl = "$MessagingBase/SendMessage"
     const val AckMessagesUrl = "$MessagingBase/AckMessages"
+
+    /** Used by [com.vayunmathur.messages.gmessages.Media] for the
+     *  resumable-upload + finalize media flow. The body is form-encoded
+     *  on START and raw on FINALIZE; both go to the same URL. */
+    const val UploadMediaUrl = "$ImBase/upload"
 }
 
 /** MIME types for the two wire encodings the relay accepts. */

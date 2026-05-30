@@ -36,6 +36,59 @@ class MessagesViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * Send an image (or other supported media) on [conversationId].
+     * The UI reads the URI into a byte array on the IO dispatcher (so
+     * we don't block the main thread on large attachments); the actual
+     * upload + send happens in the session manager.
+     */
+    fun sendMedia(
+        conversationId: String,
+        uri: android.net.Uri,
+        caption: String?,
+        onResult: (Boolean) -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            val (bytes, mime, fileName) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val cr = getApplication<Application>().contentResolver
+                val data = cr.openInputStream(uri)?.use { it.readBytes() }
+                val type = cr.getType(uri) ?: "application/octet-stream"
+                val name = uri.lastPathSegment ?: "attachment"
+                Triple(data, type, name)
+            }
+            if (bytes == null) {
+                onResult(false)
+                return@launch
+            }
+            val ok = MessagesSessionManager.sendMedia(
+                conversationId = conversationId,
+                bytes = bytes,
+                mime = mime,
+                fileName = fileName,
+                caption = caption,
+            )
+            onResult(ok)
+        }
+    }
+
+    fun sendReaction(messageId: String, emoji: String, action: ReactionAction) {
+        viewModelScope.launch {
+            MessagesSessionManager.sendReaction(messageId, emoji, action)
+        }
+    }
+
+    fun deleteConversation(conversationId: String, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            onResult(MessagesSessionManager.deleteConversation(conversationId))
+        }
+    }
+
+    fun sendTyping(conversationId: String) {
+        viewModelScope.launch {
+            MessagesSessionManager.sendTyping(conversationId)
+        }
+    }
+
     fun fetchMessages(conversationId: String) {
         MessagesSessionManager.fetchMessages(conversationId)
     }

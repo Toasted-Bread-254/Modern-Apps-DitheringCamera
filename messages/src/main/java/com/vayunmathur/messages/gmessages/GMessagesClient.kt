@@ -6,10 +6,27 @@ import client.Client.ListConversationsRequest
 import client.Client.ListConversationsResponse
 import client.Client.ListMessagesRequest
 import client.Client.ListMessagesResponse
+import client.Client.MessagePayload
+import client.Client.MessageReadRequest
+import client.Client.SendMessageRequest
+import client.Client.SendMessageResponse
+import client.Client.SendReactionRequest
+import client.Client.SendReactionResponse
+import client.Client.TypingUpdateRequest
+import client.Client.UpdateConversationRequest
+import client.Client.UpdateConversationResponse
+import client.Client.DeleteConversationData
+import client.Client.ConversationActionStatus
+import client.Client.DeleteMessageRequest
+import client.Client.DeleteMessageResponse
 import com.vayunmathur.messages.data.MessageSource
 import com.vayunmathur.messages.util.ContactResolver
 import conversations.Conversations.Conversation
 import conversations.Conversations.Message
+import conversations.Conversations.MessageInfo
+import conversations.Conversations.MessageContent
+import conversations.Conversations.ReactionData
+import events.Events.UpdateEvents
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -73,6 +90,7 @@ object GMessagesClient {
     private val rpc = RpcClient()
     @Volatile private var auth: AuthData = AuthData.generateInitial()
     private val sessionHandler = SessionHandler(rpc) { auth }
+    private val media = Media { auth }
     private val longPoll = LongPoll(
         rpc = rpc,
         authProvider = { auth },
@@ -80,6 +98,11 @@ object GMessagesClient {
         onEvent = ::handleLongPollEvent,
     )
     private var backfillJob: Job? = null
+
+    /** Per-conversation "my SIM" participant ID surfaced by
+     *  LIST_CONVERSATIONS.defaultOutgoingID. Used to populate the
+     *  participantID on outgoing SendMessageRequest payloads. */
+    private val outgoingIds = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     @Volatile private var conversationsFetchedOnce = false
 
@@ -133,14 +156,230 @@ object GMessagesClient {
         return result.qrUrl
     }
 
-    @Suppress("UNUSED_PARAMETER")
+    /**
+     * Send a text message via SEND_MESSAGE.
+     *
+     * Mirrors `ConvertMatrixMessage` + `Client.SendMessage` in
+     * `pkg/connector/handlematrix.go` / `pkg/libgm/methods.go`:
+     * builds a [SendMessageRequest] with a [MessageContent] info part,
+     * a fresh `tmp_…` transaction ID, and the per-conversation
+     * `participantID` we captured from LIST_CONVERSATIONS.
+     *
+     * Returns `true` iff the relay reports `SUCCESS`.
+     */
     suspend fun sendMessage(conversationId: String, body: String): Boolean {
-        // TODO(messages-libgm): Building the full SendMessageRequest
-        // payload requires the conversations.MessageContent + nested
-        // MessagePayload structures. Deferred — receiving works first.
         if (_state.value !is State.Connected) return false
-        Log.w(TAG, "sendMessage not yet implemented (received conv=$conversationId body=${body.length} chars)")
-        return false
+        val webId = conversationId.substringAfter(':', conversationId)
+        val info = MessageInfo.newBuilder()
+            .setMessageContent(MessageContent.newBuilder().setContent(body))
+            .build()
+        return sendWithInfos(webId, listOf(info))
+    }
+
+    /**
+     * Send an image (or any media) via SEND_MESSAGE. Uploads the bytes
+     * first via [Media.upload], then attaches the resulting
+     * [MediaContent] to a SendMessageRequest. If [caption] is non-blank,
+     * a separate MessageContent info part is appended so the recipient
+     * sees image + caption like Google Messages does.
+     */
+    suspend fun sendMedia(
+        conversationId: String,
+        data: ByteArray,
+        mime: String,
+        fileName: String,
+        caption: String?,
+    ): Boolean {
+        if (_state.value !is State.Connected) return false
+        val webId = conversationId.substringAfter(':', conversationId)
+        val mediaContent = try {
+            media.upload(data, fileName, mime)
+        } catch (t: Throwable) {
+            Log.w(TAG, "media upload failed: ${t.message}")
+            return false
+        }
+        val infos = mutableListOf(
+            MessageInfo.newBuilder().setMediaContent(mediaContent).build()
+        )
+        if (!caption.isNullOrBlank()) {
+            infos += MessageInfo.newBuilder()
+                .setMessageContent(MessageContent.newBuilder().setContent(caption))
+                .build()
+        }
+        return sendWithInfos(webId, infos)
+    }
+
+    /** Common SEND_MESSAGE plumbing — builds the envelope and awaits a response. */
+    private suspend fun sendWithInfos(webId: String, infos: List<MessageInfo>): Boolean {
+        val tmpId = "tmp_${kotlin.random.Random.nextLong(1_000_000_000_000L).toString().padStart(12, '0')}"
+        val participantId = outgoingIds[webId].orEmpty()
+        val payload = MessagePayload.newBuilder()
+            .setTmpID(tmpId)
+            .setConversationID(webId)
+            .setParticipantID(participantId)
+            .setTmpID2(tmpId)
+            .addAllMessageInfo(infos)
+            .build()
+        val req = SendMessageRequest.newBuilder()
+            .setConversationID(webId)
+            .setMessagePayload(payload)
+            .setTmpID(tmpId)
+            .build()
+        val resp = sessionHandler.sendAndWait(ActionType.SEND_MESSAGE, req)
+            ?: return false.also { Log.w(TAG, "SEND_MESSAGE timed out") }
+        val data = resp.decryptedData ?: return false
+        val parsed = runCatching { SendMessageResponse.parseFrom(data) }.getOrNull()
+            ?: return false
+        Log.i(TAG, "SEND_MESSAGE status=${parsed.status}")
+        return parsed.status == SendMessageResponse.Status.SUCCESS
+    }
+
+    /**
+     * Mark messages in [conversationId] as read up to [messageId].
+     * Mirrors `Client.MarkRead`.
+     */
+    suspend fun markRead(conversationId: String, messageId: String?): Boolean {
+        if (_state.value !is State.Connected) return false
+        val webId = conversationId.substringAfter(':', conversationId)
+        val msgWebId = messageId?.substringAfter(':', messageId).orEmpty()
+        val req = MessageReadRequest.newBuilder()
+            .setConversationID(webId)
+            .setMessageID(msgWebId)
+            .build()
+        val resp = sessionHandler.sendAndWait(ActionType.MESSAGE_READ, req)
+        return resp != null
+    }
+
+    /**
+     * Delete [conversationId] on the phone via UPDATE_CONVERSATION
+     * with [ConversationActionStatus.DELETE]. The phone is part of the
+     * proto because the relay routes the delete to the correct SIM /
+     * thread on the device.
+     */
+    suspend fun deleteConversation(conversationId: String, phone: String?): Boolean {
+        if (_state.value !is State.Connected) return false
+        val webId = conversationId.substringAfter(':', conversationId)
+        val data = DeleteConversationData.newBuilder()
+            .setConversationID(webId)
+            .apply { if (!phone.isNullOrBlank()) setPhone(phone) }
+            .build()
+        val req = UpdateConversationRequest.newBuilder()
+            .setAction(ConversationActionStatus.DELETE)
+            .setConversationID(webId)
+            .setDeleteData(data)
+            .build()
+        val resp = sessionHandler.sendAndWait(ActionType.UPDATE_CONVERSATION, req)
+            ?: return false
+        val body = resp.decryptedData ?: return false
+        val parsed = runCatching { UpdateConversationResponse.parseFrom(body) }.getOrNull()
+        return parsed?.success == true
+    }
+
+    /**
+     * Add / remove / switch a reaction on [messageId].
+     * Mirrors `Client.SendReaction`. We send only the unicode emoji and
+     * `EmojiType.CUSTOM` is reserved for actual stickers — we always
+     * pass `REACTION_TYPE_UNSPECIFIED` so the relay infers the type
+     * from the unicode codepoint (Google's web client does the same).
+     */
+    suspend fun sendReaction(
+        messageId: String,
+        emoji: String,
+        action: SendReactionRequest.Action,
+    ): Boolean {
+        if (_state.value !is State.Connected) return false
+        val msgWebId = messageId.substringAfter(':', messageId)
+        val req = SendReactionRequest.newBuilder()
+            .setMessageID(msgWebId)
+            .setAction(action)
+            .setReactionData(ReactionData.newBuilder().setUnicode(emoji))
+            .build()
+        val resp = sessionHandler.sendAndWait(ActionType.SEND_REACTION, req) ?: return false
+        val body = resp.decryptedData ?: return false
+        val parsed = runCatching { SendReactionResponse.parseFrom(body) }.getOrNull()
+        return parsed?.success == true
+    }
+
+    /**
+     * Notify the peer that the user is currently typing.
+     * Fire-and-forget (no waiter).
+     */
+    suspend fun sendTyping(conversationId: String): Boolean {
+        if (_state.value !is State.Connected) return false
+        val webId = conversationId.substringAfter(':', conversationId)
+        val req = TypingUpdateRequest.newBuilder()
+            .setData(
+                TypingUpdateRequest.Data.newBuilder()
+                    .setConversationID(webId)
+                    .setTyping(true)
+            )
+            .build()
+        return sessionHandler.sendNoWait(ActionType.TYPING_UPDATES, req)
+    }
+
+    /**
+     * Delete a single message via DELETE_MESSAGE. The relay echoes the
+     * delete through the long-poll's MESSAGE_DELETED event when
+     * complete — local Room rows are cleared via that event path so
+     * the UI updates once for both local-initiated and remote-initiated
+     * deletes.
+     */
+    suspend fun deleteMessage(messageId: String): Boolean {
+        if (_state.value !is State.Connected) return false
+        val webId = messageId.substringAfter(':', messageId)
+        val req = DeleteMessageRequest.newBuilder().setMessageID(webId).build()
+        val resp = sessionHandler.sendAndWait(ActionType.DELETE_MESSAGE, req) ?: return false
+        val body = resp.decryptedData ?: return false
+        val parsed = runCatching { DeleteMessageResponse.parseFrom(body) }.getOrNull()
+        return parsed?.success == true
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    @Deprecated("kept for binary compat — call sendMessage(conversationId, body) directly", level = DeprecationLevel.HIDDEN)
+    suspend fun sendMessageLegacy(conversationId: String, body: String): Boolean =
+        sendMessage(conversationId, body)
+
+    /**
+     * Pump for inbound real-time updates pushed by the relay.
+     *
+     * Each GET_UPDATES message wraps an [UpdateEvents] oneof. We handle
+     * the three high-signal kinds:
+     *  - [UpdateEvents.MessageEvent]: new/edited messages → emit
+     *    MessageUpdate (+ IncomingMessage for non-outgoing).
+     *  - [UpdateEvents.ConversationEvent]: conversation metadata bumps
+     *    → re-emit the row via [emitConversation].
+     *  - [UpdateEvents.TypingEvent]: kept here for completeness; no UI
+     *    yet, so we just log.
+     *
+     * Anything else is logged at debug and ignored. The bridge itself
+     * has handlers for stickers / settings / participant events; those
+     * are out of scope for v1.
+     */
+    private suspend fun handleGetUpdates(data: ByteArray) {
+        val updates = runCatching { UpdateEvents.parseFrom(data) }.getOrNull() ?: run {
+            Log.w(TAG, "GET_UPDATES: failed to parse UpdateEvents")
+            return
+        }
+        when {
+            updates.hasMessageEvent() -> {
+                val msgs = updates.messageEvent.dataList
+                Log.i(TAG, "GET_UPDATES: ${msgs.size} message event(s)")
+                msgs.forEach { emitMessage(it) }
+            }
+            updates.hasConversationEvent() -> {
+                val convs = updates.conversationEvent.dataList
+                Log.i(TAG, "GET_UPDATES: ${convs.size} conversation event(s)")
+                convs.forEach { emitConversation(it) }
+            }
+            updates.hasTypingEvent() -> {
+                val data2 = updates.typingEvent.data
+                Log.d(TAG, "GET_UPDATES typing conv=${data2.conversationID} type=${data2.type}")
+            }
+            updates.hasUserAlertEvent() -> {
+                Log.d(TAG, "GET_UPDATES user-alert: ${updates.userAlertEvent.alertType}")
+            }
+            else -> Log.d(TAG, "GET_UPDATES: unhandled event kind")
+        }
     }
 
     /**
@@ -248,11 +487,16 @@ object GMessagesClient {
                 }
                 com.vayunmathur.messages.util.MessagesSessionManager.bulkUpsertMessages(rows)
             }
+            ActionType.GET_UPDATES -> handleGetUpdates(data)
             else -> Log.d(TAG, "unhandled data action ${msg.action}")
         }
     }
 
     private suspend fun emitConversation(c: conversations.Conversations.Conversation) {
+        // Capture defaultOutgoingID so the SEND_MESSAGE path can route
+        // the outgoing through the right SIM. Keyed by web ID (no prefix).
+        c.defaultOutgoingID.takeIf { it.isNotBlank() }?.let { outgoingIds[c.conversationID] = it }
+
         // Collect the non-self participants — used for both phone-lookup
         // (1:1 chats) and group-display labeling.
         val otherParticipants = (0 until c.participantsCount)
@@ -293,6 +537,7 @@ object GMessagesClient {
                 isGroup = isGroup,
                 participantCount = otherParticipants.size,
                 conversationType = type,
+                outgoingId = c.defaultOutgoingID.takeIf { it.isNotBlank() },
             )
         )
     }

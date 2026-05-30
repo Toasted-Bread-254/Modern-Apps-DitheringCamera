@@ -1,5 +1,8 @@
 package com.vayunmathur.messages.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +20,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -26,8 +31,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,10 +59,12 @@ import com.vayunmathur.messages.Route
 import com.vayunmathur.messages.data.Conversation
 import com.vayunmathur.messages.data.Message
 import com.vayunmathur.messages.data.MessageDirection
+import com.vayunmathur.messages.data.MessageSource
 import com.vayunmathur.messages.data.MessageState
 import com.vayunmathur.messages.data.MessagesDatabase
 import com.vayunmathur.messages.data.Reaction
 import com.vayunmathur.messages.util.MessagesViewModel
+import com.vayunmathur.messages.util.ReactionAction
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.text.DateFormat
@@ -64,7 +73,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ConversationScreen(
     backStack: NavBackStack<Route>,
@@ -83,6 +92,26 @@ fun ConversationScreen(
 
     var draft by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
+    var reactingTo by remember { mutableStateOf<Message?>(null) }
+
+    // Compose's PickVisualMedia uses the Android system photo picker
+    // (Photos / Files on the user's device) — no READ_EXTERNAL_STORAGE
+    // permission needed because the result is a tightly-scoped grant.
+    val pickImage = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri: Uri? ->
+        if (uri != null) {
+            sending = true
+            vm.sendMedia(
+                conversationId = conversationId,
+                uri = uri,
+                caption = draft.trim().takeIf { it.isNotEmpty() },
+            ) { _ ->
+                sending = false
+                draft = ""
+            }
+        }
+    }
 
     val listState = rememberLazyListState()
 
@@ -117,7 +146,15 @@ fun ConversationScreen(
         bottomBar = {
             ComposeRow(
                 draft = draft,
-                onDraftChange = { draft = it },
+                onDraftChange = { newDraft ->
+                    draft = newDraft
+                    // Fire a typing notification on each edit (gmessages
+                    // only — voice has no typing endpoint). Cheap: it's
+                    // a fire-and-forget on a coroutine.
+                    if (conversation?.source == MessageSource.MESSAGES_WEB) {
+                        vm.sendTyping(conversationId)
+                    }
+                },
                 sending = sending,
                 onSend = {
                     val toSend = draft.trim()
@@ -125,6 +162,13 @@ fun ConversationScreen(
                     sending = true
                     vm.send(conversationId, toSend) { _ -> sending = false }
                     draft = ""
+                },
+                onAttach = {
+                    pickImage.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            ActivityResultContracts.PickVisualMedia.ImageOnly
+                        )
+                    )
                 },
             )
         },
@@ -155,6 +199,7 @@ fun ConversationScreen(
             // we feed it the chronological list REVERSED: newest first.
             val items = remember(messages) { buildItems(messages).asReversed() }
             val isGroup = conversation?.isGroup == true
+            val canReact = conversation?.source == MessageSource.MESSAGES_WEB
             LazyColumn(
                 state = listState,
                 reverseLayout = true,
@@ -175,12 +220,29 @@ fun ConversationScreen(
                                 showSender = isGroup && item.showSender,
                                 isFirstInRun = item.isFirstInRun,
                                 isLastInRun = item.isLastInRun,
+                                onLongPress = if (canReact) {
+                                    { reactingTo = item.message }
+                                } else null,
                             )
                         }
                     }
                 }
             }
         }
+    }
+
+    // Long-press picker for reactions (gmessages only). Tapping an
+    // emoji fires SEND_REACTION (ADD). The relay echoes the result
+    // through MESSAGE_UPDATES which arrives via the long-poll and
+    // re-renders the message bubble with the new reactionsJson.
+    reactingTo?.let { target ->
+        ReactionPickerDialog(
+            onPick = { emoji ->
+                vm.sendReaction(target.id, emoji, ReactionAction.ADD)
+                reactingTo = null
+            },
+            onDismiss = { reactingTo = null },
+        )
     }
 }
 
@@ -255,12 +317,14 @@ private fun DayDivider(label: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
     msg: Message,
     showSender: Boolean,
     isFirstInRun: Boolean,
     isLastInRun: Boolean,
+    onLongPress: (() -> Unit)? = null,
 ) {
     val isOutgoing = msg.direction == MessageDirection.OUTGOING
     val bubbleColor = if (isOutgoing) MaterialTheme.colorScheme.primary
@@ -299,7 +363,15 @@ private fun MessageBubble(
             shape = shape,
             modifier = Modifier
                 .widthIn(max = 320.dp)
-                .heightIn(min = 32.dp),
+                .heightIn(min = 32.dp)
+                .let { mod ->
+                    if (onLongPress != null) {
+                        mod.combinedClickable(
+                            onClick = {},
+                            onLongClick = onLongPress,
+                        )
+                    } else mod
+                },
         ) {
             Text(
                 msg.body,
@@ -336,6 +408,40 @@ private fun MessageBubble(
             }
         }
     }
+}
+
+/**
+ * Minimal reaction picker. The seven emoji shown match Google Messages'
+ * built-in reaction palette (LIKE / LOVE / LAUGH / SURPRISED / SAD /
+ * ANGRY / DISLIKE) but we send them as raw unicode — the relay
+ * normalizes to the EmojiType enum server-side.
+ */
+@Composable
+private fun ReactionPickerDialog(
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val emojis = listOf("\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE21", "\uD83D\uDC4E")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("React") },
+        text = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                emojis.forEach { e ->
+                    TextButton(onClick = { onPick(e) }) {
+                        Text(e, fontSize = 22.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @Composable
@@ -421,6 +527,7 @@ private fun ComposeRow(
     onDraftChange: (String) -> Unit,
     sending: Boolean,
     onSend: () -> Unit,
+    onAttach: () -> Unit,
 ) {
     Surface(
         tonalElevation = 2.dp,
@@ -432,6 +539,14 @@ private fun ComposeRow(
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            IconButton(onClick = onAttach, enabled = !sending) {
+                Text(
+                    "+",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             OutlinedTextField(
                 value = draft,
                 onValueChange = onDraftChange,

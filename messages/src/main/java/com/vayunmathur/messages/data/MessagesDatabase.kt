@@ -28,6 +28,9 @@ interface ConversationDao {
     @Query("UPDATE conversations SET unread_count = 0 WHERE id = :id")
     suspend fun markRead(id: String)
 
+    @Query("DELETE FROM conversations WHERE id = :id")
+    suspend fun deleteById(id: String)
+
     @Query("DELETE FROM conversations WHERE source = :source")
     suspend fun deleteAllForSource(source: MessageSource)
 }
@@ -48,6 +51,12 @@ interface MessageDao {
 
     @Query("UPDATE messages SET state = :state WHERE id = :id")
     suspend fun updateState(id: String, state: MessageState)
+
+    @Query("UPDATE messages SET reactions_json = :json WHERE id = :id")
+    suspend fun updateReactions(id: String, json: String?)
+
+    @Query("DELETE FROM messages WHERE id = :id")
+    suspend fun deleteById(id: String)
 }
 
 /**
@@ -74,7 +83,7 @@ class MessagesConverters {
 
 @androidx.room.Database(
     entities = [Conversation::class, Message::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 @TypeConverters(MessagesConverters::class)

@@ -35,6 +35,14 @@ data class Conversation(
     /** Conversation type as the relay reports it: "SMS", "RCS",
      *  or null/UNKNOWN. Used for the per-row chip. */
     @ColumnInfo(name = "conv_type") val conversationType: String? = null,
+    /** Per-source identifier we need to pass back when SENDING a message
+     *  on this conversation.
+     *  - For [MessageSource.MESSAGES_WEB]: the conversation's
+     *    `defaultOutgoingID` (Google's per-thread "my SIM" participantID,
+     *    used as `MessagePayload.participantID` in SendMessageRequest).
+     *  - For [MessageSource.VOICE]: unused — the thread ID is enough.
+     *  Stored so we don't have to keep the full proto Conversation around. */
+    @ColumnInfo(name = "outgoing_id") val outgoingId: String? = null,
 )
 
 /**

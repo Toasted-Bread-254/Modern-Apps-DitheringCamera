@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -120,10 +121,57 @@ object MessagesSessionManager {
         )
         val ok = when (source) {
             MessageSource.MESSAGES_WEB -> GMessagesClient.sendMessage(conversationId, body)
-            // Voice send isn't wired up yet — same stub-and-FAIL path
-            // the gmessages send had before the SendMessageRequest
-            // builder existed.
-            MessageSource.VOICE -> false
+            MessageSource.VOICE -> GVoiceClient.sendMessage(conversationId, body)
+        }
+        db.messageDao().updateState(
+            pendingId,
+            if (ok) MessageState.SENT else MessageState.FAILED,
+        )
+        return ok
+    }
+
+    /**
+     * Send an image (or other supported media) on [conversationId].
+     * Inserts a PENDING row carrying [caption] (or "[Image]" if blank)
+     * so the UI gets immediate feedback, then routes the actual upload
+     * to the per-source client.
+     */
+    suspend fun sendMedia(
+        conversationId: String,
+        bytes: ByteArray,
+        mime: String,
+        fileName: String,
+        caption: String?,
+    ): Boolean {
+        val source = sourceFor(conversationId) ?: return false
+        val previewBody = caption?.takeIf { it.isNotBlank() } ?: "[Image]"
+        val pendingId = "${source.idPrefix}:pending:${System.currentTimeMillis()}"
+        val now = System.currentTimeMillis()
+        db.messageDao().upsert(
+            Message(
+                id = pendingId,
+                conversationId = conversationId,
+                body = previewBody,
+                direction = MessageDirection.OUTGOING,
+                state = MessageState.PENDING,
+                timestamp = now,
+                senderName = null,
+            )
+        )
+        val ok = when (source) {
+            MessageSource.MESSAGES_WEB -> GMessagesClient.sendMedia(
+                conversationId = conversationId,
+                data = bytes,
+                mime = mime,
+                fileName = fileName,
+                caption = caption,
+            )
+            MessageSource.VOICE -> GVoiceClient.sendMedia(
+                conversationId = conversationId,
+                data = bytes,
+                mime = mime,
+                caption = caption,
+            )
         }
         db.messageDao().updateState(
             pendingId,
@@ -133,7 +181,83 @@ object MessagesSessionManager {
     }
 
     suspend fun markRead(conversationId: String) {
+        // Always update the local row immediately so the unread badge clears.
         db.conversationDao().markRead(conversationId)
+        // Then propagate to the server. Failures are non-fatal — the
+        // local state already reflects "user has seen this".
+        val source = sourceFor(conversationId) ?: return
+        when (source) {
+            MessageSource.MESSAGES_WEB -> {
+                // gmessages MarkRead is per-message; pick the newest
+                // message in the thread (same convention Messages-for-
+                // Web uses when the user opens a chat).
+                val latest = db.messageDao().observeForConversation(conversationId)
+                    .firstOrNull()
+                    ?.maxByOrNull { it.timestamp }
+                val webMsgId = latest?.id?.substringAfter(':', latest.id)
+                GMessagesClient.markRead(conversationId, webMsgId)
+            }
+            MessageSource.VOICE -> {
+                GVoiceClient.markRead(conversationId)
+            }
+        }
+    }
+
+    /**
+     * Delete [conversationId] on the server. The local row is removed
+     * (and cascades clear its messages) once the per-source client
+     * confirms — partial deletes leave the row in place so the user
+     * can retry from the UI.
+     */
+    suspend fun deleteConversation(conversationId: String): Boolean {
+        val source = sourceFor(conversationId) ?: return false
+        val existing = db.conversationDao().get(conversationId)
+        val ok = when (source) {
+            MessageSource.MESSAGES_WEB -> {
+                GMessagesClient.deleteConversation(conversationId, existing?.peerPhoneE164)
+            }
+            MessageSource.VOICE -> {
+                GVoiceClient.deleteThread(conversationId)
+            }
+        }
+        if (ok) db.conversationDao().deleteById(conversationId)
+        return ok
+    }
+
+    /**
+     * Add/remove/switch a reaction on a message. Only Google Messages
+     * supports reactions — Voice ignores the call and returns false.
+     */
+    suspend fun sendReaction(messageId: String, emoji: String, action: ReactionAction): Boolean {
+        val msg = db.messageDao().get(messageId) ?: return false
+        val source = sourceFor(msg.conversationId) ?: return false
+        return when (source) {
+            MessageSource.MESSAGES_WEB -> GMessagesClient.sendReaction(
+                messageId = messageId,
+                emoji = emoji,
+                action = when (action) {
+                    ReactionAction.ADD ->
+                        client.Client.SendReactionRequest.Action.ADD
+                    ReactionAction.REMOVE ->
+                        client.Client.SendReactionRequest.Action.REMOVE
+                    ReactionAction.SWITCH ->
+                        client.Client.SendReactionRequest.Action.SWITCH
+                },
+            )
+            MessageSource.VOICE -> false
+        }
+    }
+
+    /**
+     * Notify the peer that the local user is typing.
+     * Only Google Messages exposes a typing endpoint; Voice has none.
+     */
+    suspend fun sendTyping(conversationId: String): Boolean {
+        val source = sourceFor(conversationId) ?: return false
+        return when (source) {
+            MessageSource.MESSAGES_WEB -> GMessagesClient.sendTyping(conversationId)
+            MessageSource.VOICE -> false
+        }
     }
 
     /**
@@ -201,6 +325,7 @@ object MessagesSessionManager {
                     isGroup = event.isGroup,
                     participantCount = event.participantCount,
                     conversationType = event.conversationType,
+                    outgoingId = event.outgoingId ?: existing?.outgoingId,
                 )
                 db.conversationDao().upsert(merged)
                 backfillComplete[event.source] = true
@@ -239,6 +364,12 @@ object MessagesSessionManager {
                     )
                 )
             }
+            is GMEvent.MessageDeleted -> {
+                db.messageDao().deleteById("${event.source.idPrefix}:${event.messageId}")
+            }
+            is GMEvent.ConversationDeleted -> {
+                db.conversationDao().deleteById("${event.source.idPrefix}:${event.conversationId}")
+            }
         }
     }
 
@@ -248,3 +379,8 @@ object MessagesSessionManager {
         else -> null
     }
 }
+
+/** Action passed to [MessagesSessionManager.sendReaction]. Mirrors the
+ *  three-state add/remove/switch enum in [SendReactionRequest.Action]
+ *  without exposing the protobuf type to non-protocol callers. */
+enum class ReactionAction { ADD, REMOVE, SWITCH }

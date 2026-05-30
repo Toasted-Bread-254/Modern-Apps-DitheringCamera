@@ -28,6 +28,8 @@ sealed interface GMEvent {
         val isGroup: Boolean = false,
         val participantCount: Int = 0,
         val conversationType: String? = null,
+        /** Source-specific "my participant" id. See [Conversation.outgoingId]. */
+        val outgoingId: String? = null,
     ) : GMEvent
 
     /** A message row appeared / was updated. Used for backfill + live sync. */
@@ -52,5 +54,17 @@ sealed interface GMEvent {
         val peerName: String?,
         val peerPhone: String?,
         val timestamp: Long,
+    ) : GMEvent
+
+    /** A message was deleted on the remote side (or by us). */
+    data class MessageDeleted(
+        override val source: MessageSource,
+        val messageId: String,
+    ) : GMEvent
+
+    /** A conversation was deleted on the remote side. */
+    data class ConversationDeleted(
+        override val source: MessageSource,
+        val conversationId: String,
     ) : GMEvent
 }

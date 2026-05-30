@@ -87,6 +87,112 @@ class AesCtrHmac(
 }
 
 /**
+ * Chunked AES-GCM helper used for media uploads.
+ *
+ * Direct port of `crypto/aesgcm.go` from mautrix-gmessages: the plaintext
+ * is split into 32 KiB chunks, each encrypted with a fresh random
+ * 12-byte nonce + AAD = `[isLast(1 byte), chunkIndex(uint32 big-endian)]`.
+ * The 2-byte stream header `(0, log2(chunkSize))` precedes the chunk
+ * stream so the decoder knows the chunk boundary.
+ *
+ * The on-disk wire format must match exactly — Google's media server
+ * doesn't decrypt this; we encrypt before upload and the recipient's
+ * Messages client decrypts after download using the [decryptionKey]
+ * Google routes through the SendMessageRequest media field.
+ */
+class AesGcm(val key: ByteArray) {
+    init {
+        require(key.size == 32) { "unsupported AES-GCM key length (got=${key.size} expected=32)" }
+    }
+
+    fun encryptData(data: ByteArray): ByteArray {
+        val chunkOverhead = NONCE_SIZE + TAG_SIZE
+        var chunkSize = OUTGOING_RAW_CHUNK_SIZE - chunkOverhead
+        val chunkCount = ((data.size + chunkSize - 1) / chunkSize).coerceAtLeast(1)
+        val out = java.io.ByteArrayOutputStream(2 + data.size + chunkOverhead * chunkCount)
+        // Stream header: `0` magic byte + log2(chunkSize). chunkSize here
+        // means the OUTGOING_RAW_CHUNK_SIZE, NOT the plaintext size.
+        out.write(0)
+        out.write(LOG2_OUTGOING_RAW_CHUNK_SIZE)
+        var chunkIndex = 0
+        var i = 0
+        while (i < data.size) {
+            val isLast = (i + chunkSize) >= data.size
+            if (isLast) chunkSize = data.size - i
+            val aad = aad(chunkIndex, isLast)
+            val nonce = ByteArray(NONCE_SIZE)
+            SecureRandom().nextBytes(nonce)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
+                init(
+                    Cipher.ENCRYPT_MODE,
+                    SecretKeySpec(key, "AES"),
+                    javax.crypto.spec.GCMParameterSpec(TAG_SIZE * 8, nonce),
+                )
+                updateAAD(aad)
+            }
+            val ct = cipher.doFinal(data, i, chunkSize)
+            // Prepend nonce, exactly like Go's `c.gcm.Seal(nonce, …)`.
+            out.write(nonce)
+            out.write(ct)
+            chunkIndex++
+            i += chunkSize
+        }
+        return out.toByteArray()
+    }
+
+    fun decryptData(blob: ByteArray): ByteArray {
+        if (blob.isEmpty()) return blob
+        require(blob[0] == 0.toByte()) { "invalid AES-GCM stream header byte=${blob[0]}" }
+        val chunkSize = 1 shl (blob[1].toInt() and 0xFF)
+        val body = blob.copyOfRange(2, blob.size)
+        val out = java.io.ByteArrayOutputStream(body.size)
+        var chunkIndex = 0
+        var i = 0
+        var thisChunk = chunkSize
+        while (i < body.size) {
+            val isLast = (i + thisChunk) >= body.size
+            if (isLast) thisChunk = body.size - i
+            require(thisChunk >= NONCE_SIZE) { "GCM chunk too small ($thisChunk)" }
+            val aad = aad(chunkIndex, isLast)
+            val nonce = body.copyOfRange(i, i + NONCE_SIZE)
+            val ct = body.copyOfRange(i + NONCE_SIZE, i + thisChunk)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
+                init(
+                    Cipher.DECRYPT_MODE,
+                    SecretKeySpec(key, "AES"),
+                    javax.crypto.spec.GCMParameterSpec(TAG_SIZE * 8, nonce),
+                )
+                updateAAD(aad)
+            }
+            out.write(cipher.doFinal(ct))
+            i += thisChunk
+            chunkIndex++
+        }
+        return out.toByteArray()
+    }
+
+    /** Per-chunk AAD: 1 magic byte (isLast) + big-endian uint32 chunkIndex. */
+    private fun aad(chunkIndex: Int, isLast: Boolean): ByteArray {
+        val aad = ByteArray(5)
+        if (isLast) aad[0] = 1
+        aad[1] = ((chunkIndex ushr 24) and 0xFF).toByte()
+        aad[2] = ((chunkIndex ushr 16) and 0xFF).toByte()
+        aad[3] = ((chunkIndex ushr 8) and 0xFF).toByte()
+        aad[4] = (chunkIndex and 0xFF).toByte()
+        return aad
+    }
+
+    companion object {
+        const val NONCE_SIZE = 12
+        const val TAG_SIZE = 16
+        const val OUTGOING_RAW_CHUNK_SIZE = 1 shl 15  // 32 KiB
+        const val LOG2_OUTGOING_RAW_CHUNK_SIZE = 15
+
+        fun generateKey(): ByteArray = AesCtrHmac.generateKey(32)
+    }
+}
+
+/**
  * Serializable JWK form of an ECDSA P-256 key pair. Matches the JSON shape
  * used by libgm in `crypto/ecdsa.go` so the persisted on-disk
  * representation could theoretically be cross-read, though we never need

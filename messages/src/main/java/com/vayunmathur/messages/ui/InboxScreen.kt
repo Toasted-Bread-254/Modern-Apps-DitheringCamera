@@ -2,6 +2,7 @@ package com.vayunmathur.messages.ui
 
 import androidx.compose.foundation.background as foundationBackground
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,7 +68,7 @@ import java.util.Date
  * When a source isn't connected (no pairing / no login), a "setup" card
  * shows above the list inviting the user to complete the flow.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun InboxScreen(
     backStack: NavBackStack<Route>,
@@ -73,6 +77,7 @@ fun InboxScreen(
 ) {
     val conversations by db.conversationDao().observeAll().collectAsState(initial = emptyList())
     val connectionStates by vm.connectionStates.collectAsState()
+    var pendingDelete by remember { mutableStateOf<Conversation?>(null) }
 
     Scaffold(
         topBar = {
@@ -111,12 +116,37 @@ fun InboxScreen(
                         ConversationRow(
                             conversation = conv,
                             onClick = { backStack.add(Route.Conversation(conv.id)) },
+                            onLongPress = { pendingDelete = conv },
                         )
                         HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                     }
                 }
             }
         }
+    }
+
+    pendingDelete?.let { conv ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete conversation?") },
+            text = {
+                Text(
+                    "This deletes the chat for ${conv.peerName ?: "this contact"} on your phone too. " +
+                        "Existing messages can't be recovered.",
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    vm.deleteConversation(conv.id)
+                    pendingDelete = null
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { pendingDelete = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 }
 
@@ -183,10 +213,12 @@ private fun SetupCard(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ConversationRow(
     conversation: Conversation,
     onClick: () -> Unit,
+    onLongPress: () -> Unit = {},
 ) {
     ListItem(
         headlineContent = {
@@ -220,7 +252,10 @@ private fun ConversationRow(
             }
         },
         leadingContent = { Avatar(conversation.peerName, conversation.avatarUrl, conversation.isGroup) },
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier.combinedClickable(
+            onClick = onClick,
+            onLongClick = onLongPress,
+        ),
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
     )
 }
