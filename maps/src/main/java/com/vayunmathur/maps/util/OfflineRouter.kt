@@ -8,8 +8,10 @@ import com.vayunmathur.maps.R
 import com.vayunmathur.maps.data.SpecificFeature
 import java.io.File
 import java.io.OutputStream
+import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.Executors
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,12 +33,20 @@ object OfflineRouter {
     private fun startLocalTileServer() {
         Thread {
             try {
-                val serverSocket = java.net.ServerSocket(0)
+                // Bind to loopback ONLY. The previous `ServerSocket(0)` defaulted
+                // to 0.0.0.0 which let any app on the device (or anything on the
+                // local network) hit /traffic/{z}/{x}/{y}.
+                val serverSocket = java.net.ServerSocket(0, 50, InetAddress.getLoopbackAddress())
                 serverPort = serverSocket.localPort
-                Log.d("OFFLINE_ROUTER", "Tile server started on port $serverPort")
-                while (true) {
+                Log.d("OFFLINE_ROUTER", "Tile server started on port $serverPort (loopback only)")
+                // Hand each client to a small pool so a slow tile doesn't block
+                // MapLibre's concurrent tile requests behind the global mutex.
+                val pool = Executors.newFixedThreadPool(4)
+                while (!serverSocket.isClosed) {
                     val client = serverSocket.accept()
-                    handleClient(client)
+                    // Prevent a half-open / hung client from holding a worker forever.
+                    runCatching { client.soTimeout = 5_000 }
+                    pool.execute { handleClient(client) }
                 }
             } catch (e: Exception) {
                 Log.e("OFFLINE_ROUTER", "Tile server error", e)
@@ -167,7 +177,13 @@ object OfflineRouter {
         if (forceAsync) {
             trafficScope.launch { block() }
         } else {
-            runBlocking(Dispatchers.IO) { block() }
+            // Previously called runBlocking(Dispatchers.IO) which blocked the
+            // native caller's thread (often a Dispatchers.Default worker via
+            // getRoute) for an entire 60s HTTP round-trip. That starved the
+            // Default pool. Always async; the native side reacts to
+            // notifyTrafficUpdated / notifyTrafficFetchFinishedNative when the
+            // HTTP response is processed.
+            trafficScope.launch { block() }
         }
     }
 
@@ -189,12 +205,13 @@ object OfflineRouter {
 
     private var isInitialized = false
 
+    @Synchronized
     fun initialize(context: Context) {
         if (isInitialized) return
         val path = context.getExternalFilesDir(null)?.absolutePath ?: return
         Log.d("OfflineRouter", "Initializing with path: $path")
-        
-        val presentFeeds = context.assets.list("")?.filter { 
+
+        val presentFeeds = context.assets.list("")?.filter {
             try { context.assets.list(it)?.contains("routes.txt") == true } catch(_: Exception) { false }
         }?.toTypedArray() ?: emptyArray()
 

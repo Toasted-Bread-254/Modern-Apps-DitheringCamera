@@ -8,6 +8,8 @@ import com.vayunmathur.maps.data.AmenityEntity
 import com.vayunmathur.maps.data.OpeningHours
 import com.vayunmathur.maps.data.SpecificFeature
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,10 +31,17 @@ class MapsSearchViewModel(application: Application) : AndroidViewModel(applicati
     private val _results = MutableStateFlow<List<AmenityEntity>>(emptyList())
     val results: StateFlow<List<AmenityEntity>> = _results.asStateFlow()
 
+    /** In-flight search job — cancelled on each new keystroke so old DB queries
+     *  don't race ahead of newer ones and overwrite the result list. */
+    private var searchJob: Job? = null
+
     /**
      * Updates the search text and (asynchronously) the result list filtered by
      * the supplied bounding box. Queries shorter than two characters clear the
      * results without hitting the DB.
+     *
+     * Debounced ~120 ms so fast typists don't stack a Room/FTS query per
+     * keystroke; the previous job is cancelled on every call.
      */
     fun setQuery(
         query: String,
@@ -43,33 +52,38 @@ class MapsSearchViewModel(application: Application) : AndroidViewModel(applicati
         north: Double,
     ) {
         _query.value = query
-        viewModelScope.launch {
-            _results.value = if (query.length >= 2) {
-                withContext(Dispatchers.IO) {
-                    db.amenityDao().getInBBox(
-                        query = "*$query*",
-                        latMin = south,
-                        latMax = north,
-                        lonMin = west,
-                        lonMax = east,
-                    )
-                }
-            } else {
-                emptyList()
+        searchJob?.cancel()
+        if (query.length < 2) {
+            _results.value = emptyList()
+            return
+        }
+        searchJob = viewModelScope.launch {
+            delay(120)
+            val res = withContext(Dispatchers.IO) {
+                db.amenityDao().getInBBox(
+                    query = "*$query*",
+                    latMin = south,
+                    latMax = north,
+                    lonMin = west,
+                    lonMax = east,
+                )
             }
+            _results.value = res
         }
     }
 
     /** Resets the search state. */
     fun reset() {
+        searchJob?.cancel()
         _query.value = ""
         _results.value = emptyList()
     }
 
     /**
      * Loads tags for [amenity], builds a [SpecificFeature.Restaurant], and
-     * invokes [onFeature] back on the main thread. Used by composables to bind
-     * the result into the selected-feature flow.
+     * invokes [onFeature] back on the main thread. The launch runs in
+     * `viewModelScope` so a navigation-away mid-resolve cleanly cancels the
+     * callback rather than calling back into a stale UI.
      */
     fun resolveAmenity(
         amenity: AmenityEntity,

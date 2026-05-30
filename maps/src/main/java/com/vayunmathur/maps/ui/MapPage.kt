@@ -114,7 +114,6 @@ fun MapPage(backStack: NavBackStack<Route>, viewModel: SelectedFeatureViewModel,
     }
 
     LaunchedEffect(camera.position) {
-        println(camera.position.zoom)
         if (camera.position.zoom >= 11.0) {
             delay(300) // Debounce traffic loading
             val projection = camera.projection
@@ -249,9 +248,10 @@ fun MapPage(backStack: NavBackStack<Route>, viewModel: SelectedFeatureViewModel,
                                         listOf("${it}_base", "${it}_hybrid")
                                     }.toSet()
                                 ) ?: emptyList()
-                                println("FEATURES: $features")
-                                val listedFeatures = features.mapNotNull { parse(it, db) }
-                                println("LISTED FEATURES: $listedFeatures")
+                                // parse() may do network (Wikidata) + Room — do it off Main.
+                                val listedFeatures = withContext(Dispatchers.IO) {
+                                    features.mapNotNull { runCatching { parse(it, db) }.getOrNull() }
+                                }
 
                                 listedFeatures.firstOrNull()?.let {
                                     if (selectedFeature is SpecificFeature.Route) viewModel.setInactiveNavigation(
@@ -296,8 +296,15 @@ fun MapPage(backStack: NavBackStack<Route>, viewModel: SelectedFeatureViewModel,
                                                 ?: stringResource(MapsR.string.your_location)
                                         )
                                     }, Modifier.clickable {
-                                        val bbox = camera.projection!!.queryVisibleBoundingBox()
-                                        backStack.add(Route.SearchPage(idx, bbox.east, bbox.west, bbox.north, bbox.south))
+                                        // Style may not have finished loading
+                                        // — fall back to a world-spanning bbox
+                                        // so the search query still works.
+                                        val bbox = camera.projection?.queryVisibleBoundingBox()
+                                        backStack.add(Route.SearchPage(idx,
+                                            bbox?.east ?: 180.0,
+                                            bbox?.west ?: -180.0,
+                                            bbox?.north ?: 85.0,
+                                            bbox?.south ?: -85.0))
                                     }, trailingContent = {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             if(idx > 0 && idx < routeFeature.waypoints.size - 1) {
@@ -329,8 +336,12 @@ fun MapPage(backStack: NavBackStack<Route>, viewModel: SelectedFeatureViewModel,
                         ListItem({
                             Text(name)
                         }, colors = ListItemDefaults.colors(Color.Transparent), modifier = Modifier.clickable {
-                            val bbox = camera.projection!!.queryVisibleBoundingBox()
-                            backStack.add(Route.SearchPage(null, bbox.east, bbox.west, bbox.north, bbox.south))
+                            val bbox = camera.projection?.queryVisibleBoundingBox()
+                            backStack.add(Route.SearchPage(null,
+                                bbox?.east ?: 180.0,
+                                bbox?.west ?: -180.0,
+                                bbox?.north ?: 85.0,
+                                bbox?.south ?: -85.0))
                         })
                     }
                 }

@@ -21,18 +21,25 @@ class OpeningHours(val rawString: String) {
         fun from(input: String): OpeningHours = OpeningHours(input)
 
         private fun parse(input: String): List<OpeningRule> {
+            // Wrap each rule parse in runCatching so a single malformed segment
+            // doesn't crash the bottom sheet. Real OSM `opening_hours` strings
+            // include things like "24/7", "Mo-Fr sunrise-sunset", "PH", or
+            // localised abbreviations we don't handle yet — silently drop those
+            // rather than throwing NumberFormatException up the UI stack.
             return input.split(";").mapNotNull { part ->
-                val trimmed = part.trim()
-                if (trimmed.isEmpty()) return@mapNotNull null
+                runCatching {
+                    val trimmed = part.trim()
+                    if (trimmed.isEmpty()) return@runCatching null
 
-                val lastSpace = trimmed.lastIndexOf(' ')
-                val dayPart = if (lastSpace != -1) trimmed.substring(0, lastSpace) else "Mo-Su"
-                val timePart = trimmed.substring(lastSpace + 1)
+                    val lastSpace = trimmed.lastIndexOf(' ')
+                    val dayPart = if (lastSpace != -1) trimmed.substring(0, lastSpace) else "Mo-Su"
+                    val timePart = trimmed.substring(lastSpace + 1)
 
-                OpeningRule(
-                    days = parseDays(dayPart),
-                    intervals = parseIntervals(timePart)
-                )
+                    OpeningRule(
+                        days = parseDays(dayPart),
+                        intervals = parseIntervals(timePart)
+                    )
+                }.getOrNull()
             }
         }
 
@@ -51,6 +58,7 @@ class OpeningHours(val rawString: String) {
                 val cleanSegment = segment.trim()
                 if (cleanSegment.contains("-")) {
                     val parts = cleanSegment.split("-")
+                    if (parts.size < 2) return@forEach
                     val start = map[parts[0]] ?: return@forEach
                     val end = map[parts[1]] ?: return@forEach
                     var curr = start
@@ -71,16 +79,26 @@ class OpeningHours(val rawString: String) {
             return timeStr.split(",").mapNotNull {
                 val range = it.split("-")
                 if (range.size != 2) return@mapNotNull null
-                TimeInterval(parseCustomTime(range[0]), parseCustomTime(range[1]))
+                val start = parseCustomTime(range[0]) ?: return@mapNotNull null
+                val end = parseCustomTime(range[1]) ?: return@mapNotNull null
+                TimeInterval(start, end)
             }
         }
 
-        private fun parseCustomTime(time: String): LocalTime {
+        // Returns null for unparseable strings instead of throwing — OSM has
+        // entries like "sunrise", "12:00+", "dusk" that we can't represent.
+        private fun parseCustomTime(time: String): LocalTime? {
             val parts = time.trim().split(":")
-            var hour = parts[0].toInt()
-            val minute = if (parts.size > 1) parts[1].toInt() else 0
-            if (hour >= 24) hour -= 24
-            return LocalTime(hour, minute)
+            if (parts.isEmpty() || parts[0].isBlank()) return null
+            return try {
+                var hour = parts[0].toInt()
+                val minute = if (parts.size > 1) parts[1].toIntOrNull() ?: 0 else 0
+                if (hour >= 24) hour -= 24
+                if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null
+                LocalTime(hour, minute)
+            } catch (_: NumberFormatException) {
+                null
+            }
         }
     }
 

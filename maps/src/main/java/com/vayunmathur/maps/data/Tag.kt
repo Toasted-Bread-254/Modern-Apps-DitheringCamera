@@ -69,16 +69,22 @@ abstract class AmenityDatabase : RoomDatabase() {
 fun buildAmenityDatabase(context: Context): AmenityDatabase {
     val dbFile = File(context.getExternalFilesDir(null), "amenities.db")
 
+    // Use `createFromFile` so Room opens the pre-downloaded SQLite file at
+    // its real on-disk path. Passing dbFile.absolutePath as the `name`
+    // argument (as the previous code did) makes Room interpret the slashes
+    // as subdirectory components under /data/data/<pkg>/databases/, which
+    // either fails to open or creates an unexpected file. The "name"
+    // argument is just a logical identifier in this mode.
     return Room.databaseBuilder(
         context,
         AmenityDatabase::class.java,
-        dbFile.absolutePath // This name is ignored by our custom factory
+        "amenities.db"
     )
+        .createFromFile(dbFile)
         .setJournalMode(RoomDatabase.JournalMode.TRUNCATE) // External storage can be flaky with WAL
         .addCallback(object : RoomDatabase.Callback() {
             override fun onOpen(db: SupportSQLiteDatabase) {
                 super.onOpen(db)
-                // Safety check: ensure the file isn't read-only if you need to write
                 db.execSQL("PRAGMA synchronous = NORMAL")
             }
         })

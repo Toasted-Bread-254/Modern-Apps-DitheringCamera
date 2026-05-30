@@ -15,6 +15,8 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.request
 import io.ktor.http.HttpMethod
+import io.ktor.http.contentLength
+import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.readAvailable
 import kotlinx.serialization.json.Json
@@ -140,11 +142,34 @@ object NetworkClient {
         headers: Map<String, *> = emptyMap<String, Any>(),
         body: Any? = null
     ): T {
-        return client.request(url) {
+        val response = client.request(url) {
             this.method = HttpMethod.parse(method)
             applyHeaders(headers)
             body?.let { setBody(it) }
-        }.body()
+        }
+        // Calling .body<T>() on a 204 No Content / 304 / empty-body response
+        // throws Ktor's NoTransformationFoundException, which callers usually
+        // catch and silently treat as "the call failed" — but it actually
+        // means the server successfully responded with no payload. For the
+        // T == Boolean case the answer should be `true` (success), and for
+        // nullable / collection T the answer should be null/empty rather
+        // than blowing up.
+        if (response.status.value == 204 || response.contentLength() == 0L) {
+            // The most common T's are Boolean (success/failure), List<...>,
+            // Map<...>, and nullable data classes. We can't conjure a value
+            // for an arbitrary T, but we can short-circuit the predictable
+            // success-but-empty case by checking the type token.
+            val tType = T::class
+            @Suppress("UNCHECKED_CAST")
+            when (tType) {
+                Boolean::class -> return (response.status.value in 200..299) as T
+                Unit::class -> return Unit as T
+            }
+        }
+        if (!response.status.isSuccess()) {
+            throw io.ktor.client.plugins.ResponseException(response, "HTTP ${response.status.value}")
+        }
+        return response.body()
     }
 
     suspend inline fun <reified T> getJson(

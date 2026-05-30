@@ -43,23 +43,36 @@ suspend fun parse(feature: Feature1, db: AmenityDatabase): SpecificFeature? {
     val properties = feature.properties ?: return null
     return when(properties.string("kind")) {
         "country" -> {
-            val wiki = Wikidata.get(properties.string("wikidata")!!)
-            SpecificFeature.Admin0Label(wiki.getProperty("P297")!!, wiki.getWikipedia()!!, properties.string("name:en")!!)
+            // Each of these tags may be missing on tiles for small/disputed
+            // territories or when Wikidata returns no result. Skip the feature
+            // rather than crashing the bottom sheet.
+            val wikidataId = properties.string("wikidata") ?: return null
+            val wiki = try { Wikidata.get(wikidataId) } catch (_: Exception) { return null }
+            val iso = wiki.getProperty("P297") ?: return null
+            val wikipediaUrl = wiki.getWikipedia() ?: return null
+            val name = properties.string("name:en") ?: properties.string("name") ?: return null
+            SpecificFeature.Admin0Label(iso, wikipediaUrl, name)
         }
         "region" -> {
-            val wiki = Wikidata.get(properties.string("wikidata")!!)
-            SpecificFeature.Admin1Label(wiki.getProperty("P300")!!, wiki.getWikipedia()!!, properties.string("name:en")!!)
+            val wikidataId = properties.string("wikidata") ?: return null
+            val wiki = try { Wikidata.get(wikidataId) } catch (_: Exception) { return null }
+            val iso = wiki.getProperty("P300") ?: return null
+            val wikipediaUrl = wiki.getWikipedia() ?: return null
+            val name = properties.string("name:en") ?: properties.string("name") ?: return null
+            SpecificFeature.Admin1Label(iso, wikipediaUrl, name)
         }
         "restaurant", "fast_food", "cafe", "bar" -> {
+            val point = geometry as? Point ?: return null
             val tags = db.tagDao().getTags(id.toLong()).associate { it.key to it.value }
-            SpecificFeature.Restaurant(tags["name"] ?: "", tags["phone"], tags["website"], tags["website:menu"], tags["opening_hours"]?.let { OpeningHours.from(it) }, (geometry as Point).coordinates)
+            SpecificFeature.Restaurant(tags["name"] ?: "", tags["phone"], tags["website"], tags["website:menu"], tags["opening_hours"]?.let { OpeningHours.from(it) }, point.coordinates)
         }
         "bus_stop", "bus_station", "tram_stop", "railway_station", "subway_entrance" -> {
+            val point = geometry as? Point ?: return null
             val tags = db.tagDao().getTags(id.toLong()).associate { it.key to it.value }
             val gtfsTag = tags.keys.find { it.startsWith("gtfs:stop_code:") }
             val gtfsFeed = gtfsTag?.removePrefix("gtfs:stop_code:")
             val stopCode = gtfsTag?.let { tags[it] }
-            SpecificFeature.TransitStop(tags["name"] ?: "", stopCode, gtfsFeed, (geometry as Point).coordinates)
+            SpecificFeature.TransitStop(tags["name"] ?: "", stopCode, gtfsFeed, point.coordinates)
         }
         !in listOf(
             "country", "region", "county", "locality", "address", "building", "building_part",
@@ -75,8 +88,9 @@ suspend fun parse(feature: Feature1, db: AmenityDatabase): SpecificFeature? {
             "highway", "major_road", "minor_road", "path", "aerialway", "ferry", "rail",
             "aeroway", "water", "lake", "playa", "ocean"
         ) -> {
+            val point = geometry as? Point ?: return null
             val tags = db.tagDao().getTags(id.toLong()).associate { it.key to it.value }
-            SpecificFeature.GenericPlace(tags["name"] ?: "", tags["phone"], tags["website"], tags["opening_hours"]?.let { OpeningHours.from(it) }, (geometry as Point).coordinates)
+            SpecificFeature.GenericPlace(tags["name"] ?: "", tags["phone"], tags["website"], tags["opening_hours"]?.let { OpeningHours.from(it) }, point.coordinates)
         }
         else -> null
     }

@@ -120,7 +120,11 @@ fun RestaurantBottomSheet(viewModel: SelectedFeatureViewModel, inactiveNavigatio
             RestaurantItem(R.drawable.outline_menu_book_24, stringResource(R.string.menu_label)) { goto(context, it) }
         }
         feature.website?.let {
-            RestaurantItem(R.drawable.outline_globe_24, it.toUri().host!!) { goto(context, it) }
+            // OSM `website` tags can be malformed or non-http (e.g. plain
+            // "facebook.com/foo", "mailto:..."). Fall back to the raw
+            // string if URI parsing yields no host.
+            val label = runCatching { it.toUri().host }.getOrNull()?.takeUnless { h -> h.isBlank() } ?: it
+            RestaurantItem(R.drawable.outline_globe_24, label) { goto(context, it) }
         }
         feature.phone?.let {
             RestaurantItem(R.drawable.outline_phone_enabled_24, it) { goto(context, "tel:$it") }
@@ -193,7 +197,8 @@ fun RestaurantBottomSheet(viewModel: SelectedFeatureViewModel, inactiveNavigatio
             }
         }
         feature.website?.let {
-            RestaurantItem(R.drawable.outline_globe_24, it.toUri().host!!) { goto(context, it) }
+            val label = runCatching { it.toUri().host }.getOrNull()?.takeUnless { h -> h.isBlank() } ?: it
+            RestaurantItem(R.drawable.outline_globe_24, label) { goto(context, it) }
         }
         feature.phone?.let {
             RestaurantItem(R.drawable.outline_phone_enabled_24, it) { goto(context, "tel:$it") }

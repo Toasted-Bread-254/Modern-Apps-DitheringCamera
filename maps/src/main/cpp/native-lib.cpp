@@ -292,7 +292,15 @@ inline uint32_t accurate_dist_mm(int32_t lat1_e7, int32_t lon1_e7, int32_t lat2_
     double s_dphi = sin(delta_phi / 2.0);
     double s_dlamb = sin(delta_lambda / 2.0);
     double a = s_dphi * s_dphi + cos(phi1) * cos(phi2) * s_dlamb * s_dlamb;
-    return (uint32_t)(R * 2.0 * atan2(sqrt(a), sqrt(1.0 - a)));
+    double dist = R * 2.0 * atan2(sqrt(a), sqrt(1.0 - a));
+    // Saturate instead of truncating: uint32_t maxes out at ~4 294 km,
+    // and cross-country transit edges can exceed that. A wraparound
+    // turns a 5 000 km segment into a 705 km segment in the cost
+    // function and silently breaks routing; saturating preserves the
+    // "this edge is enormous" signal even if it's no longer exact.
+    if (dist >= (double)UINT32_MAX) return UINT32_MAX;
+    if (dist < 0.0) return 0;
+    return (uint32_t)dist;
 }
 
 inline uint32_t get_edge_time_10ms(int zone_id, uint32_t local_edge_id, uint32_t dist_mm, uint8_t type, uint8_t limit, int mode) {
@@ -438,6 +446,10 @@ SnappedEdge find_nearest_edge(double lat, double lon, int mode) {
     for (int z = std::max(0, target_zone - 2); z <= std::min(NUM_ZONES - 1, target_zone + 2); ++z) {
         if (!is_zone_mapped(z)) continue;
         uint32_t zone_node_count = g_zone_offsets[z + 1] - g_zone_offsets[z];
+        // Guard against an empty zone: `high = zone_node_count - 1` underflows
+        // to 0xFFFFFFFF when zone_node_count == 0, which sends the binary
+        // search reading way out of bounds on g_node_zones[z][mid].
+        if (zone_node_count == 0) continue;
         uint32_t low = 0, high = zone_node_count - 1, local_center = 0;
         while (low <= high) {
             uint32_t mid = low + (high - low) / 2;
@@ -445,6 +457,7 @@ SnappedEdge find_nearest_edge(double lat, double lon, int mode) {
                 local_center = mid;
                 low = mid + 1;
             } else {
+                if (mid == 0) break;       // prevent unsigned wrap on `high = mid - 1`
                 high = mid - 1;
             }
         }
@@ -779,12 +792,22 @@ Java_com_vayunmathur_maps_util_OfflineRouter_init(JNIEnv* env, jobject thiz, jst
 
     auto m_file = [&](const std::string& p, size_t& s) -> void* {
         s = 0; int fd = open(p.c_str(), O_RDONLY); if (fd < 0) return nullptr;
-        s = lseek(fd, 0, SEEK_END); void* a = mmap(nullptr, s, PROT_READ, MAP_SHARED, fd, 0); close(fd);
+        off_t end = lseek(fd, 0, SEEK_END);
+        if (end <= 0) { close(fd); return nullptr; }   // empty / unreadable file
+        s = (size_t)end;
+        void* a = mmap(nullptr, s, PROT_READ, MAP_SHARED, fd, 0); close(fd);
         return (a == MAP_FAILED) ? nullptr : a;
     };
     size_t s_meta; uint32_t* meta = (uint32_t*)m_file(base + "metadata.bin", s_meta);
     if (!meta) { env->ReleaseStringUTFChars(base_path, path_raw); return false; }
     bool has_edge_metadata = (s_meta >= NUM_ZONES * 2 * sizeof(uint32_t));
+    // Defensive: if metadata.bin is smaller than even the single-uint32-per-zone
+    // layout, we can't safely index meta[i] below -> bail out instead of SIGBUS.
+    if (s_meta < NUM_ZONES * sizeof(uint32_t)) {
+        munmap(meta, s_meta);
+        env->ReleaseStringUTFChars(base_path, path_raw);
+        return false;
+    }
     g_zone_offsets[0] = 0;
     if (has_edge_metadata) {
         for (int i = 0; i < NUM_ZONES; ++i) g_zone_offsets[i+1] = g_zone_offsets[i] + meta[i*2];
@@ -1020,9 +1043,17 @@ Java_com_vayunmathur_maps_util_OfflineRouter_getTrafficTileNative(JNIEnv* env, j
         sqlite3_step(stmt); sqlite3_finalize(stmt);
     }
 
-    const auto& final_data = compressed.empty() ? tile_buf : compressed;
-    jbyteArray res = env->NewByteArray(final_data.size());
-    env->SetByteArrayRegion(res, 0, final_data.size(), (jbyte*)final_data.data());
+    // If gzip somehow failed, we MUST NOT return the raw tile because the
+    // HTTP wrapper in Kotlin unconditionally tags the body
+    // `Content-Encoding: gzip`. MapLibre would then try to gunzip plain
+    // protobuf and fail to render. Returning null here makes the server
+    // respond with 204 (no tile) and MapLibre falls back to no traffic
+    // overlay for that cell instead of breaking the render.
+    if (compressed.empty()) {
+        return nullptr;
+    }
+    jbyteArray res = env->NewByteArray(compressed.size());
+    env->SetByteArrayRegion(res, 0, compressed.size(), (jbyte*)compressed.data());
     return res;
 }
 

@@ -55,7 +55,11 @@ fun MyMapLayers(
     val context = LocalContext.current
 
     LaunchedEffect(Unit) {
-        OfflineRouter.initialize(context)
+        // OfflineRouter.initialize does asset-listing I/O — push to IO. The
+        // @Synchronized fun itself is idempotent so recomposition is safe.
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            OfflineRouter.initialize(context)
+        }
     }
 
     key(styleJson) {
@@ -168,17 +172,19 @@ fun MyMapLayers(
                 when (selectedFeature) {
                     is SpecificFeature.Admin0Label -> {
                         LaunchedEffect(selectedFeature, outlineSource, styleJson) {
+                            // Loading the admin0 FlatGeobuf is a few MB +
+                            // linear scan — do it on IO. And tolerate ISOs
+                            // missing from the asset (small territories,
+                            // Wikidata changes) instead of crashing.
+                            val polygon = kotlinx.coroutines.withContext(
+                                kotlinx.coroutines.Dispatchers.IO
+                            ) {
+                                runCatching { CountryMap.getAdmin0(context, selectedFeature.iso) }.getOrNull()
+                            } ?: return@LaunchedEffect
                             outlineSource.setData(
                                 GeoJsonData.Features(
                                     FeatureCollection(
-                                        listOf(
-                                            createInvertedMask(
-                                                CountryMap.getAdmin0(
-                                                    context,
-                                                    selectedFeature.iso
-                                                )!!
-                                            )
-                                        )
+                                        listOf(createInvertedMask(polygon))
                                     )
                                 )
                             )
@@ -196,17 +202,15 @@ fun MyMapLayers(
                     }
                     is SpecificFeature.Admin1Label -> {
                         LaunchedEffect(selectedFeature, outlineSource, styleJson) {
+                            val polygon = kotlinx.coroutines.withContext(
+                                kotlinx.coroutines.Dispatchers.IO
+                            ) {
+                                runCatching { CountryMap.getAdmin1(context, selectedFeature.iso) }.getOrNull()
+                            } ?: return@LaunchedEffect
                             outlineSource.setData(
                                 GeoJsonData.Features(
                                     FeatureCollection(
-                                        listOf(
-                                            createInvertedMask(
-                                                CountryMap.getAdmin1(
-                                                    context,
-                                                    selectedFeature.iso
-                                                )!!
-                                            )
-                                        )
+                                        listOf(createInvertedMask(polygon))
                                     )
                                 )
                             )

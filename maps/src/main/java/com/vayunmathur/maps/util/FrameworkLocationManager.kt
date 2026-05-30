@@ -25,6 +25,8 @@ class FrameworkLocationManager(context: Context) : SensorEventListener {
     private var onUpdate: ((Position, Float) -> Unit)? = null
     private var lastLocation: Location? = null
     private var currentHeading: Float = 0f
+    /** Listener we registered with the OS so [stop] can unregister it. */
+    private var registeredLocationListener: LocationListener? = null
 
     @SuppressLint("MissingPermission")
     fun startUpdates(onUpdateReceived: (Position, Float) -> Unit): LocationListener {
@@ -40,27 +42,36 @@ class FrameworkLocationManager(context: Context) : SensorEventListener {
             }
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
         }
+        registeredLocationListener = locationListener
 
         if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
             locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, locationListener)
-            println("GPS")
         }
         if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
             locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000L, 0f, locationListener)
-            println("NET")
         }
 
         // 2. Setup Sensor Updates (Compass)
         sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.also { acc ->
             sensorManager.registerListener(this, acc, SensorManager.SENSOR_DELAY_UI)
-            println("ACCEL")
         }
         sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)?.also { mag ->
             sensorManager.registerListener(this, mag, SensorManager.SENSOR_DELAY_UI)
-            println("MAG")
         }
 
         return locationListener
+    }
+
+    /**
+     * Tear down all OS-registered callbacks. MUST be called when the owning
+     * scope (typically the ViewModel) is destroyed, or the GPS radio stays
+     * powered and the accel/magnetometer listeners leak.
+     */
+    fun stop() {
+        registeredLocationListener?.let { runCatching { locationManager.removeUpdates(it) } }
+        registeredLocationListener = null
+        runCatching { sensorManager.unregisterListener(this) }
+        onUpdate = null
     }
 
     override fun onSensorChanged(event: SensorEvent) {

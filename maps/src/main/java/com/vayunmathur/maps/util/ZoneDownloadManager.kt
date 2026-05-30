@@ -1,6 +1,7 @@
 package com.vayunmathur.maps.util
 import android.app.DownloadManager
 import android.content.Context
+import android.database.Cursor
 import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -27,60 +28,61 @@ class ZoneDownloadManager(private val context: Context) {
 
             // 1. Get current system status for all zone downloads
             val query = DownloadManager.Query()
-            val cursor = downloadManager.query(query)
-            
-            // Map to track which parts of which zones we've found in the system
-            val foundParts = mutableMapOf<Int, MutableSet<String>>()
+            // .use { } guarantees the Cursor is closed even if a column read
+            // below throws — otherwise we leak a Cursor on every poll cycle.
+            downloadManager.query(query).use { cursor ->
+                // Map to track which parts of which zones we've found in the system
+                val foundParts = mutableMapOf<Int, MutableSet<String>>()
 
-            while (cursor.moveToNext()) {
-                val title = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE))
-                if (title.startsWith("Map Zone ")) {
-                    // Title format: "Map Zone $zoneId ($part)"
-                    val zonePartString = title.removePrefix("Map Zone ")
-                    val zoneId = zonePartString.substringBefore(" ").toIntOrNull()
-                    val partName = zonePartString.substringAfter("(", "").substringBefore(")")
+                while (cursor.moveToNext()) {
+                    val title = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE))
+                    if (title.startsWith("Map Zone ")) {
+                        // Title format: "Map Zone $zoneId ($part)"
+                        val zonePartString = title.removePrefix("Map Zone ")
+                        val zoneId = zonePartString.substringBefore(" ").toIntOrNull()
+                        val partName = zonePartString.substringAfter("(", "").substringBefore(")")
 
-                    if (zoneId != null && partName.isNotEmpty()) {
-                        val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                        val downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
-                        val total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                        if (zoneId != null && partName.isNotEmpty()) {
+                            val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                            val downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                            val total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
 
-                        val progress = when (status) {
-                            DownloadManager.STATUS_SUCCESSFUL -> 1.0
-                            DownloadManager.STATUS_FAILED -> 0.0
-                            else -> if (total > 0) downloaded.toDouble() / total.toDouble() else 0.0
-                        }
+                            val progress = when (status) {
+                                DownloadManager.STATUS_SUCCESSFUL -> 1.0
+                                DownloadManager.STATUS_FAILED -> 0.0
+                                else -> if (total > 0) downloaded.toDouble() / total.toDouble() else 0.0
+                            }
 
-                        progressMap[zoneId] = progressMap.getOrDefault(zoneId, 0.0) + progress
-                        foundParts.getOrPut(zoneId) { mutableSetOf() }.add(partName)
+                            progressMap[zoneId] = progressMap.getOrDefault(zoneId, 0.0) + progress
+                            foundParts.getOrPut(zoneId) { mutableSetOf() }.add(partName)
 
-                        if (status == DownloadManager.STATUS_RUNNING ||
-                            status == DownloadManager.STATUS_PENDING ||
-                            status == DownloadManager.STATUS_PAUSED) {
-                            activeZones.add(zoneId)
+                            if (status == DownloadManager.STATUS_RUNNING ||
+                                status == DownloadManager.STATUS_PENDING ||
+                                status == DownloadManager.STATUS_PAUSED) {
+                                activeZones.add(zoneId)
+                            }
                         }
                     }
                 }
-            }
-            cursor.close()
 
-            // 2. Cross-reference with disk for any parts not found in DownloadManager
-            // (e.g. if system cleared the record but file exists)
-            activeZones.forEach { zoneId ->
-                val expectedParts = listOf("Map", "Nodes", "Graph", "Transit")
-                val foundInDM = foundParts[zoneId] ?: emptySet()
-                
-                expectedParts.forEach { part ->
-                    if (part !in foundInDM) {
-                        val fileName = when(part) {
-                            "Map" -> "zone_$zoneId.pmtiles"
-                            "Nodes" -> "nodes_zone_$zoneId.bin"
-                            "Graph" -> "edges_zone_$zoneId.bin"
-                            else -> "transit_voyages_zone_$zoneId.bin"
-                        }
-                        val file = File(context.getExternalFilesDir(null), fileName)
-                        if (file.exists()) {
-                            progressMap[zoneId] = progressMap.getOrDefault(zoneId, 0.0) + 1.0
+                // 2. Cross-reference with disk for any parts not found in DownloadManager
+                // (e.g. if system cleared the record but file exists)
+                activeZones.forEach { zoneId ->
+                    val expectedParts = listOf("Map", "Nodes", "Graph", "Transit")
+                    val foundInDM = foundParts[zoneId] ?: emptySet()
+
+                    expectedParts.forEach { part ->
+                        if (part !in foundInDM) {
+                            val fileName = when(part) {
+                                "Map" -> "zone_$zoneId.pmtiles"
+                                "Nodes" -> "nodes_zone_$zoneId.bin"
+                                "Graph" -> "edges_zone_$zoneId.bin"
+                                else -> "transit_voyages_zone_$zoneId.bin"
+                            }
+                            val file = File(context.getExternalFilesDir(null), fileName)
+                            if (file.exists()) {
+                                progressMap[zoneId] = progressMap.getOrDefault(zoneId, 0.0) + 1.0
+                            }
                         }
                     }
                 }
@@ -104,15 +106,15 @@ class ZoneDownloadManager(private val context: Context) {
     fun deleteZone(zoneId: Int) {
         // 1. Cancel active or pending downloads in the system
         val query = DownloadManager.Query()
-        val cursor = downloadManager.query(query)
-        while (cursor.moveToNext()) {
-            val title = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE))
-            if (title.startsWith("Map Zone $zoneId ")) {
-                val id = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_ID))
-                downloadManager.remove(id)
+        downloadManager.query(query).use { cursor ->
+            while (cursor.moveToNext()) {
+                val title = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE))
+                if (title.startsWith("Map Zone $zoneId ")) {
+                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_ID))
+                    downloadManager.remove(id)
+                }
             }
         }
-        cursor.close()
 
         // 2. Remove the files from disk
         val files = listOf(
@@ -140,40 +142,45 @@ class ZoneDownloadManager(private val context: Context) {
         .flowOn(Dispatchers.IO) // Run the disk/DB checks on a background thread
 
     fun getDownloadedZones(): List<Int> {
+        // Build the set of currently-downloading zone IDs ONCE per poll instead
+        // of opening a DownloadManager cursor 64 times (one per zone).
+        val downloadingZones = activeDownloadZoneIds()
         return (0..63).filter { zoneId ->
-            getZoneStatus(zoneId) == ZoneStatus.FINISHED
+            getZoneStatus(zoneId, downloadingZones) == ZoneStatus.FINISHED
         }
     }
 
-    fun getZoneStatus(zoneId: Int): ZoneStatus {
+    /** Single-pass scan of the DownloadManager for zone download titles. */
+    private fun activeDownloadZoneIds(): Set<Int> {
+        val active = mutableSetOf<Int>()
+        downloadManager.query(DownloadManager.Query()).use { cursor ->
+            while (cursor.moveToNext()) {
+                val title = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE))
+                    ?: continue
+                if (!title.startsWith("Map Zone ")) continue
+                val id = title.removePrefix("Map Zone ").substringBefore(" ").toIntOrNull() ?: continue
+                val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                if (status == DownloadManager.STATUS_RUNNING ||
+                    status == DownloadManager.STATUS_PAUSED ||
+                    status == DownloadManager.STATUS_PENDING) {
+                    active.add(id)
+                }
+            }
+        }
+        return active
+    }
+
+    fun getZoneStatus(zoneId: Int, activeIds: Set<Int> = activeDownloadZoneIds()): ZoneStatus {
         val pmtilesFile = File(context.getExternalFilesDir(null), "zone_$zoneId.pmtiles")
         val nodesFile = File(context.getExternalFilesDir(null), "nodes_zone_$zoneId.bin")
         val edgesFile = File(context.getExternalFilesDir(null), "edges_zone_$zoneId.bin")
         val transitFile = File(context.getExternalFilesDir(null), "transit_voyages_zone_$zoneId.bin")
 
-        val allFilesExist = pmtilesFile.exists() && nodesFile.exists() && 
+        val allFilesExist = pmtilesFile.exists() && nodesFile.exists() &&
                           edgesFile.exists() && transitFile.exists()
         if (allFilesExist) return ZoneStatus.FINISHED
 
-        val query = DownloadManager.Query()
-        val cursor = downloadManager.query(query)
-        var isDownloading = false
-
-        while (cursor.moveToNext()) {
-            val title = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE))
-            if (title.startsWith("Map Zone $zoneId ")) {
-                val systemStatus = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                if (systemStatus == DownloadManager.STATUS_RUNNING ||
-                    systemStatus == DownloadManager.STATUS_PAUSED ||
-                    systemStatus == DownloadManager.STATUS_PENDING) {
-                    isDownloading = true
-                    break
-                }
-            }
-        }
-        cursor.close()
-
-        return if (isDownloading) ZoneStatus.DOWNLOADING else ZoneStatus.NOT_STARTED
+        return if (zoneId in activeIds) ZoneStatus.DOWNLOADING else ZoneStatus.NOT_STARTED
     }
 
     fun startDownload(zoneId: Int) {

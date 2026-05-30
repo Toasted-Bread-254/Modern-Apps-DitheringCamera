@@ -106,10 +106,18 @@ fun SearchPage(
                             modifier = Modifier.clickable {
                                 searchViewModel.resolveAmenity(amenity, db) { feature ->
                                     if (idx != null) {
-                                        val f = viewModel.selectedFeature.value as SpecificFeature.Route
-                                        viewModel.set(f.copy(waypoints = f.waypoints.mapIndexed { idx2, it ->
-                                            if (idx2 == idx) feature else it
-                                        }))
+                                        // The selection could have changed (e.g. user
+                                        // navigated away and back) between launching the
+                                        // resolve and the callback firing. Tolerate a
+                                        // non-Route current selection rather than crashing.
+                                        val current = viewModel.selectedFeature.value
+                                        if (current is SpecificFeature.Route) {
+                                            viewModel.set(current.copy(waypoints = current.waypoints.mapIndexed { idx2, it ->
+                                                if (idx2 == idx) feature else it
+                                            }))
+                                        } else {
+                                            viewModel.set(feature)
+                                        }
                                     } else {
                                         viewModel.set(feature)
                                     }

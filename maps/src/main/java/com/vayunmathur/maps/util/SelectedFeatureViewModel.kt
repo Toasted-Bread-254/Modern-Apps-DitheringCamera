@@ -39,6 +39,13 @@ class SelectedFeatureViewModel(application: Application): AndroidViewModel(appli
         }
     }
 
+    override fun onCleared() {
+        // Unregister GPS + sensor listeners so the radio doesn't keep draining
+        // battery after the user navigates away from the map module.
+        locationManager.stop()
+        super.onCleared()
+    }
+
     fun set(feature: SpecificFeature?) {
         _selectedFeature.value = feature
     }

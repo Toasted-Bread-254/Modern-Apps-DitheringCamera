@@ -190,8 +190,11 @@ fun getProperties(fgbFeature: FgbFeature, header: Header): Map<String, JsonEleme
     while (bb.hasRemaining()) {
         val keyIndex = bb.short.toInt() and 0xFFFF
 
-        val column = header.columns(keyIndex)
-        val key = column?.name() ?: "attr_$keyIndex"
+        // If the column index isn't in the header, we don't know how many
+        // bytes to skip past — abort the rest of this feature's properties
+        // rather than reading random bytes and possibly walking off the end.
+        val column = header.columns(keyIndex) ?: break
+        val key = column.name() ?: "attr_$keyIndex"
         val valueType = column.type()
 
         val value: JsonElement? = when (valueType) {

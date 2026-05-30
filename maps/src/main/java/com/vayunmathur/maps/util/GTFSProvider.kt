@@ -3,9 +3,14 @@ package com.vayunmathur.maps.util
 import android.content.Context
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.util.concurrent.ConcurrentHashMap
 
 object GTFSProvider {
-    private val routeColors = mutableMapOf<String, String>() // Key: feedName:routeName, Value: #HEX
+    // Accessed concurrently from OfflineRouter.getRoute (Dispatchers.Default)
+    // and from MyMapLayers on the Main thread, so use a thread-safe map —
+    // a plain HashMap mutation race can corrupt internal buckets and cause
+    // ConcurrentModificationException or infinite get() loops.
+    private val routeColors = ConcurrentHashMap<String, String>() // Key: feedName:routeName, Value: #HEX
 
     fun getRouteColor(context: Context, feedName: String, routeName: String): String? {
         val cacheKey = "$feedName:$routeName"
