@@ -3,7 +3,7 @@ This is a collection of apps that aims to replace the ecosystem feel of propriet
 
 Unlike other open-source ecosystems, all apps in Modern Apps are built using modern technologies: Jetpack Compose, Material 3 You, etc, which makes them "look nice" and easy to read for those who wish to audit the code.
 
-This ecosystem also contains apps that aren't as well covered by the open-source ecosystem - particularly Find Family (a location sharing app), YouPipe (a privacy-based youtube frontend), and the upcoming Maps (which will support public transit routing, a feature missing from existing alternatives).
+This ecosystem also contains apps that aren't as well covered by the open-source ecosystem - particularly Find Family (a location sharing app), YouPipe (a privacy-based youtube frontend), Email (an email client that supports push notifications and a functional dark mode widget), the upcoming Maps (which supports public transit routing, a feature missing from existing alternatives), and the upcoming Messages (a aggregator for other messaging apps).
 
 This ecosystem also includes games, which I personally believe are an important part of a good phone experience (at least the kind from the "golden age" of mobile games are), so I have remade some mobile games I enjoyed and might add more as time goes on.
 
@@ -43,49 +43,26 @@ Contribute to translations for these apps through the weblate project: https://h
 # App Feature Descriptions
 Just for the "interesting" apps
 
+## Email
+
+Supports any email provider and supports push notifications for emails (so you get emails immediately instead of waiting for the app to check in with the server again).
+
 ## FindFamily
 
 iOS: https://apps.apple.com/us/app/find-family-secure-private/id6760863634
 
-Note: initiating cross-platform sharing only works in v2.2.0. After sharing is started, you can upgrade to the latest version. The permissions button in v2.2.0 does not work - so you will have to manually enable them in settings app
-
-Note for iOS users: there is a known bug where you may have to pick contact names twice / wait a few seconds before picking
-
 ### Features:
 - End-to-end encryption
 - No emails, phone numbers, or any other personal information required
-- Temporarily turn on or off location sharing with specific people
 - Saved places, with notifications when people enter or leave them
 - See battery status / low battery notifications
-- Fully open source client
-- Share current speed
 - Show how long person has been at place (saved or not)
-- Show location history
+- See where you were at any point in the past
 - Temporary location sharing via link (opens in website)
 
 ### In progress:
-- Track any bluetooth device
-
-### Security Summary
-When the app is first started, it generates a random userID, as well as an encryption and decryption key.
-
-The userID and the encryption key are sent to the server, which stores them in a database. The decryption key is kept on your device.
-
-When you share your location, the app gets your friend's encryption key from the server, encrypts your location with it, and sends it to the server.
-
-An example message to the server looks like the following:
-```
-{
-    "recipientUserID": "748974347624",
-    "encryptedLocation": "GWwkSIKuWFFEVrH1GOv7XWFDbHt/cDUC6FPsQF6
-        +9YUL2uoDSwGn255rsz1unIhKIOstOjjpUmVD72XCEBtfxfvjU2K+R14
-        +yKJwlyY4zEoVNIcgLT6zzSXPirN2z6DqYFD4iv73McylwNUtnYeOBBM
-        FolFODR7vtZYhfpVKJZrX7DLRkfTcW1IqWmduKhla9u4sglK2JAeg2YS
-        9VNIK1ou0EbssyJXwxL38K2IEsuXcEp3qBoUlJyolKEzozNvUnFsxvrV
-        oXctvO+ynTZAVYsgykLPiOSU="
-}
-```
-The only information the server can read is an anonymous ID representing who the shared location is for. The server cannot read the location itself, as the decryption key is only on the recipient's device.
+- UWB Precision Finding (direction and distance)
+- Airtag-like hardware trackers
 
 ## Maps
 Officially unreleased, but the apk is available for download for testing.
@@ -101,15 +78,15 @@ Officially unreleased, but the apk is available for download for testing.
 ### In progress:
 - Use live schedules for public transit
 
+## Messages
+The private aggregator for messaging apps. There exist other aggregators, but those apps run bridges on their own servers (privacy risk because your messages are or can be decrypted by the server), while this app runs the bridges on-device, preserving end-to-end encryption.
+
+Currently supports Google Messages and Google Voice with more services in development.
+
 ## OpenAssistant
 A 100% offline AI app that supports text, image, and audio input using the Gemma 4 models
 
 Also supports tool calling, which enables interactions with other apps in this ecosystem (reading and writing to notes, searching and playing music, etc.)
 
 ## YouPipe
-A YouTube frontend using Material 3 You - based on the NewPipe Extractor library
-
-#### In progress:
-- Downloading videos
-- Playing audio-only mode
-- Better import/export (newpipe import currently exists)
+A YouTube frontend using Material 3 You - based on the NewPipe Extractor library. Supports downloading videos, and and importing data directly from NewPipe or Youtube (via Google Takeout).
