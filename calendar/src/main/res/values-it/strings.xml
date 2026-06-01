@@ -54,4 +54,6 @@
     <string name="go_to_date">Vai alla data</string>
     <string name="on_days_of_week">Nei giorni della settimana</string>
     <string name="monthly_type">Tipo mensile</string>
+    <string name="count">Volte</string>
+    <string name="open_location_in_navigation">Apri posizione</string>
 </resources>
