@@ -34,4 +34,12 @@
     <string name="video_stat_format">%1$s visualizzazioni | %2$s</string>
     <string name="label_description">Descrizione</string>
     <string name="label_loading_subscriptions">Caricamento iscrizioni più recenti</string>
+    <string name="title_settings">Impostazioni</string>
+    <string name="label_sponsorblock">Abilita SponsorBlock</string>
+    <string name="label_sponsorblock_description">Salta automaticamente i segmenti sponsorizzati nei video</string>
+    <string name="label_backup_restore">Backup e ripristino</string>
+    <string name="label_restore_youpipe">Ripristina da YouPipe</string>
+    <string name="label_import_newpipe">Importa iscrizioni NewPipe</string>
+    <string name="label_import_youtube">Importa da YouTube (Takeout)</string>
+    <string name="label_export_youpipe">Esporta iscrizioni</string>
 </resources>
