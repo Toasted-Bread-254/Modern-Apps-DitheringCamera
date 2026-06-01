@@ -1,3 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="cancel">Cancelar</string>
+    <string name="delete">Apagar</string>
+    <string name="ok">Ok</string>
+    <string name="search">Pesquisar</string>
+    <string name="settings">Configurações</string>
+    <string name="favorite">Favorito</string>
+    <string name="share_contact">Partilhar Contacto</string>
+    <string name="about_name">Sobre %1$s</string>
+    <string name="birthday">Data de Nascimento</string>
+    <string name="note">Anotação</string>
+    <string name="action">Ação</string>
+    <string name="favorites">Favoritos</string>
+    <string name="user_profile">Perfil do Utilizador</string>
+    <string name="profiles">Perfis</string>
 </resources>
