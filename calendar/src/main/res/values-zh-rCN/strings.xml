@@ -55,4 +55,5 @@
     <string name="new_name">新名称</string>
     <string name="create_a_calendar">创建日历</string>
     <string name="choose_timezone">选择时区</string>
+    <string name="open_location_in_navigation">打开位置</string>
 </resources>
