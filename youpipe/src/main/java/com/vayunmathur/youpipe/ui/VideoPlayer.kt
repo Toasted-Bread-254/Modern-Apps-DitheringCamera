@@ -100,8 +100,9 @@ fun VideoPlayer(
 ) {
     val context = LocalContext.current
     val sponsorBlockEnabled by ypvm.sponsorBlockEnabled.collectAsState()
+    val sponsorBlockCategories by ypvm.sponsorBlockCategories.collectAsState()
     val videoState by ypvm.videoState.collectAsState()
-    val sponsorSegments = videoState.sponsorSegments
+    val sponsorSegments = videoState.sponsorSegments.filter { it.category in sponsorBlockCategories }
 
     var languages by remember { mutableStateOf(audioStreams.map { it.language }.distinct().sorted()) }
     var language by remember { mutableStateOf(if("en" in languages) "en" else languages.first()) }

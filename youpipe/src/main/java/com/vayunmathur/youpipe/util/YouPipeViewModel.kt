@@ -461,11 +461,36 @@ class YouPipeViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
     val sponsorBlockEnabled: StateFlow<Boolean> = _sponsorBlockEnabled
 
+    private val _sponsorBlockCategories: StateFlow<Set<String>> = DataStoreUtils
+        .getInstance(application)
+        .stringSetFlow("sponsorblock_categories")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DEFAULT_SPONSOR_CATEGORIES)
+    val sponsorBlockCategories: StateFlow<Set<String>> = _sponsorBlockCategories
+
     fun setSponsorBlockEnabled(enabled: Boolean) {
         viewModelScope.launch {
             DataStoreUtils.getInstance(getApplication())
                 .setBoolean("sponsorblock_enabled", enabled)
         }
+    }
+
+    fun setSponsorBlockCategories(categories: Set<String>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val ds = DataStoreUtils.getInstance(getApplication())
+            // Clear and re-add all categories
+            for (cat in ALL_SPONSOR_CATEGORIES) {
+                ds.removeStringFromSet("sponsorblock_categories", cat)
+            }
+            for (cat in categories) {
+                ds.addStringToSet("sponsorblock_categories", cat)
+            }
+        }
+    }
+
+    fun toggleSponsorBlockCategory(category: String) {
+        val current = _sponsorBlockCategories.value
+        val updated = if (category in current) current - category else current + category
+        setSponsorBlockCategories(updated)
     }
 
     fun importYouTubeTakeout(uri: Uri) {
@@ -658,6 +683,26 @@ class YouPipeViewModel(
 
     companion object {
         private const val TAG = "YouPipeViewModel"
+
+        val ALL_SPONSOR_CATEGORIES = setOf(
+            "sponsor", "selfpromo", "interaction", "intro", "outro",
+            "preview", "music_offtopic", "filler"
+        )
+        val DEFAULT_SPONSOR_CATEGORIES = setOf(
+            "sponsor", "selfpromo", "interaction", "intro", "outro",
+            "preview", "music_offtopic", "filler"
+        )
+
+        val SPONSOR_CATEGORY_LABELS = mapOf(
+            "sponsor" to "Sponsor",
+            "selfpromo" to "Self Promotion",
+            "interaction" to "Interaction Reminder",
+            "intro" to "Intro",
+            "outro" to "Outro/Endcards",
+            "preview" to "Preview/Recap",
+            "music_offtopic" to "Non-Music in Music Videos",
+            "filler" to "Filler",
+        )
     }
 }
 

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ListItem
@@ -27,6 +28,8 @@ import com.vayunmathur.youpipe.MAIN_BOTTOM_BAR_ITEMS
 import com.vayunmathur.youpipe.R
 import com.vayunmathur.youpipe.Route
 import com.vayunmathur.youpipe.util.YouPipeViewModel
+import com.vayunmathur.youpipe.util.YouPipeViewModel.Companion.ALL_SPONSOR_CATEGORIES
+import com.vayunmathur.youpipe.util.YouPipeViewModel.Companion.SPONSOR_CATEGORY_LABELS
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,6 +38,7 @@ fun SettingsPage(
     ypvm: YouPipeViewModel,
 ) {
     val sponsorBlockEnabled by ypvm.sponsorBlockEnabled.collectAsState()
+    val sponsorBlockCategories by ypvm.sponsorBlockCategories.collectAsState()
     val isLoading by ypvm.isImporting.collectAsState()
     val progress by ypvm.importProgress.collectAsState()
 
@@ -71,6 +75,24 @@ fun SettingsPage(
                             )
                         }
                     )
+                }
+                if (sponsorBlockEnabled) {
+                    ALL_SPONSOR_CATEGORIES.forEach { category ->
+                        item(key = "sb_$category") {
+                            val label = SPONSOR_CATEGORY_LABELS[category] ?: category
+                            val checked = category in sponsorBlockCategories
+                            ListItem(
+                                headlineContent = { Text(label) },
+                                trailingContent = {
+                                    Checkbox(
+                                        checked = checked,
+                                        onCheckedChange = { ypvm.toggleSponsorBlockCategory(category) }
+                                    )
+                                },
+                                modifier = Modifier.padding(start = 16.dp)
+                            )
+                        }
+                    }
                 }
                 item {
                     ListItem(
