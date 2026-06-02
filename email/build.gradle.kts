@@ -13,6 +13,12 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/NOTICE.md"
             excludes += "META-INF/LICENSE.md"
+            // Ensure JavaMail provider descriptors are kept
+            pickFirsts += "META-INF/javamail.providers"
+            pickFirsts += "META-INF/javamail.default.providers"
+            pickFirsts += "META-INF/javamail.default.address.map"
+            pickFirsts += "META-INF/mailcap"
+            pickFirsts += "META-INF/mailcap.default"
         }
     }
 }
