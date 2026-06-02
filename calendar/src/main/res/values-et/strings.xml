@@ -55,4 +55,5 @@
     <string name="create_a_calendar">Loo kalender</string>
     <string name="choose_timezone">Vali ajavöönd</string>
     <string name="delete_calendar_name_confirm">Kas oled kindel, et soovid „%1$s“ kalendri kustutada? Järgnevaga kaovad kõik antud kalendris leiduvad sündmused.</string>
+    <string name="open_location_in_navigation">Ava asukoht</string>
 </resources>
