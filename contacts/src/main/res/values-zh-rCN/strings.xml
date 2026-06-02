@@ -76,4 +76,16 @@
     <string name="search">搜索</string>
     <string name="search_contacts">搜索联系人</string>
     <string name="include_year">包括年份</string>
+    <string name="system_default">系统默认</string>
+    <string name="signal">Signal</string>
+    <string name="whatsapp">WhatsApp</string>
+    <string name="contacts">联系人</string>
+    <string name="groups">群组</string>
+    <string name="select_group_hint">选择一个群组以查看联系人</string>
+    <string name="add_to_group">添加到群组</string>
+    <string name="add_group">添加群组</string>
+    <string name="group_name">群组名称</string>
+    <string name="enter_group_name">输入群组名称</string>
+    <string name="delete_group_title">删除群组</string>
+    <string name="delete_group_confirm">确定要删除此群组吗？联系人不会被删除。</string>
 </resources>
