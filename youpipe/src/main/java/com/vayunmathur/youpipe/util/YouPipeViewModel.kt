@@ -115,6 +115,14 @@ class YouPipeViewModel(
         viewModelScope.launch(Dispatchers.IO) { historyVideoDao.upsert(item) }
     }
 
+    fun deleteHistoryVideos(ids: List<Long>) {
+        viewModelScope.launch(Dispatchers.IO) { historyVideoDao.deleteByIds(ids) }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch(Dispatchers.IO) { historyVideoDao.clearAll() }
+    }
+
     fun deleteDownloadedVideo(item: DownloadedVideo) {
         viewModelScope.launch(Dispatchers.IO) { downloadedVideoDao.delete(item) }
     }

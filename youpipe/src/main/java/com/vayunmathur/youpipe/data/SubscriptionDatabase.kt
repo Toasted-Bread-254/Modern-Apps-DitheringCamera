@@ -46,6 +46,15 @@ interface HistoryVideoDao {
 
     @Upsert
     suspend fun upsertAll(values: List<HistoryVideo>)
+
+    @Delete
+    suspend fun delete(value: HistoryVideo)
+
+    @Query("DELETE FROM HistoryVideo WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
+    @Query("DELETE FROM HistoryVideo")
+    suspend fun clearAll()
 }
 
 @Dao

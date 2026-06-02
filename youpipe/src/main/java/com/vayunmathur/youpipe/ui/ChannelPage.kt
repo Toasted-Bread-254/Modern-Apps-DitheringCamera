@@ -112,6 +112,7 @@ fun VideoItem(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     backupOnClick: Boolean = true,
+    trailingContent: @Composable (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val historyFlow = remember(videoInfo.videoID) { youPipeViewModel.historyById(videoInfo.videoID) }
@@ -163,7 +164,7 @@ fun VideoItem(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
-            })
+            }, trailingContent = trailingContent?.let { { it() } })
         }
     }
 }
