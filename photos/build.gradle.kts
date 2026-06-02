@@ -10,6 +10,8 @@ android {
     packaging {
         jniLibs {
             pickFirsts.add("**/libc++_shared.so")
+            pickFirsts.add("**/libtensorflowlite_jni.so")
+            pickFirsts.add("**/libtensorflowlite_gpu_jni.so")
         }
     }
 }
@@ -31,4 +33,6 @@ dependencies {
     implementation(project(":library:downloadservice"))
     implementation(project(":library:widgets"))
     implementation(project(":library:biometric"))
+
+    implementation(libs.litert)
 }

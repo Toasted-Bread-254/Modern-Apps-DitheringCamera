@@ -45,12 +45,12 @@ interface PhotoDao {
     fun getOCRTargetCountFlow(): kotlinx.coroutines.flow.Flow<Int>
 }
 
-@Database(entities = [Photo::class, PhotoOCR::class], version = 5, exportSchema = false)
+@Database(entities = [Photo::class, PhotoOCR::class], version = 6, exportSchema = false)
 abstract class PhotoDatabase : RoomDatabase() {
     abstract fun photoDao(): PhotoDao
 
     companion object : com.vayunmathur.library.util.DatabaseMigrations {
-        override val migrations: List<Migration> = listOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+        override val migrations: List<Migration> = listOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
     }
 }
 
@@ -68,4 +68,12 @@ val MIGRATION_3_4 = Migration(3, 4) {
 
 val MIGRATION_4_5 = Migration(4, 5) {
     it.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS `PhotoOCR` USING FTS4(`ocrText` TEXT)")
+}
+
+val MIGRATION_5_6 = Migration(5, 6) {
+    // Recreate FTS table with new schema including description field
+    it.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS `PhotoOCR_new` USING FTS4(`ocrText` TEXT, `description` TEXT)")
+    it.execSQL("INSERT INTO PhotoOCR_new(rowid, ocrText, description) SELECT rowid, ocrText, '' FROM PhotoOCR")
+    it.execSQL("DROP TABLE PhotoOCR")
+    it.execSQL("ALTER TABLE PhotoOCR_new RENAME TO PhotoOCR")
 }

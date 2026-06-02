@@ -30,7 +30,6 @@ import com.vayunmathur.photos.data.Photo
 import com.vayunmathur.photos.data.PhotoOCR
 import com.vayunmathur.photos.data.PhotoDatabase
 import com.vayunmathur.photos.data.VideoData
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -359,9 +358,19 @@ suspend fun runOCR(photos: List<Photo>, database: PhotoDatabase, context: Contex
 
     val ocrManager = OCRManager(context)
 
+    // Check if model is available before processing
+    if (!ocrManager.isModelAvailable()) {
+        Log.w("SyncWorker", "OCR model not available, skipping OCR processing")
+        ocrManager.cleanup()
+        return@coroutineScope
+    }
+
     ps.forEach { photo ->
         ensureActive()
-        if (!dataStore.getBoolean("image_understanding_enabled", false)) return@forEach
+        if (!dataStore.getBoolean("image_understanding_enabled", false)) {
+            ocrManager.cleanup()
+            return@forEach
+        }
 
         // Double check if another thread/worker finished this photo while we were waiting
         val alreadyExists = database.query(SimpleSQLiteQuery("SELECT EXISTS(SELECT 1 FROM PhotoOCR WHERE rowid = ${photo.id})"), null).use { cursor ->
@@ -370,15 +379,20 @@ suspend fun runOCR(photos: List<Photo>, database: PhotoDatabase, context: Contex
         if (alreadyExists) return@forEach
 
         try {
-            val text = ocrManager.runOCR(photo.uri.toUri())
-            if (text != null && text.isNotBlank()) {
-                photoDao.upsertOCR(PhotoOCR(photo.id, text))
-                Log.i("SyncWorker", "OCR for ${photo.id} produced $text")
+            val result = ocrManager.runOCR(photo.uri.toUri())
+            if (result != null) {
+                val (ocrText, description) = result
+                photoDao.upsertOCR(PhotoOCR(photo.id, ocrText, description))
+                Log.i("SyncWorker", "OCR for ${photo.id} produced text: ${ocrText.take(50)}, description: ${description.take(50)}")
+            } else {
+                // Insert empty entry so this photo isn't retried
+                photoDao.upsertOCR(PhotoOCR(photo.id, "", ""))
+                Log.w("SyncWorker", "OCR for ${photo.id} returned null, marking as processed")
             }
-            // 1 minute break to allow device to cool down
-            delay(60000)
         } catch (e: Exception) {
             Log.e("SyncWorker", "Error running OCR for photo ${photo.id}", e)
         }
     }
+
+    ocrManager.cleanup()
 }

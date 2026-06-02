@@ -11,6 +11,7 @@ ksp = "2.3.6"
 # AndroidX Core & Lifecycle
 coreKtx = "1.18.0"
 lifecycle = "2.10.0"
+litert = "2.1.5"
 litertlmAndroid = "0.12.0"
 newpipeextractor = "v0.26.2"
 sqlcipherAndroid = "4.16.0"
@@ -110,6 +111,9 @@ kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", v
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlmAndroid" }
 newpipeextractor = { module = "com.github.TeamNewPipe:NewPipeExtractor", version.ref = "newpipeextractor" }
 reorderable = { module = "sh.calvin.reorderable:reorderable", version.ref = "reorderable" }
+
+# LiteRT (2.x has GPU support built-in via CompiledModel.GpuOptions)
+litert = { module = "com.google.ai.edge.litert:litert", version.ref = "litert" }
 
 # PDF Support
 androidx-pdf-compose = { module = "androidx.pdf:pdf-compose", version.ref = "pdfViewer" }

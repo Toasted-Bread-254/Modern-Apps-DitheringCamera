@@ -67,13 +67,6 @@ class GalleryViewModel(
             dataStore.getBoolean("image_understanding_enabled", false),
         )
 
-    val isOpenAssistantInstalled: Boolean = try {
-        application.packageManager.getPackageInfo("com.vayunmathur.openassistant", 0)
-        true
-    } catch (_: PackageManager.NameNotFoundException) {
-        false
-    }
-
     init {
         // Debounced search: re-query whenever the query string changes.
         viewModelScope.launch {

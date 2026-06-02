@@ -29,8 +29,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.fragment.app.FragmentActivity
+import com.vayunmathur.library.downloadservice.InitialDownloadChecker
 import com.vayunmathur.library.ui.DynamicTheme
 import com.vayunmathur.library.ui.PermissionsChecker
+import com.vayunmathur.library.util.DataStoreUtils
 import com.vayunmathur.library.util.MainNavigation
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.util.NavKey
@@ -51,7 +53,9 @@ import com.vayunmathur.photos.util.PhotoMapViewModel
 import com.vayunmathur.photos.util.PhotoMapViewModelFactory
 import com.vayunmathur.photos.util.SecureFolderViewModel
 import com.vayunmathur.photos.util.SecureFolderViewModelFactory
+import com.vayunmathur.photos.util.SmolVLMRunner
 import kotlinx.serialization.Serializable
+import java.io.File
 import com.vayunmathur.library.R as LibraryR
 
 val LocalColumnCount = staticCompositionLocalOf<MutableFloatState> {
@@ -81,26 +85,61 @@ class MainActivity : FragmentActivity() {
             DynamicTheme {
                 val columnCount = rememberSaveable { mutableFloatStateOf(3f) }
                 CompositionLocalProvider(LocalColumnCount provides columnCount) {
-                    if (Build.VERSION.SDK_INT >= 33) {
-                        PermissionsChecker(
-                            arrayOf(
-                                Manifest.permission.READ_MEDIA_IMAGES,
-                                Manifest.permission.READ_MEDIA_VIDEO,
-                                Manifest.permission.ACCESS_MEDIA_LOCATION
-                            ), getString(R.string.grant_image_video_permissions)
+                    val dataStore = DataStoreUtils.getInstance(this)
+                    val isFeatureEnabled by galleryViewModel.isFeatureEnabled.collectAsState()
+
+                    // Check if model and tokenizer need to be downloaded
+                    val externalDir = getExternalFilesDir(null)
+                    val modelFile = File(externalDir, SmolVLMRunner.MODEL_FILE_NAME)
+                    val tokenizerFile = File(externalDir, SmolVLMRunner.TOKENIZER_FILE_NAME)
+                    val needsModelDownload = isFeatureEnabled && (!modelFile.exists() || !tokenizerFile.exists())
+
+                    if (needsModelDownload) {
+                        // Show download screen for the model and tokenizer
+                        InitialDownloadChecker(
+                            ds = dataStore,
+                            filesToDownload = listOf(
+                                Triple(
+                                    "https://data.vayunmathur.com/ocr/smalvlm-256m-instruct_q8_ekv2048_single_image.tflite",
+                                    SmolVLMRunner.MODEL_FILE_NAME,
+                                    "SmolVLM AI Model (~200MB)"
+                                ),
+                                Triple(
+                                    "https://data.vayunmathur.com/ocr/tokenizer.model",
+                                    SmolVLMRunner.TOKENIZER_FILE_NAME,
+                                    "Tokenizer (~2MB)"
+                                )
+                            )
                         ) {
-                            Navigation(galleryViewModel, photoMapViewModel, secureFolderViewModel)
+                            PermissionsWrapper()
                         }
                     } else {
-                        PermissionsChecker(
-                            arrayOf(
-                                Manifest.permission.READ_EXTERNAL_STORAGE
-                            ), getString(R.string.grant_storage_permission)
-                        ) {
-                            Navigation(galleryViewModel, photoMapViewModel, secureFolderViewModel)
-                        }
+                        PermissionsWrapper()
                     }
                 }
+            }
+        }
+    }
+
+    @Composable
+    private fun PermissionsWrapper() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            PermissionsChecker(
+                arrayOf(
+                    Manifest.permission.READ_MEDIA_IMAGES,
+                    Manifest.permission.READ_MEDIA_VIDEO,
+                    Manifest.permission.ACCESS_MEDIA_LOCATION
+                ), getString(R.string.grant_image_video_permissions)
+            ) {
+                Navigation(galleryViewModel, photoMapViewModel, secureFolderViewModel)
+            }
+        } else {
+            PermissionsChecker(
+                arrayOf(
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+                ), getString(R.string.grant_storage_permission)
+            ) {
+                Navigation(galleryViewModel, photoMapViewModel, secureFolderViewModel)
             }
         }
     }

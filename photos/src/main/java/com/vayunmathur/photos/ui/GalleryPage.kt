@@ -11,16 +11,25 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.size
+import com.vayunmathur.library.ui.IconClose
+import com.vayunmathur.library.ui.IconSearch
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SearchBar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -28,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -41,7 +51,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.fragment.app.FragmentActivity
 import androidx.compose.ui.platform.LocalContext
-import com.vayunmathur.library.ui.IconClose
 import com.vayunmathur.library.ui.IconDelete
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.photos.LocalColumnCount
@@ -75,6 +84,12 @@ fun GalleryPage(
     val selectedIds by galleryViewModel.selectedIds.collectAsState()
     val isFeatureEnabled by galleryViewModel.isFeatureEnabled.collectAsState()
     val isSelectionMode = selectedIds.isNotEmpty()
+
+    val searchQuery by galleryViewModel.searchQuery.collectAsState()
+    val searchResults by galleryViewModel.searchResults.collectAsState()
+    val ocrCount by galleryViewModel.ocrCount.collectAsState()
+    val ocrTargetCount by galleryViewModel.ocrTargetCount.collectAsState()
+    var searchActive by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         galleryViewModel.runSync()
@@ -131,6 +146,18 @@ fun GalleryPage(
         }
     }
 
+    val displayPhotos = if (searchActive && searchQuery.isNotEmpty()) searchResults else photos
+    val displayPhotosGroupedByMonth by remember(displayPhotos) {
+        derivedStateOf {
+            displayPhotos.groupBy {
+                val date = Instant.fromEpochMilliseconds(it.date).toLocalDateTime(TimeZone.currentSystemDefault())
+                LocalDate(date.year, date.month, 1)
+            }.toSortedMap(Comparator<LocalDate>(LocalDate::compareTo).reversed()).mapKeys {
+                resources.getString(R.string.month_year_format, MonthNames.ENGLISH_ABBREVIATED.names[it.key.month.ordinal], it.key.year)
+            }.mapValues { pair -> pair.value.sortedByDescending { it.date } }
+        }
+    }
+
     Scaffold(
         topBar = {
             Column {
@@ -152,16 +179,83 @@ fun GalleryPage(
                         }
                     )
                 } else {
-                    TopAppBar(
-                        title = { Text(stringResource(R.string.app_name)) },
-                        actions = {
-                            if (isFeatureEnabled) {
-                                IconButton(onClick = { galleryViewModel.setFeatureEnabled(false) }) {
-                                    Icon(painterResource(LibraryR.drawable.settings_24px), contentDescription = stringResource(R.string.disable_ocr))
+                    SearchBar(
+                        query = searchQuery,
+                        onQueryChange = { galleryViewModel.setSearchQuery(it) },
+                        onSearch = { searchActive = false },
+                        active = searchActive,
+                        onActiveChange = { searchActive = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text(stringResource(R.string.search_placeholder)) },
+                        leadingIcon = {
+                            IconSearch()
+                        },
+                        trailingIcon = {
+                            if (searchActive) {
+                                IconButton(onClick = {
+                                    if (searchQuery.isNotEmpty()) {
+                                        galleryViewModel.setSearchQuery("")
+                                    } else {
+                                        searchActive = false
+                                    }
+                                }) {
+                                    IconClose()
                                 }
                             }
                         }
-                    )
+                    ) {
+                        // Search bar expanded content
+                        if (!isFeatureEnabled) {
+                            // Show OCR enable prompt
+                            ListItem(
+                                headlineContent = { Text(stringResource(R.string.enable_ai_search_title)) },
+                                supportingContent = { Text(stringResource(R.string.enable_ai_search_description)) },
+                                trailingContent = {
+                                    Button(onClick = {
+                                        galleryViewModel.setFeatureEnabled(true)
+                                        searchActive = false
+                                    }) {
+                                        Text(stringResource(R.string.enable_ai_search_button))
+                                    }
+                                }
+                            )
+                        } else if (searchQuery.isNotEmpty()) {
+                            // Show search results as a photo grid
+                            LazyVerticalGrid(
+                                GridCells.Fixed(3),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.fillMaxSize().padding(4.dp)
+                            ) {
+                                items(searchResults, key = { it.id }, contentType = { "photo_thumbnail" }) { photo ->
+                                    ImageLoader.PhotoItem(
+                                        photo = photo,
+                                        modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                                        onClick = {
+                                            searchActive = false
+                                            backStack.add(Route.PhotoPage(photo.id, searchResults))
+                                        }
+                                    )
+                                }
+                            }
+                        } else {
+                            // Show OCR processing progress
+                            if (ocrTargetCount > 0) {
+                                val pct = if (ocrTargetCount > 0) (ocrCount * 100 / ocrTargetCount) else 0
+                                ListItem(
+                                    headlineContent = { Text("$pct% of photos processed") },
+                                    supportingContent = { Text("$ocrCount / $ocrTargetCount photos indexed for search") },
+                                    leadingContent = {
+                                        CircularProgressIndicator(
+                                            progress = { ocrCount.toFloat() / ocrTargetCount },
+                                            modifier = Modifier.size(40.dp),
+                                            strokeWidth = 4.dp
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -192,7 +286,8 @@ fun GalleryPage(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                photosGroupedByMonth.forEach { (month, photosInMonth) ->
+                val currentGroupedPhotos = if (searchActive && searchQuery.isNotEmpty()) displayPhotosGroupedByMonth else photosGroupedByMonth
+                currentGroupedPhotos.forEach { (month, photosInMonth) ->
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
                             month,

@@ -11,4 +11,5 @@ import com.vayunmathur.library.util.DatabaseItem
 data class PhotoOCR(
     @PrimaryKey @ColumnInfo(name = "rowid") override val id: Long = 0,
     val ocrText: String,
+    val description: String = "",
 ) : DatabaseItem

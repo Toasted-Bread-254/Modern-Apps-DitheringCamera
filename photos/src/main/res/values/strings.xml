@@ -30,4 +30,10 @@
     <string name="disable_ocr">Disable AI Indexing</string>
     <string name="indexing_progress_details">%1$d of %2$d photos processed</string>
     <string name="close">Close</string>
+    <string name="search_placeholder">Search photos…</string>
+    <string name="enable_ai_search_title">Enable AI Search</string>
+    <string name="enable_ai_search_description">Download AI model to search photos by content and text</string>
+    <string name="enable_ai_search_button">Enable</string>
+    <string name="model_downloading_title">Downloading AI Model</string>
+    <string name="model_downloading_description">The AI model is being downloaded. This may take a few minutes depending on your connection.</string>
 </resources>
