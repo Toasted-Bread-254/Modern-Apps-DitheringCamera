@@ -50,7 +50,10 @@ object WhatsAppClient {
 
     private lateinit var appContext: Context
     private var authData: WhatsAppAuthData? = null
-    private var webSocket: WhatsAppWebSocket? = null
+    // Use WebView-based WebSocket to bypass TLS fingerprinting
+    // WhatsApp blocks non-browser TLS fingerprints (JA3). WebView uses Chromium's
+    // network stack which is indistinguishable from Chrome browser.
+    private var webSocket: WebViewWebSocket? = null
     private var db: WhatsAppDatabase? = null
     private var backfillJob: Job? = null
     private var qrJob: Job? = null
@@ -143,15 +146,16 @@ object WhatsAppClient {
     private suspend fun connect(auth: WhatsAppAuthData) {
         _state.value = State.Connecting
 
-        webSocket = WhatsAppWebSocket(auth).apply {
+        // Use WebView-based WebSocket to bypass TLS fingerprinting
+        webSocket = WebViewWebSocket(appContext, auth).apply {
             scope.launch {
                 connectionState.collect { state ->
                     when (state) {
-                        is WhatsAppWebSocket.ConnectionState.Connected -> {
+                        is WebViewWebSocket.ConnectionState.Connected -> {
                             _state.value = State.Connected
                             kickoffBackfill()
                         }
-                        is WhatsAppWebSocket.ConnectionState.Disconnected -> {
+                        is WebViewWebSocket.ConnectionState.Disconnected -> {
                             _state.value = State.Disconnected(state.reason)
                         }
                         else -> {}

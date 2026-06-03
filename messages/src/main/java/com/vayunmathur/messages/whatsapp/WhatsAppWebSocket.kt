@@ -40,17 +40,21 @@ class WhatsAppWebSocket(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     
     // WhatsApp Web requires modern TLS configuration
-    // SSLv3 alert usually means the server rejected the handshake due to:
-    // 1. Missing SNI (Server Name Indication)
-    // 2. Unsupported TLS version (needs TLS 1.2+)
-    // 3. Missing or incorrect headers
+    // SSLv3 alert close_notify means the server is terminating the TLS handshake.
+    // This happens when:
+    // 1. SNI (Server Name Indication) is missing or incorrect - OkHttp sets this automatically from URL
+    // 2. The server is blocking the connection based on fingerprinting
+    // 3. WhatsApp may require specific TLS cipher suites or extensions
+    // 
+    // The whatsmeow Go client uses github.com/coder/websocket which uses Go's crypto/tls.
+    // OkHttp on Android should be compatible, but WhatsApp may be blocking based on JA3 fingerprint.
     private val client = OkHttpClient.Builder()
         .pingInterval(PING_INTERVAL_MS, TimeUnit.MILLISECONDS)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
-        // Enable modern TLS - OkHttp uses TLS 1.2+ by default on Android
-        // The issue is likely missing headers or SNI, not TLS version
+        // OkHttp automatically sets SNI from the URL hostname
+        // TLS 1.2+ is used by default on modern Android
         .build()
 
     private var webSocket: WebSocket? = null
