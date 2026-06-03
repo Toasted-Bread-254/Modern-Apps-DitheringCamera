@@ -440,4 +440,7 @@ private fun labelFor(source: MessageSource): String = when (source) {
     MessageSource.VOICE -> "Voice"
     MessageSource.TELEGRAM -> "Telegram"
     MessageSource.SIGNAL -> "Signal"
+    MessageSource.WHATSAPP -> "WhatsApp"
+    MessageSource.MESSENGER -> "Messenger"
+    MessageSource.INSTAGRAM -> "Instagram"
 }

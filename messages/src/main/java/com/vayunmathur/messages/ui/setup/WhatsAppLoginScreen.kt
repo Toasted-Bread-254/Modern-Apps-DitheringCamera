@@ -22,7 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.navigation3.runtime.NavBackStack
+import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.messages.Route
 import com.vayunmathur.messages.whatsapp.WhatsAppClient
 import com.google.zxing.BarcodeFormat
@@ -118,7 +118,7 @@ fun WhatsAppLoginScreen(backStack: NavBackStack<Route>) {
                 )
                 Spacer(modifier = Modifier.height(24.dp))
                 Button(
-                    onClick = { backStack.removeLastOrNull() },
+                    onClick = { backStack.pop() },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Continue")

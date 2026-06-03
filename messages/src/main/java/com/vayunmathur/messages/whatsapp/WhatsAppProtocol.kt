@@ -1,19 +1,31 @@
 package com.vayunmathur.messages.whatsapp
 
 import android.util.Base64
-import com.vayunmathur.messages.util.Json
+import android.util.Log
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json as KotlinJson
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.security.MessageDigest
+import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.Mac
-import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import org.bouncycastle.crypto.agreement.X25519Agreement
+import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
+import org.bouncycastle.crypto.params.X25519PublicKeyParameters
+import org.bouncycastle.crypto.generators.HKDFBytesGenerator
+import org.bouncycastle.crypto.params.HKDFParameters
+import org.bouncycastle.crypto.digests.SHA256Digest
 
 /**
  * WhatsApp Web protocol implementation.
  * Handles Noise protocol handshake, message encoding/decoding, and binary protocol.
+ * 
+ * Implements Noise_XX_25519_AESGCM_SHA256 handshake as per:
+ * https://github.com/tulir/whatsmeow/blob/main/handshake.go
  */
 object WhatsAppProtocol {
     private const val TAG = "WhatsAppProtocol"
@@ -22,9 +34,16 @@ object WhatsAppProtocol {
     const val WS_URL = "wss://web.whatsapp.com/ws/chat"
 
     // Protocol constants
-    private const val NOISE_PROTOCOL = "Noise_XX_25519_AESGCM_SHA256\0\0\0\0"
+    private const val NOISE_PROTOCOL = "Noise_XX_25519_AESGCM_SHA256\u0000\u0000\u0000\u0000"
     private const val WA_HEADER = "WA"
     private const val WA_VERSION = "2.3000.1017131629"
+    
+    // WhatsApp certificate authority public key (Ed25519)
+    // From whatsmeow/handshake.go line 27
+    private val WA_CERT_PUBKEY = byteArrayOf(
+        0x14, 0x23, 0x75, 0x57, 0x4d, 0x0a, 0x58, 0x71, 0x66, 0xaa.toByte(), 0xe7.toByte(), 0x1e, 0xbe.toByte(), 0x51, 0x64, 0x37,
+        0xc4.toByte(), 0xa2.toByte(), 0x8b.toByte(), 0x73, 0xe3.toByte(), 0x69, 0x5c, 0x6c, 0xe1.toByte(), 0xf7.toByte(), 0xf9.toByte(), 0x54, 0x5d, 0xa8.toByte(), 0xee.toByte(), 0x6b
+    )
 
     /**
      * Noise protocol handshake message.
@@ -74,13 +93,167 @@ object WhatsAppProtocol {
     }
 
     /**
+     * Noise Protocol Handshake State Machine
+     * Implements Noise_XX_25519_AESGCM_SHA256 as per whatsmeow/socket/noisehandshake.go
+     */
+    class NoiseHandshake {
+        private var hash = ByteArray(32)
+        private var salt = ByteArray(32)
+        private var key: SecretKeySpec? = null
+        private var counter: UInt = 0u
+
+        /**
+         * Initialize handshake with protocol pattern and header
+         */
+        fun start(pattern: String, header: ByteArray) {
+            val data = pattern.toByteArray(Charsets.UTF_8)
+            hash = if (data.size == 32) {
+                data
+            } else {
+                sha256(data)
+            }
+            salt = hash.copyOf()
+            key = SecretKeySpec(hash, "AES")
+            authenticate(header)
+        }
+
+        /**
+         * Mix data into the handshake hash (transcript)
+         */
+        fun authenticate(data: ByteArray) {
+            hash = sha256(hash + data)
+        }
+
+        /**
+         * Encrypt plaintext with AES-GCM using current key
+         * Increments counter and mixes ciphertext into transcript
+         */
+        fun encrypt(plaintext: ByteArray): ByteArray {
+            val currentKey = key ?: throw IllegalStateException("Handshake not started")
+            val iv = generateIV(counter)
+            counter++
+            
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            val spec = GCMParameterSpec(128, iv)
+            cipher.init(Cipher.ENCRYPT_MODE, currentKey, spec)
+            cipher.updateAAD(hash)
+            val ciphertext = cipher.doFinal(plaintext)
+            authenticate(ciphertext)
+            return ciphertext
+        }
+
+        /**
+         * Decrypt ciphertext with AES-GCM using current key
+         * Increments counter and mixes ciphertext into transcript on success
+         */
+        fun decrypt(ciphertext: ByteArray): ByteArray {
+            val currentKey = key ?: throw IllegalStateException("Handshake not started")
+            val iv = generateIV(counter)
+            counter++
+            
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            val spec = GCMParameterSpec(128, iv)
+            cipher.init(Cipher.DECRYPT_MODE, currentKey, spec)
+            cipher.updateAAD(hash)
+            val plaintext = cipher.doFinal(ciphertext)
+            authenticate(ciphertext)
+            return plaintext
+        }
+
+        /**
+         * Mix shared secret (from X25519) into the key
+         * Uses HKDF-SHA256 to derive new salt and key
+         */
+        fun mixSharedSecretIntoKey(privateKey: ByteArray, publicKey: ByteArray) {
+            val sharedSecret = x25519(privateKey, publicKey)
+            mixIntoKey(sharedSecret)
+        }
+
+        /**
+         * Mix arbitrary data into the key using HKDF
+         */
+        fun mixIntoKey(data: ByteArray) {
+            counter = 0u
+            val (newSalt, newKey) = extractAndExpand(salt, data)
+            salt = newSalt
+            key = SecretKeySpec(newKey, "AES")
+        }
+
+        /**
+         * HKDF-SHA256 extract and expand
+         * Returns (salt, key) pair, each 32 bytes
+         */
+        private fun extractAndExpand(salt: ByteArray, data: ByteArray): Pair<ByteArray, ByteArray> {
+            val hkdf = HKDFBytesGenerator(SHA256Digest())
+            hkdf.init(HKDFParameters(data, salt, null))
+            
+            val writeKey = ByteArray(32)
+            val readKey = ByteArray(32)
+            hkdf.generateBytes(writeKey, 0, 32)
+            hkdf.generateBytes(readKey, 0, 32)
+            
+            return Pair(writeKey, readKey)
+        }
+
+        /**
+         * Finish handshake and derive final read/write keys
+         */
+        fun finish(): Pair<SecretKeySpec, SecretKeySpec> {
+            val (writeKey, readKey) = extractAndExpand(salt, ByteArray(0))
+            return Pair(
+                SecretKeySpec(writeKey, "AES"),
+                SecretKeySpec(readKey, "AES")
+            )
+        }
+
+        private fun generateIV(counter: UInt): ByteArray {
+            val iv = ByteArray(12)
+            // First 4 bytes are 0, last 8 bytes are counter (big-endian)
+            ByteBuffer.wrap(iv, 4, 8)
+                .order(ByteOrder.BIG_ENDIAN)
+                .putLong(counter.toLong())
+            return iv
+        }
+    }
+
+    /**
+     * Perform X25519 scalar multiplication
+     */
+    fun x25519(privateKey: ByteArray, publicKey: ByteArray): ByteArray {
+        val privParams = X25519PrivateKeyParameters(privateKey, 0)
+        val pubParams = X25519PublicKeyParameters(publicKey, 0)
+        val agreement = X25519Agreement()
+        agreement.init(privParams)
+        val sharedSecret = ByteArray(32)
+        agreement.calculateAgreement(pubParams, sharedSecret, 0)
+        return sharedSecret
+    }
+
+    /**
+     * Generate X25519 key pair
+     */
+    fun generateX25519KeyPair(): Pair<ByteArray, ByteArray> {
+        val random = SecureRandom()
+        val privateKey = ByteArray(32)
+        random.nextBytes(privateKey)
+        // Clamp the private key as per X25519 spec
+        privateKey[0] = (privateKey[0].toInt() and 248).toByte()
+        privateKey[31] = (privateKey[31].toInt() and 127).toByte()
+        privateKey[31] = (privateKey[31].toInt() or 64).toByte()
+        
+        val privParams = X25519PrivateKeyParameters(privateKey, 0)
+        val publicKey = privParams.generatePublicKey().encoded
+        return Pair(privateKey, publicKey)
+    }
+
+    /**
      * Encrypt data using AES-256-GCM.
      */
     fun encryptAesGcm(key: ByteArray, iv: ByteArray, plaintext: ByteArray): ByteArray {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         val keySpec = SecretKeySpec(key, "AES")
-        val ivSpec = IvParameterSpec(iv)
-        cipher.init(Cipher.ENCRYPT_MODE, keySpec, ivSpec)
+        val spec = GCMParameterSpec(128, iv)
+        cipher.init(Cipher.ENCRYPT_MODE, keySpec, spec)
         return cipher.doFinal(plaintext)
     }
 
@@ -90,8 +263,8 @@ object WhatsAppProtocol {
     fun decryptAesGcm(key: ByteArray, iv: ByteArray, ciphertext: ByteArray): ByteArray {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         val keySpec = SecretKeySpec(key, "AES")
-        val ivSpec = IvParameterSpec(iv)
-        cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec)
+        val spec = GCMParameterSpec(128, iv)
+        cipher.init(Cipher.DECRYPT_MODE, keySpec, spec)
         return cipher.doFinal(ciphertext)
     }
 

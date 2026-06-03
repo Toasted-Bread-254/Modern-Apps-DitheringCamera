@@ -314,6 +314,9 @@ object MessagesSessionManager {
             MessageSource.SIGNAL -> {
                 SignalClient.deleteThread(conversationId)
             }
+            MessageSource.WHATSAPP -> false
+            MessageSource.MESSENGER -> false
+            MessageSource.INSTAGRAM -> false
         }
         if (ok) db.conversationDao().deleteById(conversationId)
         return ok
@@ -390,6 +393,9 @@ object MessagesSessionManager {
             MessageSource.VOICE -> false
             MessageSource.TELEGRAM -> TelegramClient.sendTyping(conversationId)
             MessageSource.SIGNAL -> SignalClient.sendTyping(conversationId)
+            MessageSource.WHATSAPP -> false
+            MessageSource.MESSENGER -> false
+            MessageSource.INSTAGRAM -> false
         }
     }
 
@@ -588,6 +594,9 @@ object MessagesSessionManager {
                     SignalClient.sendNewThread(recipients, body.orEmpty())
                 }
             }
+            MessageSource.WHATSAPP -> null
+            MessageSource.MESSENGER -> null
+            MessageSource.INSTAGRAM -> null
         }
     }
 
@@ -615,6 +624,9 @@ object MessagesSessionManager {
             MessageSource.VOICE -> GVoiceClient.fetchMessages(conversationId)
             MessageSource.TELEGRAM -> TelegramClient.fetchMessages(conversationId)
             MessageSource.SIGNAL -> SignalClient.fetchMessages(conversationId)
+            MessageSource.WHATSAPP -> Unit
+            MessageSource.MESSENGER -> Unit
+            MessageSource.INSTAGRAM -> Unit
             null -> Unit
         }
     }

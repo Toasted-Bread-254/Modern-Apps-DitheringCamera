@@ -158,7 +158,7 @@ private fun QrCard(url: String) {
             .fillMaxWidth(0.85f)
             .aspectRatio(1f),
         shape = RoundedCornerShape(16.dp),
-        color = Color.White,
+        color = MaterialTheme.colorScheme.surface,
         tonalElevation = 4.dp,
     ) {
         Box(Modifier.padding(16.dp), contentAlignment = Alignment.Center) {

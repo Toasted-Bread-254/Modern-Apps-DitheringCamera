@@ -25,7 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.navigation3.runtime.NavBackStack
+import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.messages.Route
 import com.vayunmathur.messages.meta.MetaClient
 
@@ -38,7 +38,7 @@ fun MetaLoginScreen(backStack: NavBackStack<Route>) {
 
     LaunchedEffect(state) {
         if (state is MetaClient.State.Connected) {
-            backStack.removeLastOrNull()
+            backStack.pop()
         }
     }
 

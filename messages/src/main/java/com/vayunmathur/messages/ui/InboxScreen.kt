@@ -351,6 +351,9 @@ private fun SourceChip(source: MessageSource) {
         MessageSource.VOICE -> "Voice" to MaterialTheme.colorScheme.primary
         MessageSource.TELEGRAM -> "Telegram" to MaterialTheme.colorScheme.secondary
         MessageSource.SIGNAL -> "Signal" to MaterialTheme.colorScheme.secondary
+        MessageSource.WHATSAPP -> "WhatsApp" to MaterialTheme.colorScheme.secondary
+        MessageSource.MESSENGER -> "Messenger" to MaterialTheme.colorScheme.secondary
+        MessageSource.INSTAGRAM -> "Instagram" to MaterialTheme.colorScheme.secondary
     }
     Surface(
         shape = RoundedCornerShape(8.dp),

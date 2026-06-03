@@ -158,7 +158,7 @@ dependencies {
     // dedicated RPC client.
     implementation(project(":library:network"))
 
-    // Bouncy Castle — AES-IGE for MTProto encryption
+    // Bouncy Castle — AES-IGE for MTProto encryption, X25519 for WhatsApp Noise
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
 
     // Signal protocol crypto (Double Ratchet, sealed sender, pre-keys, etc.)

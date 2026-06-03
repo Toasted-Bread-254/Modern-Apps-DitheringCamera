@@ -296,7 +296,7 @@ object WhatsAppClient {
         // Return cached contacts matching query
         return nameCache.entries
             .filter { it.value.contains(query, ignoreCase = true) }
-            .map { ContactSuggestion(it.key, it.value) }
+            .map { ContactSuggestion(it.value, null, null, MessageSource.WHATSAPP) }
             .take(10)
     }
 }

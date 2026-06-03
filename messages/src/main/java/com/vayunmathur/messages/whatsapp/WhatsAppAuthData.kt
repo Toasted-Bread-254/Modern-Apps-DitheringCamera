@@ -3,7 +3,6 @@ package com.vayunmathur.messages.whatsapp
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
-import com.vayunmathur.messages.util.Json
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json as KotlinJson
