@@ -1,3 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="app_name">Tervis</string>
+    <string name="grant_permissions">Anna õigused</string>
+    <string name="tab_day">Päev</string>
+    <string name="tab_week">Nädal</string>
+    <string name="tab_month">Kuu</string>
+    <string name="tab_year">Aasta</string>
+    <string name="nav_prev">Eelmine</string>
+    <string name="nav_next">Järgmine</string>
+    <string name="week_range">%1$s - %2$s</string>
+    <string name="no_data_available">Selle ajavahemiku kohta ei leidu andmeid</string>
 </resources>
