@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -23,6 +25,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -59,6 +64,7 @@ fun EventScreen(viewModel: CalendarViewModel, instance: Instance, backStack: Nav
     val context = LocalContext.current
 
     val isEditable = calendar.canModify
+    var showDeleteMenu by remember { mutableStateOf(false) }
 
     Scaffold(topBar = {
         TopAppBar({}, navigationIcon = {
@@ -70,11 +76,40 @@ fun EventScreen(viewModel: CalendarViewModel, instance: Instance, backStack: Nav
                 }) {
                     IconEdit()
                 }
-                IconButton({
-                    viewModel.deleteEvent(event.id!!)
-                    backStack.pop()
-                }) {
-                    IconDelete()
+                Box {
+                    IconButton({
+                        if (instance.rrule != null) {
+                            // Recurring event - show dropdown menu
+                            showDeleteMenu = true
+                        } else {
+                            // Non-recurring event - delete directly
+                            viewModel.deleteEventSeries(event.id!!)
+                            backStack.pop()
+                        }
+                    }) {
+                        IconDelete()
+                    }
+                    DropdownMenu(
+                        expanded = showDeleteMenu,
+                        onDismissRequest = { showDeleteMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Delete this event") },
+                            onClick = {
+                                showDeleteMenu = false
+                                viewModel.deleteEventInstance(event.id!!, instance.begin)
+                                backStack.pop()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete all events") },
+                            onClick = {
+                                showDeleteMenu = false
+                                viewModel.deleteEventSeries(event.id!!)
+                                backStack.pop()
+                            }
+                        )
+                    }
                 }
             }
         })

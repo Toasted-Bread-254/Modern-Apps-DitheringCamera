@@ -218,6 +218,13 @@ fun EditEventScreen(viewModel: CalendarViewModel, editRoute: Route.EditEvent, ba
                 }
                 put(CalendarContract.Events.ALL_DAY, if(allDay) 1 else 0)
                 put(CalendarContract.Events.EVENT_TIMEZONE, tz)
+                // Preserve EXDATE when editing recurring events
+                event?.exdate?.takeIf { it.isNotEmpty() }?.let { exdateList ->
+                    val exdateStr = exdateList.joinToString(",") { date ->
+                        String.format("%04d%02d%02d", date.year, date.monthNumber, date.day)
+                    }
+                    put(CalendarContract.Events.EXDATE, exdateStr)
+                }
             }
             viewModel.upsertEvent(eventId, values)
             backStack.pop()

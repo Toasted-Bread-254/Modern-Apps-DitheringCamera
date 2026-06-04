@@ -26,7 +26,8 @@ data class Instance(
     val allDay: Boolean,
     val eventTitle: String,
     val color: Int,
-    val rrule: RRule?
+    val rrule: RRule?,
+    val exdate: List<LocalDate> = emptyList()
 ) {
 
     val startDateTimeDisplay: LocalDateTime

@@ -44,6 +44,12 @@ private fun RRule.EndCondition.toStringSuffix(): String = when (this) {
 @Serializable
 sealed class RRule {
     abstract val endCondition: EndCondition
+    abstract val byMonthDay: List<Int>?
+    abstract val byMonth: List<Int>?
+    abstract val bySetPos: List<Int>?
+    abstract val byYearDay: List<Int>?
+    abstract val byWeekNo: List<Int>?
+    abstract val wkst: DayOfWeek?
     abstract fun asString(firstDay: LocalDate, timeZone: TimeZone): String
     override fun toString(): String {
         return toStringImpl() + endCondition.toStringSuffix()
@@ -92,9 +98,19 @@ sealed class RRule {
                 else -> EndCondition.Never
             }
 
+            // Extract RFC 5545 properties
+            val byMonthDay = parts["BYMONTHDAY"]?.split(",")?.mapNotNull { it.toIntOrNull() }
+            val byMonth = parts["BYMONTH"]?.split(",")?.mapNotNull { it.toIntOrNull() }
+            val bySetPos = parts["BYSETPOS"]?.split(",")?.mapNotNull { it.toIntOrNull() }
+            val byYearDay = parts["BYYEARDAY"]?.split(",")?.mapNotNull { it.toIntOrNull() }
+            val byWeekNo = parts["BYWEEKNO"]?.split(",")?.mapNotNull { it.toIntOrNull() }
+            val wkst = parts["WKST"]?.let { wkstStr ->
+                DayOfWeek.entries.find { it.name.startsWith(wkstStr.take(2)) }
+            }
+
             // 3. Dispatch to specific classes based on FREQ
             return when (freq) {
-                "DAILY" -> EveryXDays(interval, endCondition)
+                "DAILY" -> EveryXDays(interval, endCondition, byMonthDay, byMonth, bySetPos, byYearDay, byWeekNo, wkst)
 
                 "WEEKLY" -> {
                     val byDay = parts["BYDAY"]
@@ -102,17 +118,17 @@ sealed class RRule {
                         // Expecting values like MO, TU, etc.
                         DayOfWeek.entries.find { it.name.startsWith(dayStr.take(2)) }
                     } ?: emptyList()
-                    EveryXWeeks(interval, days, endCondition)
+                    EveryXWeeks(interval, days, endCondition, byMonthDay, byMonth, bySetPos, byYearDay, byWeekNo, wkst)
                 }
 
                 "MONTHLY" -> {
                     val byDay = parts["BYDAY"]
                     // type 1 if BYDAY contains a numeric prefix (e.g., 2TU or 1MO)
                     val type = if (byDay != null && byDay.any { it.isDigit() }) 1 else 0
-                    EveryXMonths(interval, type, endCondition)
+                    EveryXMonths(interval, type, endCondition, byMonthDay, byMonth, bySetPos, byYearDay, byWeekNo, wkst)
                 }
 
-                "YEARLY" -> EveryXYears(interval, endCondition)
+                "YEARLY" -> EveryXYears(interval, endCondition, byMonthDay, byMonth, bySetPos, byYearDay, byWeekNo, wkst)
 
                 else -> null // Unsupported frequency (e.g., HOURLY)
             }
@@ -129,31 +145,93 @@ sealed class RRule {
         data class Until(val date: LocalDate) : EndCondition
     }
 
+    protected fun buildRRuleString(
+        base: String,
+        timeZone: TimeZone
+    ): String {
+        val parts = mutableListOf(base)
+        
+        byMonthDay?.takeIf { it.isNotEmpty() }?.let {
+            parts.add("BYMONTHDAY=${it.joinToString(",")}")
+        }
+        byMonth?.takeIf { it.isNotEmpty() }?.let {
+            parts.add("BYMONTH=${it.joinToString(",")}")
+        }
+        bySetPos?.takeIf { it.isNotEmpty() }?.let {
+            parts.add("BYSETPOS=${it.joinToString(",")}")
+        }
+        byYearDay?.takeIf { it.isNotEmpty() }?.let {
+            parts.add("BYYEARDAY=${it.joinToString(",")}")
+        }
+        byWeekNo?.takeIf { it.isNotEmpty() }?.let {
+            parts.add("BYWEEKNO=${it.joinToString(",")}")
+        }
+        wkst?.let {
+            parts.add("WKST=${it.toIcal()}")
+        }
+        parts.add(endCondition.toRRuleSuffix(timeZone).removePrefix(";"))
+        
+        return parts.filter { it.isNotEmpty() }.joinToString(";")
+    }
+
     @Serializable
-    data class EveryXYears(val years: Int, override val endCondition: EndCondition) : RRule() {
-        override fun asString(firstDay: LocalDate, timeZone: TimeZone): String = "FREQ=YEARLY;INTERVAL=$years${endCondition.toRRuleSuffix(timeZone)}"
+    data class EveryXYears(
+        val years: Int,
+        override val endCondition: EndCondition,
+        override val byMonthDay: List<Int>? = null,
+        override val byMonth: List<Int>? = null,
+        override val bySetPos: List<Int>? = null,
+        override val byYearDay: List<Int>? = null,
+        override val byWeekNo: List<Int>? = null,
+        override val wkst: DayOfWeek? = null
+    ) : RRule() {
+        override fun asString(firstDay: LocalDate, timeZone: TimeZone): String {
+            val base = "FREQ=YEARLY;INTERVAL=$years"
+            return buildRRuleString(base, timeZone)
+        }
         override fun toStringImpl(): String = "Every $years years"
     }
 
     @Serializable
-    data class EveryXMonths(val months: Int, val typeE: Int, override val endCondition: EndCondition) : RRule() {
+    data class EveryXMonths(
+        val months: Int,
+        val typeE: Int,
+        override val endCondition: EndCondition,
+        override val byMonthDay: List<Int>? = null,
+        override val byMonth: List<Int>? = null,
+        override val bySetPos: List<Int>? = null,
+        override val byYearDay: List<Int>? = null,
+        override val byWeekNo: List<Int>? = null,
+        override val wkst: DayOfWeek? = null
+    ) : RRule() {
         override fun asString(firstDay: LocalDate, timeZone: TimeZone): String {
             val base = "FREQ=MONTHLY;INTERVAL=$months"
-            val suffix = endCondition.toRRuleSuffix(timeZone)
-            return if (typeE == 1) {
+            val byDayPart = if (typeE == 1) {
                 val dayOfWeek = firstDay.dayOfWeek.toIcal()
                 val weekIndex = (firstDay.day - 1) / 7 + 1
-                "$base;BYDAY=$weekIndex$dayOfWeek$suffix"
-            } else "$base$suffix"
+                ";BYDAY=$weekIndex$dayOfWeek"
+            } else ""
+            return buildRRuleString(base + byDayPart, timeZone)
         }
         override fun toStringImpl(): String = "Every $months months"
     }
 
     @Serializable
-    data class EveryXWeeks(val weeks: Int, val daysOfWeek: List<DayOfWeek>, override val endCondition: EndCondition) : RRule() {
+    data class EveryXWeeks(
+        val weeks: Int,
+        val daysOfWeek: List<DayOfWeek>,
+        override val endCondition: EndCondition,
+        override val byMonthDay: List<Int>? = null,
+        override val byMonth: List<Int>? = null,
+        override val bySetPos: List<Int>? = null,
+        override val byYearDay: List<Int>? = null,
+        override val byWeekNo: List<Int>? = null,
+        override val wkst: DayOfWeek? = null
+    ) : RRule() {
         override fun asString(firstDay: LocalDate, timeZone: TimeZone): String {
             val days = daysOfWeek.sorted().joinToString(",") { it.toIcal() }
-            return "FREQ=WEEKLY;INTERVAL=$weeks;BYDAY=$days${endCondition.toRRuleSuffix(timeZone)}"
+            val base = "FREQ=WEEKLY;INTERVAL=$weeks;BYDAY=$days"
+            return buildRRuleString(base, timeZone)
         }
         override fun toStringImpl(): String = "Every $weeks weeks on ${
             daysOfWeek.joinToString(", ") { it.name.take(3).capitalcase() }
@@ -161,8 +239,20 @@ sealed class RRule {
     }
 
     @Serializable
-    data class EveryXDays(val days: Int, override val endCondition: EndCondition) : RRule() {
-        override fun asString(firstDay: LocalDate, timeZone: TimeZone): String = "FREQ=DAILY;INTERVAL=$days${endCondition.toRRuleSuffix(timeZone)}"
+    data class EveryXDays(
+        val days: Int,
+        override val endCondition: EndCondition,
+        override val byMonthDay: List<Int>? = null,
+        override val byMonth: List<Int>? = null,
+        override val bySetPos: List<Int>? = null,
+        override val byYearDay: List<Int>? = null,
+        override val byWeekNo: List<Int>? = null,
+        override val wkst: DayOfWeek? = null
+    ) : RRule() {
+        override fun asString(firstDay: LocalDate, timeZone: TimeZone): String {
+            val base = "FREQ=DAILY;INTERVAL=$days"
+            return buildRRuleString(base, timeZone)
+        }
         override fun toStringImpl(): String = "Every $days days"
     }
 }

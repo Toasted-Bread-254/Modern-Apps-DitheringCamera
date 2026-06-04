@@ -176,6 +176,13 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
                             }
                             put(CalendarContract.Events.ALL_DAY, if (event.allDay) 1 else 0)
                             put(CalendarContract.Events.EVENT_TIMEZONE, tz)
+                            // Add EXDATE if present
+                            if (event.exdate.isNotEmpty()) {
+                                val exdateStr = event.exdate.joinToString(",") { date ->
+                                    String.format("%04d%02d%02d", date.year, date.monthNumber, date.day)
+                                }
+                                put(CalendarContract.Events.EXDATE, exdateStr)
+                            }
                         }
                     }
                     app.contentResolver.bulkInsert(
@@ -250,7 +257,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         updateWidgets()
     }
 
-    fun deleteEvent(eventId: Long) {
+    fun deleteEventSeries(eventId: Long) {
         viewModelScope.launch {
             val app = getApplication<Application>()
             upsertEvent(eventId, ContentValues().apply {
@@ -258,6 +265,33 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
             })
             _events.value = Event.getAllEvents(app)
             updateWidgets()
+        }
+    }
+
+    fun deleteEventInstance(eventId: Long, instanceBeginTime: Long) {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            // Get the event to find its timezone and current exdate
+            val event = _events.value.find { it.id == eventId }
+            if (event != null) {
+                // Convert instanceBeginTime to LocalDate in event's timezone
+                val instanceDate = kotlinx.datetime.Instant.fromEpochMilliseconds(instanceBeginTime)
+                    .toLocalDateTime(kotlinx.datetime.TimeZone.of(event.timezone)).date
+                
+                // Add date to exdate list (avoid duplicates)
+                val newExdate = (event.exdate + instanceDate).distinct()
+                
+                // Format as comma-separated RFC 5545 dates (YYYYMMDD)
+                val exdateStr = newExdate.joinToString(",") { date ->
+                    String.format("%04d%02d%02d", date.year, date.monthNumber, date.day)
+                }
+                
+                upsertEvent(eventId, ContentValues().apply {
+                    put(CalendarContract.Events.EXDATE, exdateStr)
+                })
+                _events.value = Event.getAllEvents(app)
+                updateWidgets()
+            }
         }
     }
 
