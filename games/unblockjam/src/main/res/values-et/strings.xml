@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Ummikuvabastaja</string>
+    <string name="level">Pusletükk</string>
+    <string name="level_selector">Pusletüki valik</string>
+    <string name="pack_selector">Mitme tüki valik</string>
+    <string name="undo">Võta tagasi</string>
+    <string name="restart">Alusta uuesti</string>
+    <string name="previous_level">Eelmine pusletükk</string>
+    <string name="next_level">Järgmine pusletükk</string>
+    <string name="completed">Tehtud</string>
+    <string name="moves">Käigud</string>
 </resources>
