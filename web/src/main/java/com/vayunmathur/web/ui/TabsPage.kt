@@ -1,5 +1,6 @@
 package com.vayunmathur.web.ui
 
+import android.app.Activity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.IconAdd
@@ -38,10 +40,11 @@ fun TabsPage(
     viewModel: BrowserViewModel,
     backStack: NavBackStack<Route>
 ) {
+    val context = LocalContext.current
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Tabs") },
+                title = { Text(if (viewModel.isIncognito) "Incognito tabs" else "Tabs") },
                 navigationIcon = {
                     IconButton(onClick = { backStack.pop() }) {
                         IconClose()
@@ -79,8 +82,6 @@ fun TabsPage(
                     colors = CardDefaults.cardColors(
                         containerColor = if (index == viewModel.activeTabIndex)
                             MaterialTheme.colorScheme.primaryContainer
-                        else if (tab.isIncognito)
-                            MaterialTheme.colorScheme.surfaceContainerHigh
                         else
                             MaterialTheme.colorScheme.surfaceContainer
                     )
@@ -92,7 +93,7 @@ fun TabsPage(
                                 .padding(12.dp)
                         ) {
                             Text(
-                                text = if (tab.isIncognito) "Incognito" else tab.title.ifBlank { "New Tab" },
+                                text = tab.title.ifBlank { "New Tab" },
                                 style = MaterialTheme.typography.titleSmall,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
@@ -108,7 +109,7 @@ fun TabsPage(
                         }
 
                         IconButton(
-                            onClick = { viewModel.closeTab(tab.id) },
+                            onClick = { viewModel.closeTab(tab.id) { (context as Activity).finishAndRemoveTask() } },
                             modifier = Modifier.align(Alignment.TopEnd)
                         ) {
                             IconClose(tint = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -1,6 +1,7 @@
 package com.vayunmathur.web.util
 
 import android.app.Application
+import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -25,10 +26,11 @@ import java.util.UUID
 
 class BrowserViewModel(
     application: Application,
-    private val historyDao: HistoryDao
+    private val historyDao: HistoryDao,
+    val isIncognito: Boolean = false
 ) : AndroidViewModel(application) {
 
-    val runtime: GeckoRuntime by lazy { GeckoRuntime.create(application) }
+    val runtime: GeckoRuntime get() = GeckoRuntimeHolder.get(getApplication())
 
     private val _tabs = mutableStateListOf<Tab>()
     val tabs: List<Tab> = _tabs
@@ -62,15 +64,12 @@ class BrowserViewModel(
         createTab(url = HOME_URL)
     }
 
-    fun createTab(url: String = HOME_URL, isIncognito: Boolean = false) {
-        val tab = Tab(
-            id = UUID.randomUUID().toString(),
-            isIncognito = isIncognito
-        )
+    fun createTab(url: String = HOME_URL) {
+        val tab = Tab(id = UUID.randomUUID().toString())
         _tabs.add(tab)
         activeTabIndex = _tabs.lastIndex
 
-        val session = createSession(tab.id, isIncognito)
+        val session = createSession(tab.id)
         session.loadUri(url)
         currentUrl = url
         currentTitle = "New Tab"
@@ -78,7 +77,7 @@ class BrowserViewModel(
         canGoForward = false
     }
 
-    private fun createSession(tabId: String, isIncognito: Boolean): GeckoSession {
+    private fun createSession(tabId: String): GeckoSession {
         val settings = GeckoSessionSettings.Builder()
             .usePrivateMode(isIncognito)
             .build()
@@ -114,8 +113,6 @@ class BrowserViewModel(
             }
         }
 
-        session.contentDelegate = object : GeckoSession.ContentDelegate {}
-
         session.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStart(session: GeckoSession, url: String) {
                 if (_tabs.getOrNull(activeTabIndex)?.id == tabId) {
@@ -130,7 +127,7 @@ class BrowserViewModel(
                     progress = 1f
                 }
                 val tab = _tabs.firstOrNull { it.id == tabId }
-                if (success && tab != null && !tab.isIncognito) {
+                if (success && tab != null && !isIncognito) {
                     val tabUrl = tab.url
                     val tabTitle = tab.title
                     if (tabUrl.isNotBlank() && tabUrl != "about:blank") {
@@ -182,7 +179,7 @@ class BrowserViewModel(
         }
     }
 
-    fun closeTab(tabId: String) {
+    fun closeTab(tabId: String, finishActivity: () -> Unit) {
         val index = _tabs.indexOfFirst { it.id == tabId }
         if (index < 0) return
 
@@ -191,7 +188,7 @@ class BrowserViewModel(
         _tabs.removeAt(index)
 
         if (_tabs.isEmpty()) {
-            createTab()
+            finishActivity()
         } else {
             activeTabIndex = index.coerceAtMost(_tabs.lastIndex)
             val tab = _tabs[activeTabIndex]
@@ -238,7 +235,6 @@ class BrowserViewModel(
     override fun onCleared() {
         sessions.values.forEach { it.close() }
         sessions.clear()
-        runtime.shutdown()
     }
 
     companion object {
@@ -249,10 +245,22 @@ class BrowserViewModel(
 
 class BrowserViewModelFactory(
     private val application: Application,
-    private val db: BrowserDatabase
+    private val db: BrowserDatabase,
+    private val isIncognito: Boolean = false
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return BrowserViewModel(application, db.historyDao()) as T
+        return BrowserViewModel(application, db.historyDao(), isIncognito) as T
+    }
+}
+
+object GeckoRuntimeHolder {
+    private var instance: GeckoRuntime? = null
+
+    @Synchronized
+    fun get(context: Context): GeckoRuntime {
+        return instance ?: GeckoRuntime.create(context.applicationContext).also {
+            instance = it
+        }
     }
 }

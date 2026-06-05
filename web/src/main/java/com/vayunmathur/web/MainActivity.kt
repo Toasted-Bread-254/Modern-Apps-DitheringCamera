@@ -1,5 +1,6 @@
 package com.vayunmathur.web
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -23,15 +24,21 @@ import kotlinx.serialization.Serializable
 
 class MainActivity : ComponentActivity() {
     private val db by lazy { buildDatabase<BrowserDatabase>() }
+
+    private val isIncognito: Boolean
+        get() = intent?.getBooleanExtra(EXTRA_INCOGNITO, false) == true
+
     private val viewModel: BrowserViewModel by viewModels {
-        BrowserViewModelFactory(application, db)
+        BrowserViewModelFactory(application, db, isIncognito)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        handleIntent(intent)
+        if (savedInstanceState == null) {
+            handleIntent(intent)
+        }
 
         setContent {
             DynamicTheme {
@@ -49,6 +56,18 @@ class MainActivity : ComponentActivity() {
         val url = intent?.data?.toString()
         if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) {
             viewModel.createTab(url = url)
+        }
+    }
+
+    companion object {
+        const val EXTRA_INCOGNITO = "incognito"
+
+        fun launchNewWindow(context: Context, incognito: Boolean = false) {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+                putExtra(EXTRA_INCOGNITO, incognito)
+            }
+            context.startActivity(intent)
         }
     }
 }
