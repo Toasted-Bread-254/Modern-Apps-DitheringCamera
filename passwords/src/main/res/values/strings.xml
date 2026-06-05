@@ -8,7 +8,7 @@
     <string name="label_add_website">Add website</string>
     <string name="title_settings">Settings</string>
     <string name="import_csv_warning">Importing a CSV will bring plaintext credentials into this app. Please delete the export after importing.</string>
-    <string name="import_bitwarden_csv">Import from Bitwarden (CSV)</string>
+    <string name="import_passwords">Import Passwords</string>
     <string name="section_password">Password</string>
     <string name="section_totp">TOTP</string>
     <string name="totp_not_configured">(not configured)</string>

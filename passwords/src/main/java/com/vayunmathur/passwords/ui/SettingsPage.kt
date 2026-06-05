@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +14,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -20,12 +23,16 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.vayunmathur.passwords.R
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.BackupButtons
 import com.vayunmathur.library.ui.IconNavigation
+import com.vayunmathur.passwords.util.ImportSource
 import com.vayunmathur.passwords.util.KdbxBackupFormat
 import com.vayunmathur.passwords.util.PasswordsViewModel
 
@@ -39,8 +46,15 @@ fun SettingsPage(
     val importing by passwordsViewModel.importing.collectAsState()
     val message by passwordsViewModel.importMessage.collectAsState()
 
+    var selectedSource by remember { mutableStateOf<ImportSource?>(null) }
+
     val pickLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri != null) passwordsViewModel.importCsv(uri)
+        if (uri != null) {
+            selectedSource?.let { source ->
+                passwordsViewModel.importCsv(uri, source)
+            }
+        }
+        selectedSource = null
     }
 
     Scaffold(Modifier, {
@@ -63,10 +77,29 @@ fun SettingsPage(
             Text(stringResource(R.string.import_csv_warning))
             Spacer(Modifier.height(16.dp))
 
-            Button(onClick = {
-                pickLauncher.launch(arrayOf("text/csv", "text/plain", "application/octet-stream", "text/comma-separated-values"))
-            }, enabled = !importing) {
-                Text(stringResource(R.string.import_bitwarden_csv))
+            var dropdownExpanded by remember { mutableStateOf(false) }
+            Box {
+                Button(
+                    onClick = { dropdownExpanded = true },
+                    enabled = !importing,
+                ) {
+                    Text(stringResource(R.string.import_passwords))
+                }
+                DropdownMenu(
+                    expanded = dropdownExpanded,
+                    onDismissRequest = { dropdownExpanded = false },
+                ) {
+                    ImportSource.entries.forEach { source ->
+                        DropdownMenuItem(
+                            text = { Text(source.label) },
+                            onClick = {
+                                dropdownExpanded = false
+                                selectedSource = source
+                                pickLauncher.launch(arrayOf("text/csv", "text/plain", "application/octet-stream", "text/comma-separated-values"))
+                            },
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(16.dp))

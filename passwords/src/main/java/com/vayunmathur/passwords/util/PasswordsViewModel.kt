@@ -228,12 +228,7 @@ class PasswordsViewModel(
         _importMessage.value = null
     }
 
-    /**
-     * Reads a Bitwarden-style CSV at [uri] off the main thread, parses it,
-     * and upserts each row via the [PasswordDao]. Reports progress via
-     * [importing] and a terminal status via [importMessage].
-     */
-    fun importCsv(uri: Uri) {
+    fun importCsv(uri: Uri, source: ImportSource = ImportSource.BITWARDEN) {
         val ctx = getApplication<Application>()
         viewModelScope.launch {
             _importing.value = true
@@ -244,11 +239,9 @@ class PasswordsViewModel(
                         uri,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION,
                     )
-                } catch (_: Exception) {
-                    // Persistable permission is best-effort.
-                }
+                } catch (_: Exception) {}
                 val result = withContext(Dispatchers.IO) {
-                    importBitwardenCsvFromUri(ctx.contentResolver, uri)
+                    importCsvFromUri(ctx.contentResolver, uri, source)
                 }
                 _importMessage.value =
                     "Imported ${result.inserted} rows, skipped ${result.skipped} rows"
@@ -262,16 +255,13 @@ class PasswordsViewModel(
 
     private data class ImportResult(val inserted: Int, val skipped: Int)
 
-    private suspend fun importBitwardenCsvFromUri(
+    private suspend fun importCsvFromUri(
         contentResolver: ContentResolver,
         uri: Uri,
+        source: ImportSource,
     ): ImportResult {
-        val inputStream = try {
-            contentResolver.openInputStream(uri)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error opening input stream for URI: $uri", e)
-            null
-        } ?: throw Exception("Unable to open selected file")
+        val inputStream = contentResolver.openInputStream(uri)
+            ?: throw Exception("Unable to open selected file")
 
         val rows = try {
             val reader = inputStream.bufferedReader()
@@ -311,32 +301,34 @@ class PasswordsViewModel(
         if (rows.isEmpty()) return ImportResult(0, 0)
 
         val header = rows.first().map { it.trim().lowercase() }
-        val nameIdx = header.indexOf("name")
-        val loginUsernameIdx = header.indexOf("login_username")
-            .let { if (it >= 0) it else header.indexOf("username") }
-        val loginPasswordIdx = header.indexOf("login_password")
-            .let { if (it >= 0) it else header.indexOf("password") }
-        val loginUriIdx = header.indexOf("login_uri")
-            .let { if (it >= 0) it else header.indexOf("uri") }
-        val loginTotpIdx = header.indexOf("login_totp")
-            .let { if (it >= 0) it else header.indexOf("totp") }
+        fun findCol(vararg names: String): Int =
+            names.firstNotNullOfOrNull { n -> header.indexOf(n).takeIf { it >= 0 } } ?: -1
+
+        val nameIdx = findCol(*source.nameHeaders)
+        val usernameIdx = findCol(*source.usernameHeaders)
+        val passwordIdx = findCol(*source.passwordHeaders)
+        val urlIdx = findCol(*source.urlHeaders)
+        val totpIdx = findCol(*source.totpHeaders)
 
         var inserted = 0
         var skipped = 0
 
         for (row in rows.drop(1)) {
             try {
-                val name = if (nameIdx >= 0 && nameIdx < row.size) row[nameIdx] else ""
-                val username = if (loginUsernameIdx >= 0 && loginUsernameIdx < row.size)
-                    row[loginUsernameIdx] else ""
-                val password = if (loginPasswordIdx >= 0 && loginPasswordIdx < row.size)
-                    row[loginPasswordIdx] else ""
-                val uriField = if (loginUriIdx >= 0 && loginUriIdx < row.size)
-                    row[loginUriIdx] else ""
-                val totp = if (loginTotpIdx >= 0 && loginTotpIdx < row.size)
-                    row[loginTotpIdx] else null
+                fun col(idx: Int) = if (idx in row.indices) row[idx] else ""
+                val rawName = col(nameIdx)
+                val rawUrl = col(urlIdx)
+                val name = rawName.ifEmpty { rawUrl }
+                val username = col(usernameIdx)
+                val password = col(passwordIdx)
+                var totp = col(totpIdx).takeIf { it.isNotEmpty() }
 
-                val websites = uriField.split(';', '\n', '\r')
+                if (totp != null && totp.startsWith("otpauth://")) {
+                    val match = Regex("[?&]secret=([^&]+)").find(totp)
+                    totp = match?.groupValues?.get(1) ?: totp
+                }
+
+                val websites = rawUrl.split(';', '\n', '\r')
                     .mapNotNull { it.trim().takeIf(String::isNotEmpty) }
 
                 passwordDao.upsert(

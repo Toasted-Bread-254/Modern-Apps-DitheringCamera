@@ -1,0 +1,67 @@
+package com.vayunmathur.passwords.util
+
+enum class ImportSource(
+    val label: String,
+    val nameHeaders: Array<String>,
+    val usernameHeaders: Array<String>,
+    val passwordHeaders: Array<String>,
+    val urlHeaders: Array<String>,
+    val totpHeaders: Array<String>,
+) {
+    BITWARDEN(
+        label = "Bitwarden",
+        nameHeaders = arrayOf("name"),
+        usernameHeaders = arrayOf("login_username", "username"),
+        passwordHeaders = arrayOf("login_password", "password"),
+        urlHeaders = arrayOf("login_uri", "uri"),
+        totpHeaders = arrayOf("login_totp", "totp"),
+    ),
+    CHROME(
+        label = "Google Chrome",
+        nameHeaders = arrayOf("name"),
+        usernameHeaders = arrayOf("username"),
+        passwordHeaders = arrayOf("password"),
+        urlHeaders = arrayOf("url"),
+        totpHeaders = arrayOf("note"),
+    ),
+    FIREFOX(
+        label = "Firefox",
+        nameHeaders = arrayOf("url"),
+        usernameHeaders = arrayOf("username"),
+        passwordHeaders = arrayOf("password"),
+        urlHeaders = arrayOf("url"),
+        totpHeaders = arrayOf(),
+    ),
+    LASTPASS(
+        label = "LastPass",
+        nameHeaders = arrayOf("name"),
+        usernameHeaders = arrayOf("username"),
+        passwordHeaders = arrayOf("password"),
+        urlHeaders = arrayOf("url"),
+        totpHeaders = arrayOf("totp"),
+    ),
+    ONE_PASSWORD(
+        label = "1Password",
+        nameHeaders = arrayOf("title"),
+        usernameHeaders = arrayOf("username"),
+        passwordHeaders = arrayOf("password"),
+        urlHeaders = arrayOf("url"),
+        totpHeaders = arrayOf("otpauth", "otp"),
+    ),
+    DASHLANE(
+        label = "Dashlane",
+        nameHeaders = arrayOf("title"),
+        usernameHeaders = arrayOf("username", "username2", "username3"),
+        passwordHeaders = arrayOf("password"),
+        urlHeaders = arrayOf("url"),
+        totpHeaders = arrayOf("otpsecret"),
+    ),
+    APPLE(
+        label = "Apple Passwords",
+        nameHeaders = arrayOf("title"),
+        usernameHeaders = arrayOf("username"),
+        passwordHeaders = arrayOf("password"),
+        urlHeaders = arrayOf("url"),
+        totpHeaders = arrayOf("otpauth", "otp"),
+    ),
+}
