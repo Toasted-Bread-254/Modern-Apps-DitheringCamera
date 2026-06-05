@@ -2,17 +2,22 @@ package com.vayunmathur.web.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,7 +30,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +43,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.vayunmathur.library.ui.IconForward
@@ -47,6 +52,7 @@ import com.vayunmathur.library.ui.IconSearch
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.web.MainActivity
 import com.vayunmathur.web.Route
+import com.vayunmathur.web.data.SearchResult
 import com.vayunmathur.web.util.BrowserViewModel
 import com.vayunmathur.web.util.SearchEngine
 import org.mozilla.geckoview.GeckoView
@@ -56,19 +62,35 @@ fun BrowserPage(
     viewModel: BrowserViewModel,
     backStack: NavBackStack<Route>
 ) {
-    BackHandler(enabled = viewModel.canGoBack) {
-        viewModel.goBack()
-    }
+    val isSearching = viewModel.activeSearchQuery != null
+    val hasSearchHistory = viewModel.hasSearchHistory
 
-    LaunchedEffect(Unit) {
-        viewModel.searchRedirect.collect { query ->
-            backStack.add(Route.Search(query))
+    BackHandler(enabled = isSearching || hasSearchHistory || viewModel.canGoBack) {
+        when {
+            isSearching -> viewModel.goBackFromSearch()
+            !viewModel.canGoBack && hasSearchHistory -> viewModel.goBackToSearch()
+            viewModel.canGoBack -> viewModel.goBack()
         }
     }
 
     val context = LocalContext.current
-    val isNewTab = viewModel.currentUrl == "about:blank" || viewModel.currentUrl.isBlank()
-    val displayUrl = if (isNewTab) "" else viewModel.currentUrl
+    val isNewTab = !isSearching && (viewModel.currentUrl == "about:blank" || viewModel.currentUrl.isBlank())
+    val displayUrl = when {
+        isSearching -> viewModel.activeSearchQuery.orEmpty()
+        isNewTab -> ""
+        else -> viewModel.currentUrl
+    }
+
+    fun handleInput(input: String) {
+        val trimmed = input.trim()
+        val query = SearchEngine.extractSearchQuery(trimmed)
+        when {
+            query != null -> viewModel.search(query)
+            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> viewModel.loadUrl(trimmed)
+            trimmed.contains(".") && !trimmed.contains(" ") -> viewModel.loadUrl("https://$trimmed")
+            else -> viewModel.search(trimmed)
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         BrowserToolbar(
@@ -76,18 +98,12 @@ fun BrowserPage(
             isNewTab = isNewTab,
             tabCount = viewModel.tabs.size,
             isIncognito = viewModel.isIncognito,
-            canGoForward = viewModel.canGoForward,
-            onNavigate = { input ->
-                val trimmed = input.trim()
-                val query = SearchEngine.extractSearchQuery(trimmed)
-                when {
-                    query != null -> backStack.add(Route.Search(query))
-                    trimmed.startsWith("http://") || trimmed.startsWith("https://") -> viewModel.loadUrl(trimmed)
-                    trimmed.contains(".") && !trimmed.contains(" ") -> viewModel.loadUrl("https://$trimmed")
-                    else -> backStack.add(Route.Search(trimmed))
-                }
+            canGoForward = if (isSearching) viewModel.canGoForwardFromSearch else viewModel.canGoForward,
+            onNavigate = ::handleInput,
+            onForward = {
+                if (isSearching && viewModel.canGoForwardFromSearch) viewModel.goForwardFromSearch()
+                else viewModel.goForward()
             },
-            onForward = { viewModel.goForward() },
             onOpenTabs = { backStack.add(Route.Tabs) },
             onNewTab = { viewModel.createTab() },
             onNewWindow = { MainActivity.launchNewWindow(context) },
@@ -95,35 +111,101 @@ fun BrowserPage(
             onOpenHistory = { backStack.add(Route.History) }
         )
 
-        AnimatedVisibility(visible = viewModel.isLoading) {
+        AnimatedVisibility(visible = viewModel.isLoading && !isSearching) {
             LinearProgressIndicator(
                 progress = { viewModel.progress },
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
-        if (isNewTab) {
-            NewTabContent(
+        AnimatedVisibility(visible = viewModel.isSearchLoading) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+
+        when {
+            isSearching -> SearchResultsContent(viewModel)
+            isNewTab -> NewTabContent(
                 isIncognito = viewModel.isIncognito,
-                onSearch = { backStack.add(Route.Search(it)) }
+                onSearch = { viewModel.search(it) }
             )
-        } else {
-            val activeSession = viewModel.getActiveSession()
-            if (activeSession != null) {
-                AndroidView(
-                    factory = { ctx -> GeckoView(ctx) },
-                    update = { view ->
-                        val session = viewModel.getActiveSession()
-                        if (session != null && view.session != session) {
-                            if (view.session != null) view.releaseSession()
-                            view.setSession(session)
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f)
-                )
+            else -> {
+                val activeSession = viewModel.getActiveSession()
+                if (activeSession != null) {
+                    AndroidView(
+                        factory = { ctx -> GeckoView(ctx) },
+                        update = { view ->
+                            val session = viewModel.getActiveSession()
+                            if (session != null && view.session != session) {
+                                if (view.session != null) view.releaseSession()
+                                view.setSession(session)
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(1f)
+                    )
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun SearchResultsContent(viewModel: BrowserViewModel) {
+    when {
+        viewModel.searchError != null -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(viewModel.searchError!!, color = MaterialTheme.colorScheme.error)
+            }
+        }
+        viewModel.searchResults.isEmpty() && !viewModel.isSearchLoading -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No results found")
+            }
+        }
+        else -> {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(viewModel.searchResults) { result ->
+                    SearchResultItem(result) {
+                        viewModel.loadSearchResult(result.url)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchResultItem(result: SearchResult, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = result.title,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = result.url,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (result.snippet.isNotBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = result.snippet,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

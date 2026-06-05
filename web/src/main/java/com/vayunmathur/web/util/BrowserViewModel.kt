@@ -15,9 +15,9 @@ import androidx.lifecycle.viewModelScope
 import com.vayunmathur.web.data.BrowserDatabase
 import com.vayunmathur.web.data.HistoryDao
 import com.vayunmathur.web.data.HistoryEntry
+import com.vayunmathur.web.data.SearchResult
 import com.vayunmathur.web.data.Tab
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
@@ -63,8 +63,25 @@ class BrowserViewModel(
     var progress by mutableFloatStateOf(0f)
         private set
 
-    private val _searchRedirect = MutableSharedFlow<String>(extraBufferCapacity = 1)
-    val searchRedirect = _searchRedirect.asSharedFlow()
+    var activeSearchQuery by mutableStateOf<String?>(null)
+        private set
+
+    var searchResults by mutableStateOf<List<SearchResult>>(emptyList())
+        private set
+
+    var isSearchLoading by mutableStateOf(false)
+        private set
+
+    var searchError by mutableStateOf<String?>(null)
+        private set
+
+    private val searchStack = mutableListOf<String>()
+    private var searchJob: Job? = null
+
+    val hasSearchHistory: Boolean get() = searchStack.isNotEmpty()
+
+    var canGoForwardFromSearch by mutableStateOf(false)
+        private set
 
     init {
         createTab(url = HOME_URL)
@@ -112,7 +129,7 @@ class BrowserViewModel(
             ): GeckoResult<AllowOrDeny>? {
                 val query = SearchEngine.extractSearchQuery(request.uri)
                 if (query != null) {
-                    _searchRedirect.tryEmit(query)
+                    search(query)
                     return GeckoResult.fromValue(AllowOrDeny.DENY)
                 }
                 return GeckoResult.fromValue(AllowOrDeny.ALLOW)
@@ -217,6 +234,61 @@ class BrowserViewModel(
 
     fun loadUrl(url: String) {
         getActiveSession()?.loadUri(url)
+    }
+
+    fun search(query: String) {
+        searchStack.add(query)
+        activeSearchQuery = query
+        searchResults = emptyList()
+        searchError = null
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            isSearchLoading = true
+            try {
+                searchResults = SearchEngine.fetchSearchResults(query)
+            } catch (e: Exception) {
+                searchError = e.message ?: "Failed to fetch results"
+            }
+            isSearchLoading = false
+        }
+    }
+
+    fun loadSearchResult(url: String) {
+        activeSearchQuery = null
+        canGoForwardFromSearch = false
+        currentUrl = url
+        val tabId = activeTab?.id ?: return
+        sessions[tabId]?.close()
+        val session = createSession(tabId)
+        canGoBack = false
+        canGoForward = false
+        session.loadUri(url)
+    }
+
+    fun goBackFromSearch(): Boolean {
+        searchStack.removeLastOrNull()
+        val prev = searchStack.lastOrNull()
+        if (prev != null) {
+            search(prev)
+            searchStack.removeLastOrNull() // search() re-adds it
+            return true
+        }
+        activeSearchQuery = null
+        searchResults = emptyList()
+        return false
+    }
+
+    fun goBackToSearch(): Boolean {
+        val prev = searchStack.lastOrNull() ?: return false
+        search(prev)
+        searchStack.removeLastOrNull() // search() re-adds it
+        canGoForwardFromSearch = true
+        return true
+    }
+
+    fun goForwardFromSearch() {
+        activeSearchQuery = null
+        canGoForwardFromSearch = false
     }
 
     fun goBack() { getActiveSession()?.goBack() }
