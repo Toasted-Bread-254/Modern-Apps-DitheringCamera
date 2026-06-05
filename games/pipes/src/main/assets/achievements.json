@@ -1,0 +1,35 @@
+[
+  {
+    "id": "first_flow",
+    "name": "Plumber",
+    "description": "Complete your first flow!"
+  },
+  {
+    "id": "first_level",
+    "name": "Connected",
+    "description": "Complete your first level!"
+  },
+  {
+    "id": "optimal_win",
+    "name": "Perfectionist",
+    "description": "Complete a level in the optimal number of moves."
+  },
+  {
+    "id": "level_50",
+    "name": "Pipe Master",
+    "description": "Complete 50 unique levels.",
+    "targetProgress": 50
+  },
+  {
+    "id": "pipes_1000",
+    "name": "Pipeline Pro",
+    "description": "Place 1000 total pipe segments.",
+    "targetProgress": 1000
+  },
+  {
+    "id": "all_5x5",
+    "name": "5×5 Champion",
+    "description": "Complete all levels in the 5×5 pack.",
+    "targetProgress": 30
+  }
+]

@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Pipes</string>
+    <string name="pack_selector">Pack Select</string>
+    <string name="level_selector">Level Select</string>
+    <string name="level">Level</string>
+    <string name="moves">Moves</string>
+    <string name="undo">Undo</string>
+    <string name="restart">Restart</string>
+    <string name="previous_level">Previous Level</string>
+    <string name="next_level">Next Level</string>
+    <string name="completed">Completed</string>
+</resources>
