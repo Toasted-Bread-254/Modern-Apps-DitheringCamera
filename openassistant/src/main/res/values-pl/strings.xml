@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="recording">Nagrywanie…</string>
+    <string name="app_name">OpenAssistant</string>
+    <string name="message_placeholder">Wiadomość…</string>
+    <string name="voice_message">Wiadomość głosowa</string>
+    <string name="mic_error_format">Błąd mikrofonu: %1$s</string>
+    <string name="new_conversation">Nowa rozmowa</string>
+    <string name="perm_desc_inference">Zezwala innym aplikacjom na dostęp do usługi wnioskowania AI na urządzeniu w celu wyodrębniania ustrukturyzowanych danych.</string>
+    <string name="error_prefix">Error: %1$s</string>
 </resources>
