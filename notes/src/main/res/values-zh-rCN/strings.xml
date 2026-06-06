@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Notes</string>
+    <string name="search">搜索</string>
+    <string name="title">标题</string>
+    <string name="content">内容</string>
 </resources>
