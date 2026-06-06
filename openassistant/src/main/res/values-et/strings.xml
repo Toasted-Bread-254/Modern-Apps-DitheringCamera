@@ -8,4 +8,10 @@
     <string name="new_conversation">Uus vestlus</string>
     <string name="perm_desc_inference">Võimaldab teistel rakendustel kasutada seadmes asuvat tehisintellekti järeldusteenust struktureeritud andmete väljastamiseks.</string>
     <string name="error_prefix">Viga: %1$s</string>
+    <string name="inference_service">Järeldamise teenus</string>
+    <string name="processing_ai_inference">Töötlen tehisaru järeldusi…</string>
+    <string name="error_request_expired">Tööde järjekorras olnud päring aegus</string>
+    <string name="error_inference_timeout">Järeldamine aegus</string>
+    <string name="error_ai_engine_failed">Tehisaru mootor ebaõnnestus</string>
+    <string name="error_ai_json_schema_mismatch">Tehisaru vastuses polnud skeemale vastavat korrektset JSON-sisu.</string>
 </resources>
