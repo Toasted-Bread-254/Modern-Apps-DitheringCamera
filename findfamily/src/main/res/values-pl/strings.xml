@@ -86,16 +86,16 @@
     <string name="me_label">Ja</string>
     <string name="missing_features_title">Wymagane funkcje wyłączone</string>
     <string name="missing_features_explanation">Aby aplikacja FindFamily działała poprawnie, potrzebuje dostępu do lokalizacji sieciowej oraz geokodera. Aby kontynuować, musisz je włączyć.</string>
-    <string name="notification_channel_uwb_request_name">Prośby o precyzyjną lokalizację</string>
-    <string name="notification_channel_uwb_request_desc">Ktoś używa funkcji „Precyzyjne wyszukiwanie”, aby cię znaleźć</string>
+    <string name="notification_channel_uwb_request_name">Znajdź pobliskie (UWB) prośby</string>
+    <string name="notification_channel_uwb_request_desc">Ktoś używa funkcji Znajdź w pobliżu (UWB), aby Cię zlokalizować</string>
     <string name="notification_uwb_request_title">Ktoś cię szuka</string>
-    <string name="notification_uwb_request_text">%1$s korzysta z funkcji „Precyzyjne wyszukiwanie”. Dotknij, aby sprawdzić odległość i kierunek.</string>
-    <string name="uwb_action_find_precision">Znajdź z precyzją</string>
+    <string name="notification_uwb_request_text">%1$s korzysta z funkcji Znajdź w pobliżu (UWB). Dotknij, aby zobaczyć odległość i kierunek.</string>
+    <string name="uwb_action_find_precision">Znajdź w pobliżu (UWB)</string>
     <string name="uwb_unknown_peer_name">Ktoś</string>
-    <string name="uwb_status_starting">Konfigurowanie precyzyjnego wyszukiwania…</string>
+    <string name="uwb_status_starting">Konfigurowanie funkcji Znajdź w pobliżu (UWB)…</string>
     <string name="uwb_status_waiting">Czekam na drugie urządzenie…</string>
     <string name="uwb_status_peer_disconnected">Zgubiłem drugie urządzenie. Podejdź bliżej.</string>
-    <string name="uwb_status_unsupported">Funkcja „Precyzyjne wyszukiwanie” nie jest obsługiwana na tym urządzeniu.</string>
-    <string name="uwb_status_failed">Precyzyjne wyszukiwanie nie powiodło się.</string>
+    <string name="uwb_status_unsupported">Funkcja Znajdź w pobliżu (UWB) nie jest obsługiwana na tym urządzeniu.</string>
+    <string name="uwb_status_failed">Nie udało się znaleźć w pobliżu (UWB).</string>
     <string name="uwb_direction_unavailable_hint">Poruszaj telefonem, aby znaleźć sygnał wskazujący kierunek</string>
 </resources>
