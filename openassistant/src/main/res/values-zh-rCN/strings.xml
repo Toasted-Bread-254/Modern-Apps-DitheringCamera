@@ -8,4 +8,10 @@
     <string name="new_conversation">新对话</string>
     <string name="perm_desc_inference">允许其他应用访问设备端 AI 推理服务，以提取结构化数据。</string>
     <string name="error_prefix">错误：%1$s</string>
+    <string name="inference_service">推理服务</string>
+    <string name="processing_ai_inference">正在处理 AI 推理…</string>
+    <string name="error_request_expired">请求在队列中已过期</string>
+    <string name="error_inference_timeout">推理超时</string>
+    <string name="error_ai_engine_failed">AI 引擎失败</string>
+    <string name="error_ai_json_schema_mismatch">AI 无法返回与模式匹配的有效 JSON。</string>
 </resources>
