@@ -2,7 +2,6 @@ package com.vayunmathur.games.solitaire.ui
 
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -14,11 +13,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.zIndex
 import com.vayunmathur.games.solitaire.data.Card
 import com.vayunmathur.games.solitaire.util.SolitaireViewModel
-import kotlin.math.roundToInt
 
 @Composable
 fun DraggableCard(
@@ -26,6 +25,7 @@ fun DraggableCard(
     cards: List<Card>,
     sourceId: String,
     viewModel: SolitaireViewModel,
+    modifier: Modifier = Modifier,
     cardWidth: Dp = CARD_WIDTH,
     cardHeight: Dp = CARD_HEIGHT,
     content: @Composable () -> Unit
@@ -33,11 +33,14 @@ fun DraggableCard(
     var isDragging by remember { mutableStateOf(false) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var startPos by remember { mutableStateOf(Offset.Zero) }
+    var cardSize by remember { mutableStateOf(IntSize.Zero) }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
+            .then(if (isDragging) Modifier.zIndex(100f) else Modifier)
             .onGloballyPositioned { coords ->
                 startPos = coords.positionInRoot()
+                cardSize = coords.size
             }
             .pointerInput(card, sourceId) {
                 detectDragGestures(
@@ -52,7 +55,8 @@ fun DraggableCard(
                         viewModel.updateDrag(startPos + dragOffset)
                     },
                     onDragEnd = {
-                        viewModel.endDrag(startPos + dragOffset)
+                        val center = Offset(cardSize.width / 2f, cardSize.height / 2f)
+                        viewModel.endDrag(startPos + dragOffset + center)
                         isDragging = false
                         dragOffset = Offset.Zero
                     },
@@ -63,12 +67,13 @@ fun DraggableCard(
                     }
                 )
             }
-            .then(
-                if (isDragging) Modifier
-                    .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
-                    .graphicsLayer { alpha = 0.8f }
-                else Modifier
-            )
+            .graphicsLayer {
+                if (isDragging) {
+                    translationX = dragOffset.x
+                    translationY = dragOffset.y
+                    alpha = 0.9f
+                }
+            }
     ) {
         content()
     }

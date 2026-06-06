@@ -1,6 +1,7 @@
 package com.vayunmathur.games.solitaire.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -22,8 +23,16 @@ fun TableauColumn(
     cardWidth: Dp = CARD_WIDTH,
     cardHeight: Dp = CARD_HEIGHT
 ) {
+    val totalHeight = if (pile.faceDown.isEmpty() && pile.faceUp.isEmpty()) {
+        cardHeight
+    } else {
+        FACE_DOWN_OVERLAP * pile.faceDown.size +
+        FACE_UP_OVERLAP * maxOf(0, pile.faceUp.size - 1) +
+        cardHeight
+    }
+
     DropTarget("tableau_$columnIndex", viewModel, modifier) {
-        Box {
+        Box(modifier = Modifier.heightIn(min = totalHeight)) {
             if (pile.faceDown.isEmpty() && pile.faceUp.isEmpty()) {
                 EmptySlot(cardWidth = cardWidth, cardHeight = cardHeight)
             }
@@ -38,17 +47,18 @@ fun TableauColumn(
             }
             pile.faceUp.forEachIndexed { index, card ->
                 val cardsFromHere = pile.faceUp.subList(index, pile.faceUp.size)
+                val currentOffset = yOffset
                 DraggableCard(
                     card = card,
                     cards = cardsFromHere,
                     sourceId = "tableau_${columnIndex}_$index",
                     viewModel = viewModel,
+                    modifier = Modifier.offset(y = currentOffset),
                     cardWidth = cardWidth,
                     cardHeight = cardHeight
                 ) {
                     CardFace(
                         card = card,
-                        modifier = Modifier.offset(y = yOffset),
                         cardWidth = cardWidth,
                         cardHeight = cardHeight
                     )
@@ -68,8 +78,14 @@ fun FreeCellTableauColumn(
     cardWidth: Dp = CARD_WIDTH,
     cardHeight: Dp = CARD_HEIGHT
 ) {
+    val totalHeight = if (pile.isEmpty()) {
+        cardHeight
+    } else {
+        FACE_UP_OVERLAP * maxOf(0, pile.size - 1) + cardHeight
+    }
+
     DropTarget("tableau_$columnIndex", viewModel, modifier) {
-        Box {
+        Box(modifier = Modifier.heightIn(min = totalHeight)) {
             if (pile.isEmpty()) {
                 EmptySlot(cardWidth = cardWidth, cardHeight = cardHeight)
             }
@@ -80,12 +96,12 @@ fun FreeCellTableauColumn(
                     cards = cardsFromHere,
                     sourceId = "tableau_${columnIndex}_$index",
                     viewModel = viewModel,
+                    modifier = Modifier.offset(y = FACE_UP_OVERLAP * index),
                     cardWidth = cardWidth,
                     cardHeight = cardHeight
                 ) {
                     CardFace(
                         card = card,
-                        modifier = Modifier.offset(y = FACE_UP_OVERLAP * index),
                         cardWidth = cardWidth,
                         cardHeight = cardHeight
                     )

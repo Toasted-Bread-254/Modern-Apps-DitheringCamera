@@ -60,8 +60,6 @@ fun GameBoard(
         }
     }
 
-    val endpointSet = levelData.endpoints.flatMap { it.cells }.toSet()
-
     val shimmerTransition = rememberInfiniteTransition(label = "shimmer")
     val shimmerOffset by shimmerTransition.animateFloat(
         initialValue = -1f,
@@ -137,8 +135,15 @@ fun GameBoard(
                     directionBetween(cell, next)?.let { connections.add(it) }
                 }
 
-                val isEndpoint = cell in endpointSet
-                drawPipeSegment(rect, connections, pipeColor, isEndpoint)
+                drawPipeSegment(rect, connections, pipeColor)
+            }
+        }
+
+        for (ep in levelData.endpoints) {
+            val pipeColor = PIPE_COLORS[ep.colorIndex % PIPE_COLORS.size]
+            for (cell in ep.cells) {
+                val rect = cellRects[cell] ?: continue
+                drawEndpointBall(rect, pipeColor)
             }
         }
 

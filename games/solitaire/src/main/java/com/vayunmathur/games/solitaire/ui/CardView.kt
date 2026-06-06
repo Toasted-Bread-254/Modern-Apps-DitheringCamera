@@ -2,7 +2,6 @@ package com.vayunmathur.games.solitaire.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -18,7 +17,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -32,35 +30,33 @@ private val RedColor = Color(0xFFCC0000)
 @Composable
 fun CardFace(card: Card, modifier: Modifier = Modifier, cardWidth: Dp = CARD_WIDTH, cardHeight: Dp = CARD_HEIGHT) {
     val color = if (card.suit.isRed) RedColor else Color.Black
+    val scale = cardWidth.value / CARD_WIDTH.value
+    val rankSize = (10 * scale).sp
+    val suitSize = (24 * scale).sp
+    val padSize = (4 * scale).dp
+    val cornerSize = (8 * scale).dp
+
     Surface(
         modifier = modifier
             .width(cardWidth)
             .height(cardHeight),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(cornerSize),
         color = Color.White,
         border = BorderStroke(1.dp, Color.Black)
     ) {
-        Box(Modifier.padding(4.dp)) {
+        Box(Modifier.padding(padSize)) {
             Text(
                 text = card.rank.display,
                 color = color,
-                fontSize = 10.sp,
+                fontSize = rankSize,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.align(Alignment.TopStart)
             )
             Text(
                 text = card.suit.symbol,
                 color = color,
-                fontSize = 24.sp,
+                fontSize = suitSize,
                 modifier = Modifier.align(Alignment.Center)
-            )
-            Text(
-                text = "${card.rank.display}${card.suit.symbol}",
-                color = color,
-                fontSize = 8.sp,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .graphicsLayer { rotationZ = 180f }
             )
         }
     }
@@ -68,24 +64,28 @@ fun CardFace(card: Card, modifier: Modifier = Modifier, cardWidth: Dp = CARD_WID
 
 @Composable
 fun CardBack(modifier: Modifier = Modifier, cardWidth: Dp = CARD_WIDTH, cardHeight: Dp = CARD_HEIGHT) {
+    val scale = cardWidth.value / CARD_WIDTH.value
+    val cornerSize = (8 * scale).dp
     Surface(
         modifier = modifier
             .width(cardWidth)
             .height(cardHeight),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(cornerSize),
         color = Color(0xFF1565C0),
         border = BorderStroke(1.dp, Color.Black)
     ) {
         Box(
             Modifier
-                .padding(4.dp)
-                .background(Color(0xFF0D47A1), RoundedCornerShape(4.dp))
+                .padding((4 * scale).dp)
+                .background(Color(0xFF0D47A1), RoundedCornerShape((4 * scale).dp))
         )
     }
 }
 
 @Composable
 fun EmptySlot(modifier: Modifier = Modifier, label: String = "", cardWidth: Dp = CARD_WIDTH, cardHeight: Dp = CARD_HEIGHT) {
+    val scale = cardWidth.value / CARD_WIDTH.value
+    val cornerSize = (8 * scale).dp
     val dashedStroke = Stroke(
         width = 2f,
         pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))
@@ -98,13 +98,13 @@ fun EmptySlot(modifier: Modifier = Modifier, label: String = "", cardWidth: Dp =
                 drawRoundRect(
                     color = Color.Gray,
                     style = dashedStroke,
-                    cornerRadius = CornerRadius(8.dp.toPx())
+                    cornerRadius = CornerRadius(cornerSize.toPx())
                 )
             },
         contentAlignment = Alignment.Center
     ) {
         if (label.isNotEmpty()) {
-            Text(label, color = Color.Gray, fontSize = 16.sp)
+            Text(label, color = Color.Gray, fontSize = (16 * scale).sp)
         }
     }
 }

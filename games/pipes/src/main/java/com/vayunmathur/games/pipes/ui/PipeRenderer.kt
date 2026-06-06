@@ -3,7 +3,6 @@ package com.vayunmathur.games.pipes.ui
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -28,32 +27,50 @@ fun DrawScope.drawEmptyCell(cellRect: Rect) {
 fun DrawScope.drawPipeSegment(
     cellRect: Rect,
     connections: Set<Direction>,
-    pipeColor: PipeColor,
-    isEndpoint: Boolean
+    pipeColor: PipeColor
 ) {
     val inset = cellRect.size.width * 0.15f
     val pipeWidth = cellRect.size.width - inset * 2
-
-    if (isEndpoint && connections.size <= 1) {
-        drawEndpointCap(cellRect, connections.firstOrNull(), pipeColor, pipeWidth, inset)
-        return
-    }
 
     for (dir in connections) {
         drawPipeArm(cellRect, dir, pipeColor, pipeWidth, inset)
     }
 
-    val centerRect = Rect(
-        cellRect.left + inset,
-        cellRect.top + inset,
-        cellRect.right - inset,
-        cellRect.bottom - inset
+    if (connections.isNotEmpty()) {
+        val centerRect = Rect(
+            cellRect.left + inset,
+            cellRect.top + inset,
+            cellRect.right - inset,
+            cellRect.bottom - inset
+        )
+        drawRoundRect(
+            brush = createMetallicBrush(centerRect, pipeColor),
+            topLeft = centerRect.topLeft,
+            size = centerRect.size,
+            cornerRadius = CornerRadius(pipeWidth * 0.15f)
+        )
+    }
+}
+
+fun DrawScope.drawEndpointBall(cellRect: Rect, pipeColor: PipeColor) {
+    val inset = cellRect.size.width * 0.15f
+    val pipeWidth = cellRect.size.width - inset * 2
+    val center = cellRect.center
+    val radius = pipeWidth * 0.45f
+
+    drawCircle(
+        color = pipeColor.dark,
+        radius = radius + 2f,
+        center = center
     )
-    drawRoundRect(
-        brush = createMetallicBrush(centerRect, pipeColor),
-        topLeft = centerRect.topLeft,
-        size = centerRect.size,
-        cornerRadius = CornerRadius(pipeWidth * 0.15f)
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(pipeColor.light, pipeColor.main, pipeColor.dark),
+            center = Offset(center.x - radius * 0.2f, center.y - radius * 0.2f),
+            radius = radius
+        ),
+        radius = radius,
+        center = center
     )
 }
 
@@ -88,36 +105,6 @@ private fun DrawScope.drawPipeArm(
         topLeft = armRect.topLeft,
         size = armRect.size
     )
-}
-
-private fun DrawScope.drawEndpointCap(
-    cellRect: Rect,
-    direction: Direction?,
-    pipeColor: PipeColor,
-    pipeWidth: Float,
-    inset: Float
-) {
-    val center = cellRect.center
-    val radius = pipeWidth * 0.45f
-
-    drawCircle(
-        color = pipeColor.dark,
-        radius = radius + 2f,
-        center = center
-    )
-    drawCircle(
-        brush = Brush.radialGradient(
-            colors = listOf(pipeColor.light, pipeColor.main, pipeColor.dark),
-            center = Offset(center.x - radius * 0.2f, center.y - radius * 0.2f),
-            radius = radius
-        ),
-        radius = radius,
-        center = center
-    )
-
-    if (direction != null) {
-        drawPipeArm(cellRect, direction, pipeColor, pipeWidth, inset)
-    }
 }
 
 private fun createMetallicBrush(rect: Rect, pipeColor: PipeColor): Brush {

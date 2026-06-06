@@ -36,7 +36,7 @@ data class LevelPack(
             "packs/5x5.json",
             "packs/6x6.json",
             "packs/7x7.json",
-            "packs/diamond.json",
+            "packs/octagon.json",
             "packs/spiral.json"
         )
 

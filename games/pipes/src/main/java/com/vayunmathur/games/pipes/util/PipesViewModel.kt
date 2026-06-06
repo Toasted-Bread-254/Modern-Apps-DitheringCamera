@@ -34,7 +34,8 @@ data class PipesUiState(
     val history: List<PipesGameState> = emptyList(),
     val isLevelWon: Boolean = false,
     val activeColor: Int? = null,
-    val activePath: List<CellPos> = emptyList()
+    val activePath: List<CellPos> = emptyList(),
+    val preDrawState: PipesGameState? = null
 )
 
 class PipesViewModel(application: Application) : AndroidViewModel(application) {
@@ -71,17 +72,11 @@ class PipesViewModel(application: Application) : AndroidViewModel(application) {
         ) return
         val pack = LevelPack.PACKS[packIndex]
         val levelData = pack.levels[levelIndex]
-        val initialPaths = levelData.endpoints.associate { ep ->
-            ep.colorIndex to listOf(ep.cells[0])
-        }
-        val initialOwners = initialPaths.flatMap { (color, cells) ->
-            cells.map { it to color }
-        }.toMap()
         _uiState.value = PipesUiState(
             packIndex = packIndex,
             levelIndex = levelIndex,
             levelData = levelData,
-            gameState = PipesGameState(initialPaths, initialOwners),
+            gameState = PipesGameState(),
         )
     }
 
@@ -94,12 +89,22 @@ class PipesViewModel(application: Application) : AndroidViewModel(application) {
 
         if (endpointColor != null) {
             val currentPath = s.gameState.paths[endpointColor] ?: emptyList()
-            if (currentPath.isNotEmpty() && currentPath.last() == cell) {
-                _uiState.update { it.copy(activeColor = endpointColor, activePath = currentPath) }
-            } else if (currentPath.isNotEmpty() && currentPath.first() == cell) {
-                _uiState.update { it.copy(activeColor = endpointColor, activePath = currentPath.reversed()) }
+            if (currentPath.isNotEmpty()) {
+                val ep = levelData.endpoints.find { it.colorIndex == endpointColor }
+                val isComplete = ep != null && currentPath.size >= 2 &&
+                    setOf(currentPath.first(), currentPath.last()) == ep.cells.toSet()
+
+                if (currentPath.first() == cell && !isComplete) return
+
+                if (currentPath.last() == cell) {
+                    _uiState.update { it.copy(activeColor = endpointColor, activePath = currentPath, preDrawState = it.gameState) }
+                } else if (currentPath.first() == cell) {
+                    _uiState.update { it.copy(activeColor = endpointColor, activePath = currentPath.reversed(), preDrawState = it.gameState) }
+                } else {
+                    _uiState.update { it.copy(activeColor = endpointColor, activePath = listOf(cell), preDrawState = it.gameState) }
+                }
             } else {
-                _uiState.update { it.copy(activeColor = endpointColor, activePath = listOf(cell)) }
+                _uiState.update { it.copy(activeColor = endpointColor, activePath = listOf(cell), preDrawState = it.gameState) }
             }
             return
         }
@@ -109,8 +114,8 @@ class PipesViewModel(application: Application) : AndroidViewModel(application) {
             val path = s.gameState.paths[ownerColor] ?: return
             val idx = path.indexOf(cell)
             if (idx >= 0) {
-                val truncated = path.subList(0, idx + 1)
-                _uiState.update { it.copy(activeColor = ownerColor, activePath = truncated) }
+                val truncated = path.take(idx + 1)
+                _uiState.update { it.copy(activeColor = ownerColor, activePath = truncated, preDrawState = it.gameState) }
             }
         }
     }
@@ -124,6 +129,14 @@ class PipesViewModel(application: Application) : AndroidViewModel(application) {
 
         val currentPath = s.activePath
         if (currentPath.isEmpty()) return
+
+        val pairedEndpoint = levelData.endpoints.find { it.colorIndex == activeColor }
+            ?.cells?.let { cells ->
+                if (currentPath.first() == cells[0]) cells[1]
+                else if (currentPath.first() == cells[1]) cells[0]
+                else null
+            }
+        if (pairedEndpoint != null && currentPath.last() == pairedEndpoint) return
 
         if (currentPath.size >= 2 && cell == currentPath[currentPath.size - 2]) {
             _uiState.update { it.copy(activePath = currentPath.dropLast(1)) }
@@ -140,8 +153,42 @@ class PipesViewModel(application: Application) : AndroidViewModel(application) {
             .flatMap { it.cells }.toSet()
         if (cell in otherEndpoints) return
 
-        val newPath = currentPath + cell
-        _uiState.update { it.copy(activePath = newPath) }
+        val existingOwner = s.gameState.cellOwner[cell]
+        if (existingOwner != null && existingOwner != activeColor) {
+            val newGameState = breakPipe(s.gameState, existingOwner, cell, levelData)
+            _uiState.update { it.copy(activePath = currentPath + cell, gameState = newGameState) }
+        } else {
+            _uiState.update { it.copy(activePath = currentPath + cell) }
+        }
+    }
+
+    private fun breakPipe(state: PipesGameState, color: Int, collisionCell: CellPos, levelData: LevelData): PipesGameState {
+        val path = state.paths[color] ?: return state
+        val idx = path.indexOf(collisionCell)
+        if (idx < 0) return state
+
+        val ep = levelData.endpoints.find { it.colorIndex == color }
+        val isComplete = ep != null && path.size >= 2 &&
+            setOf(path.first(), path.last()) == ep.cells.toSet()
+
+        val kept = if (isComplete) {
+            val seg1 = path.take(idx)
+            val seg2 = path.drop(idx + 1)
+            if (seg1.size >= seg2.size) seg1 else seg2.reversed()
+        } else {
+            path.take(idx)
+        }
+
+        val newPaths = state.paths.toMutableMap()
+        val newCellOwner = state.cellOwner.toMutableMap()
+        path.forEach { newCellOwner.remove(it) }
+        if (kept.isNotEmpty()) {
+            newPaths[color] = kept
+            kept.forEach { newCellOwner[it] = color }
+        } else {
+            newPaths.remove(color)
+        }
+        return PipesGameState(newPaths, newCellOwner)
     }
 
     fun commitDraw() {
@@ -150,38 +197,19 @@ class PipesViewModel(application: Application) : AndroidViewModel(application) {
         if (s.isLevelWon) return
 
         val newPath = s.activePath
-        if (newPath.isEmpty()) {
-            _uiState.update { it.copy(activeColor = null, activePath = emptyList()) }
+        val preDrawState = s.preDrawState ?: s.gameState
+
+        if (newPath.size < 2) {
+            _uiState.update { it.copy(activeColor = null, activePath = emptyList(), gameState = preDrawState, preDrawState = null) }
             return
         }
 
-        val oldState = s.gameState
-        val newCellOwner = oldState.cellOwner.toMutableMap()
+        val currentState = s.gameState
+        val newCellOwner = currentState.cellOwner.toMutableMap()
 
-        oldState.paths[activeColor]?.forEach { c -> newCellOwner.remove(c) }
+        currentState.paths[activeColor]?.forEach { c -> newCellOwner.remove(c) }
 
-        val cellsToRemove = mutableMapOf<Int, MutableList<CellPos>>()
-        for (cell in newPath) {
-            val existingOwner = newCellOwner[cell]
-            if (existingOwner != null && existingOwner != activeColor) {
-                cellsToRemove.getOrPut(existingOwner) { mutableListOf() }.add(cell)
-            }
-        }
-
-        val newPaths = oldState.paths.toMutableMap()
-        for ((color, removeCells) in cellsToRemove) {
-            val existingPath = newPaths[color] ?: continue
-            val removeSet = removeCells.toSet()
-            val firstRemoveIdx = existingPath.indexOfFirst { it in removeSet }
-            if (firstRemoveIdx >= 0) {
-                val truncated = existingPath.subList(0, firstRemoveIdx)
-                newPaths[color] = truncated
-                for (i in firstRemoveIdx until existingPath.size) {
-                    newCellOwner.remove(existingPath[i])
-                }
-            }
-        }
-
+        val newPaths = currentState.paths.toMutableMap()
         newPaths[activeColor] = newPath
         for (cell in newPath) {
             newCellOwner[cell] = activeColor
@@ -192,9 +220,10 @@ class PipesViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update {
             it.copy(
                 gameState = newGameState,
-                history = it.history + oldState,
+                history = it.history + preDrawState,
                 activeColor = null,
-                activePath = emptyList()
+                activePath = emptyList(),
+                preDrawState = null
             )
         }
 
@@ -268,6 +297,8 @@ class PipesViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 gameState = it.history.last(),
                 history = it.history.dropLast(1),
+                activeColor = null,
+                activePath = emptyList()
             )
         }
     }
@@ -275,18 +306,13 @@ class PipesViewModel(application: Application) : AndroidViewModel(application) {
     fun onRestart() {
         val s = _uiState.value
         if (s.history.isEmpty() || s.isLevelWon || s.packIndex < 0) return
-        val levelData = s.levelData ?: return
-        val initialPaths = levelData.endpoints.associate { ep ->
-            ep.colorIndex to listOf(ep.cells[0])
-        }
-        val initialOwners = initialPaths.flatMap { (color, cells) ->
-            cells.map { it to color }
-        }.toMap()
         _uiState.update {
             it.copy(
-                gameState = PipesGameState(initialPaths, initialOwners),
+                gameState = PipesGameState(),
                 history = emptyList(),
                 isLevelWon = false,
+                activeColor = null,
+                activePath = emptyList()
             )
         }
     }

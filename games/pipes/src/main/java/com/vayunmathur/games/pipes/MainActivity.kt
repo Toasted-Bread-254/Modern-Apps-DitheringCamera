@@ -316,36 +316,8 @@ fun GameScreen(backStack: NavBackStack<Route>, viewModel: PipesViewModel, packIn
                     }
                 }
 
-                if (isReady) {
-                    FlowIndicators(currentLevelData, uiState.gameState)
-                }
+                
             }
-        }
-    }
-}
-
-@Composable
-fun FlowIndicators(
-    levelData: com.vayunmathur.games.pipes.data.LevelData,
-    gameState: com.vayunmathur.games.pipes.util.PipesGameState
-) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        for (ep in levelData.endpoints) {
-            val path = gameState.paths[ep.colorIndex] ?: emptyList()
-            val isConnected = path.size >= 2 &&
-                    ep.cells.toSet() == setOf(path.first(), path.last())
-            val pipeColor = PIPE_COLORS[ep.colorIndex % PIPE_COLORS.size]
-            Box(
-                Modifier
-                    .size(16.dp)
-                    .background(
-                        if (isConnected) pipeColor.main else pipeColor.dark,
-                        CircleShape
-                    )
-            )
         }
     }
 }

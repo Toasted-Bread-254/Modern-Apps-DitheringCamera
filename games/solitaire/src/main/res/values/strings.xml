@@ -4,6 +4,8 @@
     <string name="spider">Spider</string>
     <string name="freecell">FreeCell</string>
     <string name="new_game">New Game</string>
+    <string name="continue_game">Continue</string>
+    <string name="give_up">Give Up</string>
     <string name="undo">Undo</string>
     <string name="restart">Restart</string>
     <string name="moves">Moves</string>

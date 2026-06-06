@@ -1,6 +1,5 @@
 package com.vayunmathur.games.pipes.data
 
-import kotlin.math.abs
 import kotlin.random.Random
 
 object LevelGenerator {
@@ -11,11 +10,14 @@ object LevelGenerator {
         }
     }
 
-    fun diamondCells(size: Int): Set<CellPos> {
-        val center = size / 2
+    fun octagonCells(size: Int, cut: Int = size / 4 + 1): Set<CellPos> {
         return buildSet {
             for (r in 0 until size) for (c in 0 until size) {
-                if (abs(r - center) + abs(c - center) <= center) {
+                val topLeft = r < cut && c < cut - r
+                val topRight = r < cut && c >= size - cut + r
+                val botLeft = r >= size - cut && c < cut - (size - 1 - r)
+                val botRight = r >= size - cut && c >= size - cut + (size - 1 - r)
+                if (!(topLeft || topRight || botLeft || botRight)) {
                     add(CellPos(r, c))
                 }
             }

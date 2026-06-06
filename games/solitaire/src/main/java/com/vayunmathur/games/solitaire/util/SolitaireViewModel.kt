@@ -39,12 +39,27 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun getStats(mode: GameMode): GameStats = statsRepository.getStats(mode)
 
-    fun selectMode(mode: GameMode) {
+    fun hasActiveGame(): Boolean {
+        val state = _uiState.value
+        return state.gameMode != null && when (state.gameMode) {
+            GameMode.KLONDIKE -> state.klondike?.isWon == false
+            GameMode.SPIDER -> state.spider?.isWon == false
+            GameMode.FREECELL -> state.freeCell?.isWon == false
+        }
+    }
+
+    fun selectMode(mode: GameMode, drawMode: DrawMode = DrawMode.DRAW_ONE) {
         when (mode) {
-            GameMode.KLONDIKE -> newKlondikeGame(DrawMode.DRAW_ONE)
+            GameMode.KLONDIKE -> newKlondikeGame(drawMode)
             GameMode.SPIDER -> newSpiderGame()
             GameMode.FREECELL -> newFreeCellGame()
         }
+    }
+
+    fun giveUp() {
+        val mode = _uiState.value.gameMode ?: return
+        statsRepository.recordGameLost(mode)
+        _uiState.value = SolitaireUiState()
     }
 
     // --- Klondike ---
@@ -93,7 +108,7 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
             _uiState.update {
                 it.copy(klondike = state.copy(
                     stock = state.stock.dropLast(drawCount),
-                    waste = state.waste + drawn.reversed(),
+                    waste = state.waste + drawn,
                     moveCount = state.moveCount + 1
                 ))
             }
@@ -241,7 +256,7 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
         if (pile.faceUp.isEmpty() && pile.faceDown.isEmpty()) return card.rank == Rank.KING
         if (pile.faceUp.isEmpty()) return false
         val top = pile.faceUp.last()
-        return card.isOneHigherThan(top).not() && top.isOneHigherThan(card) && card.alternatesColorWith(top)
+        return top.isOneHigherThan(card) && card.alternatesColorWith(top)
     }
 
     private fun canPlaceOnFoundation(card: Card, foundation: List<Card>): Boolean {
