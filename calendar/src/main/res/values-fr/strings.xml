@@ -62,4 +62,19 @@
     <string name="by_month_day_placeholder">p. ex. 1,15,-1</string>
     <string name="by_month_label">Par mois (1-12)</string>
     <string name="by_month_placeholder">p. ex. 1,6,12</string>
+    <string name="new_local_calendar_title">Nouveau calendrier local</string>
+    <string name="calendar_name_label">Nom du calendrier</string>
+    <string name="loading_events">Chargement des événements…</string>
+    <string name="import_events_title">Importer des événements</string>
+    <string name="select_calendar_to_import">Sélectionnez le calendrier dans lequel effectuer l\'importation :</string>
+    <string name="create_new_calendar">+ Créer un nouveau calendrier</string>
+    <string name="default_layout">Affichage par défaut</string>
+    <string name="open_location_in_navigation">Afficher l\'emplacement</string>
+    <string name="by_set_pos_label">Par position fixe (1-366, de -1 à -366)</string>
+    <string name="by_set_pos_placeholder">p. ex. 1,-1,2</string>
+    <string name="by_year_day_label">Par jour de l\'an (1-366, de -1 à -366)</string>
+    <string name="by_year_day_placeholder">p. ex. 1,100,-1</string>
+    <string name="by_week_no_label">Par numéro de semaine (1-53, de -1 à -53)</string>
+    <string name="by_week_no_placeholder">p. ex. 1,26,52</string>
+    <string name="week_start_label">Premier jour de la semaine</string>
 </resources>
