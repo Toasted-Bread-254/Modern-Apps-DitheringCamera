@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Note</string>
+    <string name="search">Cerca</string>
+    <string name="title">Titolo</string>
+    <string name="content">Contenuto</string>
 </resources>
