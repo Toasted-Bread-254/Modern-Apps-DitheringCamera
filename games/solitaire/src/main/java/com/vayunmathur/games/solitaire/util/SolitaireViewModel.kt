@@ -14,7 +14,8 @@ import kotlinx.coroutines.flow.update
 data class DragInfo(
     val cards: List<Card>,
     val sourceId: String,
-    val offset: Offset = Offset.Zero
+    val offset: Offset = Offset.Zero,
+    val startPos: Offset = Offset.Zero
 )
 
 class SolitaireViewModel(application: Application) : AndroidViewModel(application) {
@@ -645,8 +646,8 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun startDrag(cards: List<Card>, sourceId: String) {
-        _dragInfo.value = DragInfo(cards, sourceId)
+    fun startDrag(cards: List<Card>, sourceId: String, startPos: Offset = Offset.Zero) {
+        _dragInfo.value = DragInfo(cards, sourceId, startPos, startPos)
     }
 
     fun updateDrag(offset: Offset) {

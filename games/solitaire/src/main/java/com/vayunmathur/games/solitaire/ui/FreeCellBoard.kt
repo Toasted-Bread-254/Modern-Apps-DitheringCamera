@@ -1,6 +1,7 @@
 package com.vayunmathur.games.solitaire.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +20,7 @@ fun FreeCellBoard(state: FreeCellState, viewModel: SolitaireViewModel, modifier:
         val cardWidth = (maxWidth - 48.dp) / 8
         val cardHeight = cardWidth * 1.4f
 
+        Box {
         Column {
             Row(
                 Modifier.fillMaxWidth(),
@@ -49,6 +51,9 @@ fun FreeCellBoard(state: FreeCellState, viewModel: SolitaireViewModel, modifier:
                     )
                 }
             }
+        }
+
+        DragOverlay(viewModel, cardWidth, cardHeight)
         }
     }
 }

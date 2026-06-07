@@ -25,6 +25,7 @@ fun KlondikeBoard(state: KlondikeState, viewModel: SolitaireViewModel, modifier:
         val cardWidth = (maxWidth - 48.dp) / 7
         val cardHeight = cardWidth * 1.4f
 
+        Box {
         Column {
             Row(
                 Modifier.fillMaxWidth(),
@@ -104,6 +105,9 @@ fun KlondikeBoard(state: KlondikeState, viewModel: SolitaireViewModel, modifier:
                     )
                 }
             }
+        }
+
+        DragOverlay(viewModel, cardWidth, cardHeight)
         }
     }
 }

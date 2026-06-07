@@ -2,7 +2,10 @@ package com.vayunmathur.games.solitaire.ui
 
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -14,7 +17,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.vayunmathur.games.solitaire.data.Card
 import com.vayunmathur.games.solitaire.util.SolitaireViewModel
@@ -37,7 +42,6 @@ fun DraggableCard(
 
     Box(
         modifier = modifier
-            .then(if (isDragging) Modifier.zIndex(100f) else Modifier)
             .onGloballyPositioned { coords ->
                 startPos = coords.positionInRoot()
                 cardSize = coords.size
@@ -47,7 +51,7 @@ fun DraggableCard(
                     onDragStart = {
                         isDragging = true
                         dragOffset = Offset.Zero
-                        viewModel.startDrag(cards, sourceId)
+                        viewModel.startDrag(cards, sourceId, startPos)
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
@@ -68,14 +72,51 @@ fun DraggableCard(
                 )
             }
             .graphicsLayer {
-                if (isDragging) {
-                    translationX = dragOffset.x
-                    translationY = dragOffset.y
-                    alpha = 0.9f
-                }
+                if (isDragging) alpha = 0f
             }
     ) {
         content()
+    }
+}
+
+@Composable
+fun DragOverlay(
+    viewModel: SolitaireViewModel,
+    cardWidth: Dp,
+    cardHeight: Dp,
+    modifier: Modifier = Modifier
+) {
+    val dragInfo by viewModel.dragInfo.collectAsState()
+    var overlayPos by remember { mutableStateOf(Offset.Zero) }
+
+    val faceUpOverlap = 22.dp
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .zIndex(Float.MAX_VALUE)
+            .onGloballyPositioned { coords ->
+                overlayPos = coords.positionInRoot()
+            }
+    ) {
+        val info = dragInfo ?: return@Box
+        val relX = (info.offset.x - overlayPos.x).toInt()
+        val relY = (info.offset.y - overlayPos.y).toInt()
+
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(relX, relY) }
+                .graphicsLayer { alpha = 0.9f }
+        ) {
+            info.cards.forEachIndexed { index, card ->
+                CardFace(
+                    card = card,
+                    modifier = Modifier.offset(y = faceUpOverlap * index),
+                    cardWidth = cardWidth,
+                    cardHeight = cardHeight
+                )
+            }
+        }
     }
 }
 
