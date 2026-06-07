@@ -31,6 +31,8 @@
             <option value="$PROJECT_DIR$/games" />
             <option value="$PROJECT_DIR$/games/alchemist" />
             <option value="$PROJECT_DIR$/games/chess" />
+            <option value="$PROJECT_DIR$/games/pipes" />
+            <option value="$PROJECT_DIR$/games/solitaire" />
             <option value="$PROJECT_DIR$/games/unblockjam" />
             <option value="$PROJECT_DIR$/games/wordmaker" />
             <option value="$PROJECT_DIR$/health" />
@@ -48,6 +50,7 @@
             <option value="$PROJECT_DIR$/pdf" />
             <option value="$PROJECT_DIR$/photos" />
             <option value="$PROJECT_DIR$/weather" />
+            <option value="$PROJECT_DIR$/web" />
             <option value="$PROJECT_DIR$/youpipe" />
           </set>
         </option>
