@@ -88,4 +88,11 @@
     <string name="enter_group_name">Inserisci nome gruppo</string>
     <string name="delete_group_title">Elimina gruppo</string>
     <string name="delete_group_confirm">Sei sicuro di voler eliminare questo gruppo? I contatti non verranno eliminati.</string>
+    <string name="import_button">Importa</string>
+    <string name="remove_from_group">Rimuovi dal gruppo</string>
+    <string name="copied_to_clipboard">Copiato negli appunti</string>
+    <string name="select_account_to_import">Seleziona account in cui importare:</string>
+    <string name="create_new_account">+ Crea nuovo account</string>
+    <string name="no_groups_found">Nessun gruppo trovato. Creane uno nella scheda Gruppi.</string>
+    <string name="contacts_count">%1$d contatti</string>
 </resources>
