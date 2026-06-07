@@ -125,4 +125,22 @@
     <string name="section_quick_stats">Statistiche rapide</string>
     <string name="section_today_activity">Oggi</string>
     <string name="section_this_week">Questa settimana</string>
+    <string name="search">Cerca</string>
+    <string name="label_mindfulness">Mindfulness</string>
+    <string name="nutrition_breakdown">Dettaglio valori nutrizionali</string>
+    <string name="recipes">Ricette</string>
+    <string name="ingredients">Ingredienti</string>
+    <string name="rename_ingredient">Rinomina ingredienti</string>
+    <string name="custom_name">Nome personalizzato</string>
+    <string name="save">Salva</string>
+    <string name="recipe_name">Nome ricetta</string>
+    <string name="add">Aggiungi</string>
+    <string name="save_recipe">Salva ricetta</string>
+    <string name="set_quantity_for_format">Imposta quantità per %1$s</string>
+    <string name="quantity">Quantità</string>
+    <string name="unit">Unità</string>
+    <string name="confirm">Conferma</string>
+    <string name="search_ingredient">Cerca ingredienti</string>
+    <string name="log_hydration">Registra idratazione</string>
+    <string name="log_meal">Registra pasto</string>
 </resources>
