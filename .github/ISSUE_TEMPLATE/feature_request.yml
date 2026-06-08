@@ -12,11 +12,13 @@ body:
         - calendar
         - clock
         - contacts
-        - crypto
+        - email
         - files
         - findfamily
         - alchemist
         - chess
+        - pipes
+        - solitaire
         - unblockjam
         - wordmaker
         - health
@@ -27,6 +29,7 @@ body:
         - passwords
         - pdf
         - photos
+        - weather
         - youpipe
     validations:
       required: true
