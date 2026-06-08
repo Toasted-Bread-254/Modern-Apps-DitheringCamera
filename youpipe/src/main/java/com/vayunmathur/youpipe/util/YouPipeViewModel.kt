@@ -43,6 +43,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -208,6 +210,7 @@ class YouPipeViewModel(
                 }
 
                 _recommendations.value = diverse
+                fetchDeArrowForVideos(diverse.map { it.videoID })
             } catch (e: Exception) {
                 Log.e(TAG, "Recommendation error", e)
             }
@@ -285,6 +288,7 @@ class YouPipeViewModel(
                     }
                 }
                 _searchResults.value = results
+                fetchDeArrowForVideos(results.filterIsInstance<VideoInfo>().map { it.videoID })
                 _suggestions.value = emptyList()
             } catch (e: Exception) {
                 Log.e(TAG, "Search error", e)
@@ -310,9 +314,12 @@ class YouPipeViewModel(
             try {
                 val info = getChannelInfo(channelID)
                 _channelState.update { it.copy(info = info) }
+                val channelVideos = mutableListOf<VideoInfo>()
                 getChannelVideos(info.channelID).forEach { video ->
+                    channelVideos.add(video)
                     _channelState.update { it.copy(videos = it.videos + video) }
                 }
+                fetchDeArrowForVideos(channelVideos.map { it.videoID })
             } catch (e: Exception) {
                 Log.e(TAG, "Channel load error", e)
             }
@@ -329,8 +336,6 @@ class YouPipeViewModel(
         val comments: List<Comment> = emptyList(),
         val relatedVideos: List<VideoInfo> = emptyList(),
         val sponsorSegments: List<SponsorSegment> = emptyList(),
-        val deArrowTitle: String? = null,
-        val deArrowThumbnail: String? = null,
         val error: Boolean = false,
     )
 
@@ -338,12 +343,10 @@ class YouPipeViewModel(
     val videoState: StateFlow<VideoState> = _videoState.asStateFlow()
     private var videoJob: Job? = null
     private var sponsorJob: Job? = null
-    private var deArrowJob: Job? = null
 
     fun loadVideo(videoID: Long, downloadedVideo: DownloadedVideo?) {
         videoJob?.cancel()
         sponsorJob?.cancel()
-        deArrowJob?.cancel()
         _videoState.value = VideoState()
 
         // Sponsor segments load in parallel.
@@ -352,19 +355,7 @@ class YouPipeViewModel(
             _videoState.update { it.copy(sponsorSegments = segs) }
         }
 
-        deArrowJob = viewModelScope.launch(Dispatchers.IO) {
-            if (_deArrowEnabled.value) {
-                val branding = getDeArrowBranding(videoID)
-                if (branding != null) {
-                    _videoState.update {
-                        it.copy(
-                            deArrowTitle = branding.trustedTitle(),
-                            deArrowThumbnail = branding.trustedThumbnailUrl(videoID)
-                        )
-                    }
-                }
-            }
-        }
+        fetchDeArrowForVideos(listOf(videoID))
 
         videoJob = viewModelScope.launch {
             val url = videoIDtoURL(videoID)
@@ -503,6 +494,8 @@ class YouPipeViewModel(
                         )
                     }
 
+                    fetchDeArrowForVideos(related.map { it.videoID })
+
                     if (related.isNotEmpty()) {
                         cachedRelatedVideoDao.upsertAll(related.map {
                             CachedRelatedVideo(
@@ -591,6 +584,33 @@ class YouPipeViewModel(
                 ?.progress?.getFloat("progress", -1f) ?: -1f
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), -1f)
+
+    // ===================== DeArrow cache =====================
+
+    data class DeArrowData(val title: String?, val thumbnailUrl: String?)
+
+    private val _deArrowCache = MutableStateFlow<Map<Long, DeArrowData>>(emptyMap())
+    val deArrowCache: StateFlow<Map<Long, DeArrowData>> = _deArrowCache.asStateFlow()
+
+    private val deArrowSemaphore = Semaphore(5)
+
+    fun fetchDeArrowForVideos(videoIds: List<Long>) {
+        if (!_deArrowEnabled.value) return
+        val idsToFetch = videoIds.filter { it !in _deArrowCache.value }
+        if (idsToFetch.isEmpty()) return
+        idsToFetch.forEach { id ->
+            viewModelScope.launch(Dispatchers.IO) {
+                deArrowSemaphore.withPermit {
+                    val branding = getDeArrowBranding(id)
+                    val data = DeArrowData(
+                        branding?.trustedTitle(),
+                        branding?.trustedThumbnailUrl(id)
+                    )
+                    _deArrowCache.update { it + (id to data) }
+                }
+            }
+        }
+    }
 
     // ===================== Settings: imports/exports =====================
 

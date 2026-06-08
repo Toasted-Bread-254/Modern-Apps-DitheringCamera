@@ -118,10 +118,14 @@ fun VideoPage(
         downloadedVideo?.let { ypvm.applyDownloadedStreams(it) }
     }
 
+    val deArrowEnabled by ypvm.deArrowEnabled.collectAsState()
+    val deArrowCache by ypvm.deArrowCache.collectAsState()
+    val deArrowData = if (deArrowEnabled) deArrowCache[videoID] else null
+
     val videoData = videoState.data?.let { data ->
         data.copy(
-            title = videoState.deArrowTitle ?: data.title,
-            thumbnailURL = videoState.deArrowThumbnail ?: data.thumbnailURL
+            title = deArrowData?.title ?: data.title,
+            thumbnailURL = deArrowData?.thumbnailUrl ?: data.thumbnailURL
         )
     }
     val videoStreams = videoState.videoStreams
