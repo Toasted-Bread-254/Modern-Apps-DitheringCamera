@@ -151,7 +151,7 @@ class LocationTrackingService : Service(), SensorEventListener {
                 )
             }
 
-            currentUsers.forEach { Networking.publishLocation(locationValue, it) }
+            currentUsers.filter { it.id != Networking.userid }.forEach { Networking.publishLocation(locationValue, it) }
             currentLinks.filter { now < it.deleteAt }.forEach { Networking.publishLocation(locationValue, it) }
             currentLinks.filter { now >= it.deleteAt }.forEach { temporaryLinkDao.delete(it) }
 
@@ -159,7 +159,7 @@ class LocationTrackingService : Service(), SensorEventListener {
             Networking.receiveLocations()?.let { locations ->
                 val usersRecieved = locations.map { it.userid }.distinct()
                 val newUsers = usersRecieved.filter { it !in userIDs && it != Networking.userid }
-                userDao.upsertAll(newUsers.map {
+                userDao.insertAllIgnore(newUsers.map {
                     User(" ", null, "Unknown Location", false, RequestStatus.AWAITING_REQUEST, Clock.System.now(), null, it)
                 })
 

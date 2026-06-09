@@ -3,6 +3,8 @@ package com.vayunmathur.findfamily.data
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Delete
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
@@ -66,6 +68,9 @@ interface UserDao {
 
     @Upsert
     suspend fun upsertAll(values: List<User>)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAllIgnore(values: List<User>)
 
     @Delete
     suspend fun delete(value: User): Int
