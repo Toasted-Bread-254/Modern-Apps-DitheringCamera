@@ -1,3 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ok">Ok</string>
+    <string name="app_name">PDF</string>
+    <string name="pdf_viewer_title">PDF Viewer</string>
+    <string name="search_label">Suchen</string>
+    <string name="search_result_counter">%1$d von %2$d</string>
+    <string name="password_dialog_title">Passwort erforderlich</string>
+    <string name="password_dialog_message">Dieses PDF ist passwortgeschützt. Bitte geben Sie das Passwort ein.</string>
+    <string name="password_label">Passwort</string>
+    <string name="incorrect_password">Falsches Passwort. Bitte versuchen Sie es erneut.</string>
+    <string name="open_pdf">PDF öffnen</string>
+    <string name="capture_pdf">PDF erfassen</string>
+    <string name="capture_pdf_title">PDF erfassen</string>
+    <string name="request_camera_permission">Erlaube Kamera Berechtigung</string>
+    <string name="upload_image">Bild hochladen</string>
+    <string name="pdf_saved">PDF erfolgreich gespeichert</string>
+    <string name="pdf_save_error">Fehler beim Speichern des PDF\'s</string>
+    <string name="share_pdf">PDF teilen</string>
+    <string name="crop_image">Bild zuschneiden</string>
+    <string name="continue_label">Weiter</string>
+    <string name="unsupported_version">Diese App benötigt Android 15 oder Google Play Services um voll aktualisiert zu werden. Wenn das nicht möglich ist, ist ihr Gerät leider nicht unterstützt.</string>
 </resources>
