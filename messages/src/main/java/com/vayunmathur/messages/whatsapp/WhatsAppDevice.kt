@@ -20,6 +20,12 @@ data class WhatsAppDevice(
     val platform: String,
     val lastSeen: Long,
     val jid: String = "", // Full JID including device suffix
+    // From Go UserLoginMetadata
+    val timezone: String = "",
+    val loggedInAt: Long = 0L,
+    val phoneLastSeen: Long = 0L,
+    val phoneLastPinged: Long = 0L,
+    val businessName: String = "",
 )
 
 /**
@@ -84,3 +90,46 @@ interface WhatsAppSessionDao {
     @Query("DELETE FROM whatsapp_sessions")
     suspend fun clearAllSessions()
 }
+
+/**
+ * Message metadata matching Go's waid.MessageMetadata.
+ * Stored as JSON alongside messages.
+ */
+data class MessageMetadata(
+    val senderDeviceId: Int = 0,
+    val error: MessageErrorType = MessageErrorType.NO_ERROR,
+    val broadcastListJid: String? = null,
+    val isMatrixPoll: Boolean = false,
+    val edits: List<String> = emptyList(),
+)
+
+enum class MessageErrorType {
+    NO_ERROR,
+    DECRYPTION_FAILED,
+    MEDIA_NOT_FOUND,
+}
+
+/**
+ * Portal metadata matching Go's waid.PortalMetadata.
+ */
+data class PortalMetadata(
+    val disappearingTimerSetAt: Long = 0L,
+    val topicId: String = "",
+    val lastSync: Long = 0L,
+    val communityAnnouncementGroup: Boolean = false,
+    val addressingMode: String = "",
+)
+
+/**
+ * Ghost metadata matching Go's waid.GhostMetadata.
+ */
+data class GhostMetadata(
+    val lastSync: Long = 0L,
+)
+
+/**
+ * Reaction metadata matching Go's waid.ReactionMetadata.
+ */
+data class ReactionMetadata(
+    val senderDeviceId: Int = 0,
+)

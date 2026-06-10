@@ -165,4 +165,5 @@ message ClientPayload {
     optional DevicePairingRegistrationData devicePairingData = 18;
     optional bool pull = 24;
     optional int32 lc = 29;
+    optional bool lidDbMigrated = 41;
 }

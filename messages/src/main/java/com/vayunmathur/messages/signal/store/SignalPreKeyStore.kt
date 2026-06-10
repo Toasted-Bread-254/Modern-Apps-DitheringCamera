@@ -94,15 +94,47 @@ class SignalPreKeyStore(private val db: SignalDatabase) : PreKeyStore, SignedPre
     }
 
     override fun markKyberPreKeyUsed(kyberPreKeyId: Int, signedPreKeyId: Int, publicKey: org.signal.libsignal.protocol.ecc.ECPublicKey) {
-        val entity = runBlocking { db.kyberPreKeyDao().get(kyberPreKeyId) } ?: return
-        if (!entity.lastResort) {
+        val isLastResort = runBlocking { db.kyberPreKeyDao().isLastResort(kyberPreKeyId) } ?: return
+        if (!isLastResort) {
             runBlocking { db.kyberPreKeyDao().delete(kyberPreKeyId) }
         }
+    }
+
+    fun isKyberPreKeyLastResort(kyberPreKeyId: Int): Boolean {
+        return runBlocking { db.kyberPreKeyDao().isLastResort(kyberPreKeyId) } ?: false
     }
 
     fun loadLastResortKyberPreKeys(): List<KyberPreKeyRecord> {
         return runBlocking { db.kyberPreKeyDao().getAll() }
             .filter { it.lastResort }
             .map { KyberPreKeyRecord(it.record) }
+    }
+
+    fun getAllPreKeys(): List<PreKeyRecord> {
+        return runBlocking { db.preKeyDao().getAll() }.map { PreKeyRecord(it.record) }
+    }
+
+    fun getAllNormalKyberPreKeys(): List<KyberPreKeyRecord> {
+        return runBlocking { db.kyberPreKeyDao().getAllNonLastResort() }
+            .map { KyberPreKeyRecord(it.record) }
+    }
+
+    fun getNextPreKeyId(): Pair<Int, Int> {
+        val count = runBlocking { db.preKeyDao().getCount() }
+        val maxId = runBlocking { db.preKeyDao().getMaxId() }
+        return Pair(count, maxId + 1)
+    }
+
+    fun getNextKyberPreKeyId(): Pair<Int, Int> {
+        val count = runBlocking { db.kyberPreKeyDao().getCount() }
+        val maxId = runBlocking { db.kyberPreKeyDao().getMaxId() }
+        return Pair(count, maxId + 1)
+    }
+
+    fun deleteAllPreKeys() {
+        runBlocking {
+            db.preKeyDao().deleteAll()
+            db.kyberPreKeyDao().deleteAll()
+        }
     }
 }

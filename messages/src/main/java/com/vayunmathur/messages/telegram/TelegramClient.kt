@@ -410,6 +410,9 @@ object TelegramClient {
         try {
             val authKey = Base64.decode(auth.authKey, Base64.NO_WRAP)
             val authKeyId = Base64.decode(auth.authKeyId, Base64.NO_WRAP)
+            val computedId = java.security.MessageDigest.getInstance("SHA-1").digest(authKey)
+                .copyOfRange(12, 20)
+            require(computedId.contentEquals(authKeyId)) { "Corrupted auth key" }
             val client = TelegramApiClient()
             client.connect(
                 dc = auth.dc ?: 2,

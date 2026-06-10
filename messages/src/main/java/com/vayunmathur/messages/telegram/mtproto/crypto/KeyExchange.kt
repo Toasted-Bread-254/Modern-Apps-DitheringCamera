@@ -49,6 +49,8 @@ class KeyExchange(private val transport: TcpTransport, private val dc: Int = 2) 
 
         // Step 3: Factor pq
         val pqBig = BigInteger(1, pq)
+        val pqMax = BigInteger.TWO.pow(63)
+        check(pqBig <= pqMax) { "server provided bad pq" }
         val (p, q) = PqMath.decompose(pqBig)
         val pBytes = p.toByteArray().let { if (it[0] == 0.toByte()) it.copyOfRange(1, it.size) else it }
         val qBytes = q.toByteArray().let { if (it[0] == 0.toByte()) it.copyOfRange(1, it.size) else it }
@@ -89,7 +91,12 @@ class KeyExchange(private val transport: TcpTransport, private val dc: Int = 2) 
         val dhParamsData = receiveUnencrypted()
         val dhBuf = TlBuffer(dhParamsData)
         val dhId = dhBuf.int32()
-        check(dhId == 0xd0e8075c.toInt()) { "Expected server_DH_params_ok, got 0x${dhId.toUInt().toString(16)}" }
+        check(dhId == 0xd0e8075c.toInt() || dhId == 0x79cb045d.toInt()) {
+            "Expected server_DH_params_ok or server_DH_params_fail, got 0x${dhId.toUInt().toString(16)}"
+        }
+        if (dhId == 0x79cb045d.toInt()) {
+            throw IllegalStateException("Server responded with server_DH_params_fail")
+        }
         val dhNonce = dhBuf.int128()
         check(dhNonce.data.contentEquals(nonce.data)) { "DH params nonce mismatch" }
         val dhSrvNonce = dhBuf.int128()
@@ -109,6 +116,8 @@ class KeyExchange(private val transport: TcpTransport, private val dc: Int = 2) 
         check(innerDhId == 0xb5890dba.toInt()) { "Expected server_DH_inner_data" }
         val innerNonce = innerBuf.int128()
         val innerSrvNonce = innerBuf.int128()
+        check(innerNonce.data.contentEquals(nonce.data)) { "ServerDHInnerData nonce mismatch" }
+        check(innerSrvNonce.data.contentEquals(resSrvNonce.data)) { "ServerDHInnerData server nonce mismatch" }
         val gValue = innerBuf.int32()
         val dhPrimeBytes = innerBuf.bytes()
         val gABytes = innerBuf.bytes()
@@ -153,7 +162,22 @@ class KeyExchange(private val transport: TcpTransport, private val dc: Int = 2) 
         val dhGenData = receiveUnencrypted()
         val dhGenBuf = TlBuffer(dhGenData)
         val dhGenId = dhGenBuf.int32()
-        check(dhGenId == 0x3bcbf734.toInt()) { "Expected dh_gen_ok, got 0x${dhGenId.toUInt().toString(16)}" }
+        when (dhGenId) {
+            0x3bcbf734.toInt() -> {} // dh_gen_ok - continue
+            0x46dc1fb9.toInt() -> { // dh_gen_retry
+                val retryNonce = dhGenBuf.int128()
+                val retrySrvNonce = dhGenBuf.int128()
+                val newNonceHash2 = dhGenBuf.int128()
+                throw IllegalStateException("DH gen retry required: ${newNonceHash2.data.joinToString("") { "%02x".format(it) }}")
+            }
+            0xa69dae02.toInt() -> { // dh_gen_fail
+                val failNonce = dhGenBuf.int128()
+                val failSrvNonce = dhGenBuf.int128()
+                val newNonceHash3 = dhGenBuf.int128()
+                throw IllegalStateException("DH gen fail: ${newNonceHash3.data.joinToString("") { "%02x".format(it) }}")
+            }
+            else -> throw IllegalStateException("Expected dh_gen_ok/retry/fail, got 0x${dhGenId.toUInt().toString(16)}")
+        }
         val dhGenNonce = dhGenBuf.int128()
         check(dhGenNonce.data.contentEquals(nonce.data)) { "DhGenOk nonce mismatch" }
         val dhGenSrvNonce = dhGenBuf.int128()
@@ -269,9 +293,6 @@ class KeyExchange(private val transport: TcpTransport, private val dc: Int = 2) 
 
     private fun checkDhPrime(g: Int, p: BigInteger) {
         check(p.bitLength() == 2048) { "DH prime must be 2048 bits" }
-        check(p.isProbablePrime(20)) { "p is not prime" }
-        val pMinus1Over2 = p.subtract(BigInteger.ONE).shiftRight(1)
-        check(pMinus1Over2.isProbablePrime(20)) { "(p-1)/2 is not prime" }
         val pMod = when (g) {
             2 -> p.mod(BigInteger.valueOf(8)) == BigInteger.valueOf(7)
             3 -> p.mod(BigInteger.valueOf(3)) == BigInteger.valueOf(2)
@@ -279,14 +300,18 @@ class KeyExchange(private val transport: TcpTransport, private val dc: Int = 2) 
             5 -> p.mod(BigInteger.valueOf(5)).let { it == BigInteger.ONE || it == BigInteger.valueOf(4) }
             6 -> p.mod(BigInteger.valueOf(24)).let { it == BigInteger.valueOf(19) || it == BigInteger.valueOf(23) }
             7 -> p.mod(BigInteger.valueOf(7)).let { it == BigInteger.valueOf(3) || it == BigInteger.valueOf(5) || it == BigInteger.valueOf(6) }
-            else -> false
+            else -> throw IllegalStateException("unexpected g = $g: g should be equal to 2, 3, 4, 5, 6 or 7")
         }
         check(pMod) { "g=$g is not a valid generator for p" }
+        check(p.isProbablePrime(64)) { "p is not prime" }
+        val pMinus1Over2 = p.subtract(BigInteger.ONE).shiftRight(1)
+        check(pMinus1Over2.isProbablePrime(64)) { "(p-1)/2 is not prime" }
     }
 
     private fun checkDhParams(dhPrime: BigInteger, g: BigInteger, vararg values: BigInteger) {
         val one = BigInteger.ONE
         val dhPrimeMinusOne = dhPrime.subtract(one)
+        check(g > one && g < dhPrimeMinusOne) { "DH param g out of range (1, p-1)" }
         val safeMin = BigInteger.TWO.pow(2048 - 64)
         val safeMax = dhPrime.subtract(safeMin)
         for (v in values) {

@@ -14,18 +14,38 @@ import com.vayunmathur.messages.signal.store.SignalGroupStore
 import com.vayunmathur.messages.signal.store.SignalRecipientEntity
 import com.vayunmathur.messages.signal.store.SignalRecipientStore
 import com.vayunmathur.messages.signal.web.SignalHttpClient
+import java.io.ByteArrayOutputStream
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 class StorageServiceManager(
     private val recipientStore: SignalRecipientStore,
     private val groupStore: SignalGroupStore,
-    private val selfAci: String,
-    private val password: String,
+    private val ws: com.vayunmathur.messages.signal.web.SignalWebSocket,
 ) {
     companion object {
         private const val TAG = "StorageService"
         private const val MAX_READ_STORAGE_RECORDS = 2500
+        private const val STORAGE_AUTH_TTL_MS = 23L * 60 * 60 * 1000
+        private const val STORAGE_SERVICE_ITEM_KEY_INFO_PREFIX = "20240801_SIGNAL_STORAGE_SERVICE_ITEM_"
+        private const val STORAGE_SERVICE_ITEM_KEY_LEN = 32
+    }
+
+    private var storageAuth: Pair<String, String>? = null
+    private var storageAuthTimestamp = 0L
+
+    private suspend fun getStorageCredentials(): Pair<String, String> {
+        val cached = storageAuth
+        if (cached != null && System.currentTimeMillis() - storageAuthTimestamp < STORAGE_AUTH_TTL_MS) {
+            return cached
+        }
+        val resp = ws.sendRequest("GET", "/v1/storage/auth")
+        if (resp.status !in 200..299) throw java.io.IOException("Storage auth failed: ${resp.status}")
+        val json = org.json.JSONObject(resp.body.toStringUtf8())
+        val creds = Pair(json.getString("username"), json.getString("password"))
+        storageAuth = creds
+        storageAuthTimestamp = System.currentTimeMillis()
+        return creds
     }
 
     suspend fun syncStorage(masterKey: ByteArray) {
@@ -39,14 +59,20 @@ class StorageServiceManager(
         }
     }
 
-    private suspend fun fetchManifest(storageKey: ByteArray): ManifestRecord? {
+    private suspend fun fetchManifest(storageKey: ByteArray, greaterThanVersion: Long = 0): ManifestRecord? {
+        val creds = getStorageCredentials()
+        var path = "/v1/storage/manifest"
+        if (greaterThanVersion > 0) {
+            path += "/version/$greaterThanVersion"
+        }
         val resp = SignalHttpClient.request(
             host = SignalHttpClient.STORAGE_HOST, method = "GET",
-            path = "/v1/storage/manifest",
-            username = selfAci, password = password,
+            path = path,
+            username = creds.first, password = creds.second,
             contentType = "application/x-protobuf",
         )
-        if (resp.code == 204 || !resp.isSuccessful) return null
+        if (resp.code == 204) return null
+        if (resp.code != 200) throw java.io.IOException("Storage manifest fetch failed: ${resp.code}")
         val body = resp.body?.bytes() ?: return null
         val enc = StorageManifest.parseFrom(body)
         val mKey = deriveManifestKey(storageKey, enc.version)
@@ -58,24 +84,27 @@ class StorageServiceManager(
         storageKey: ByteArray,
         manifest: ManifestRecord,
     ): List<StorageRecord> {
+        val recordIkm = manifest.recordIkm?.takeIf { !it.isEmpty }?.toByteArray()
         val allKeys = manifest.identifiersList.map { it.raw.toByteArray() }
         val results = mutableListOf<StorageRecord>()
         for (chunk in allKeys.chunked(MAX_READ_STORAGE_RECORDS)) {
             val readOp = ReadOperation.newBuilder()
             chunk.forEach { readOp.addReadKey(com.google.protobuf.ByteString.copyFrom(it)) }
+            val creds = getStorageCredentials()
             val resp = SignalHttpClient.request(
                 host = SignalHttpClient.STORAGE_HOST, method = "PUT",
                 path = "/v1/storage/read",
                 body = readOp.build().toByteArray(),
-                username = selfAci, password = password,
+                username = creds.first, password = creds.second,
                 contentType = "application/x-protobuf",
             )
-            if (!resp.isSuccessful) continue
+            if (!resp.isSuccessful) throw java.io.IOException("Storage read failed: ${resp.code}")
             val items = StorageItems.parseFrom(resp.body?.bytes() ?: continue)
             items.itemsList.mapNotNull { item ->
                 try {
-                    val b64 = Base64.encodeToString(item.key.toByteArray(), Base64.NO_WRAP)
-                    val iKey = deriveItemKey(storageKey, b64)
+                    val rawKey = item.key.toByteArray()
+                    val b64 = Base64.encodeToString(rawKey, Base64.NO_WRAP)
+                    val iKey = deriveItemKey(storageKey, recordIkm, rawKey, b64)
                     StorageRecord.parseFrom(decryptAESGCM(iKey, item.value.toByteArray()))
                 } catch (e: Exception) { null }
             }.let { results.addAll(it) }
@@ -88,6 +117,7 @@ class StorageServiceManager(
             try {
                 if (r.hasContact()) processContact(r.contact)
                 else if (r.hasGroupV2()) processGroup(r.groupV2)
+                else if (r.hasAccount()) Log.d(TAG, "Found account record")
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to process record", e)
             }
@@ -95,24 +125,50 @@ class StorageServiceManager(
     }
 
     private suspend fun processContact(c: ContactRecord) {
-        val aci = c.aci.takeIf { it.isNotBlank() } ?: return
-        val pni = if (c.hasPni() && c.pni.isNotBlank()) c.pni else null
-        val name = listOf(c.givenName, c.familyName)
-            .filter { it.isNotBlank() }.joinToString(" ")
-            .ifBlank {
-                listOf(c.systemGivenName, c.systemFamilyName)
-                    .filter { it.isNotBlank() }.joinToString(" ")
-            }
-        val existing = recipientStore.getRecipient(aci)
+        val aci = c.aci.takeIf { it.isNotBlank() }
+        val pni = c.pni.takeIf { it.isNotBlank() }
+        if (aci == null && pni == null) {
+            Log.w(TAG, "Storage service has contact record with no ACI or PNI")
+            return
+        }
+        val entityAci = aci ?: "PNI:$pni"
+        val existing = recipientStore.getRecipient(entityAci)
+
         val pk = if (c.profileKey.size() == 32)
             c.profileKey.toByteArray()
         else existing?.profileKey
+
+        // Profile name from given/family name - only set if currently empty (matching Go)
+        val profileName = if (existing?.profileName.isNullOrBlank()) {
+            listOf(c.givenName, c.familyName)
+                .filter { it.isNotBlank() }.joinToString(" ")
+                .takeIf { it.isNotBlank() }
+        } else existing?.profileName
+
+        // Contact name from system given/family name (always update when present)
+        val contactName = listOf(c.systemGivenName, c.systemFamilyName)
+            .filter { it.isNotBlank() }.joinToString(" ")
+            .takeIf { it.isNotBlank() } ?: existing?.contactName
+
+        // Nickname handling
+        val nickname = if (c.hasNickname() && (c.nickname.given.isNotBlank() || c.nickname.family.isNotBlank())) {
+            listOf(c.nickname.given, c.nickname.family)
+                .filter { it.isNotBlank() }.joinToString(" ")
+                .takeIf { it.isNotBlank() }
+        } else {
+            null
+        }
+
         recipientStore.storeRecipient(SignalRecipientEntity(
-            aci = aci,
+            aci = entityAci,
             pni = pni ?: existing?.pni,
             e164 = c.e164.takeIf { it.isNotBlank() } ?: existing?.e164,
-            profileName = name.takeIf { it.isNotBlank() } ?: existing?.profileName,
+            contactName = contactName,
+            nickname = nickname,
+            profileName = profileName ?: existing?.profileName,
             profileKey = pk,
+            blocked = c.blocked,
+            whitelisted = if (existing?.whitelisted == true) true else c.whitelisted,
         ))
     }
 
@@ -134,13 +190,24 @@ class StorageServiceManager(
         return mac.doFinal("Manifest_$version".toByteArray())
     }
 
-    private fun deriveItemKey(storageKey: ByteArray, b64ItemId: String): ByteArray {
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(storageKey, "HmacSHA256"))
-        return mac.doFinal("Item_$b64ItemId".toByteArray())
+    private fun deriveItemKey(
+        storageKey: ByteArray,
+        recordIkm: ByteArray?,
+        rawItemId: ByteArray,
+        b64ItemId: String,
+    ): ByteArray {
+        if (recordIkm == null) {
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(SecretKeySpec(storageKey, "HmacSHA256"))
+            return mac.doFinal("Item_$b64ItemId".toByteArray())
+        } else {
+            val info = STORAGE_SERVICE_ITEM_KEY_INFO_PREFIX.toByteArray() + rawItemId
+            return hkdfSha256(recordIkm, ByteArray(0), info, STORAGE_SERVICE_ITEM_KEY_LEN)
+        }
     }
 
     private fun decryptAESGCM(key: ByteArray, data: ByteArray): ByteArray {
+        if (data.size < 12 + 16 + 1) throw IllegalArgumentException("Invalid encrypted data length")
         val nonce = data.copyOfRange(0, 12)
         val ciphertext = data.copyOfRange(12, data.size)
         val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
@@ -148,5 +215,24 @@ class StorageServiceManager(
             SecretKeySpec(key, "AES"),
             javax.crypto.spec.GCMParameterSpec(128, nonce))
         return cipher.doFinal(ciphertext)
+    }
+
+    private fun hkdfSha256(ikm: ByteArray, salt: ByteArray, info: ByteArray, length: Int): ByteArray {
+        val effectiveSalt = if (salt.isEmpty()) ByteArray(32) else salt
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(effectiveSalt, "HmacSHA256"))
+        val prk = mac.doFinal(ikm)
+        val n = (length + 31) / 32
+        var t = ByteArray(0)
+        val okm = ByteArrayOutputStream()
+        for (i in 1..n) {
+            mac.init(SecretKeySpec(prk, "HmacSHA256"))
+            mac.update(t)
+            mac.update(info)
+            mac.update(byteArrayOf(i.toByte()))
+            t = mac.doFinal()
+            okm.write(t)
+        }
+        return okm.toByteArray().copyOfRange(0, length)
     }
 }

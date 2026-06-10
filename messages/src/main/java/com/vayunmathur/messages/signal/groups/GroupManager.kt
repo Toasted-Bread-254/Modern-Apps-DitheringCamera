@@ -3,6 +3,7 @@ package com.vayunmathur.messages.signal.groups
 import android.util.Base64
 import android.util.Log
 import com.vayunmathur.messages.signal.proto.Group
+import com.vayunmathur.messages.signal.proto.GroupAttributeBlob
 import com.vayunmathur.messages.signal.store.SignalGroupEntity
 import com.vayunmathur.messages.signal.store.SignalGroupStore
 import com.vayunmathur.messages.signal.web.SignalHttpClient
@@ -17,6 +18,7 @@ import org.signal.libsignal.zkgroup.auth.AuthCredentialWithPniResponse
 import org.signal.libsignal.zkgroup.auth.ClientZkAuthOperations
 import org.signal.libsignal.zkgroup.groups.GroupMasterKey
 import org.signal.libsignal.zkgroup.groups.GroupSecretParams
+import org.signal.libsignal.protocol.ServiceId
 
 class GroupManager(
     private val ws: SignalWebSocket,
@@ -33,19 +35,151 @@ class GroupManager(
         UNKNOWN(0), DEFAULT(1), ADMINISTRATOR(2)
     }
 
+    data class GroupMember(
+        val aci: UUID,
+        val role: MemberRole = MemberRole.UNKNOWN,
+        val profileKey: ByteArray = ByteArray(0),
+        val joinedAtRevision: Int = 0,
+    )
+
+    data class GroupAccessControl(
+        val members: AccessControl,
+        val addFromInviteLink: AccessControl,
+        val attributes: AccessControl,
+    )
+
+    data class PendingMember(
+        val serviceId: String,
+        val role: MemberRole,
+        val addedByUserId: UUID,
+        val timestamp: Long,
+    )
+
+    data class RequestingMember(
+        val aci: UUID,
+        val profileKey: ByteArray,
+        val timestamp: Long,
+    )
+
+    data class BannedMember(
+        val serviceId: String,
+        val timestamp: Long,
+    )
+
     data class SignalGroup(
         val groupId: String,
         val title: String,
-        val memberAcis: List<String>,
-        val avatarUrl: String?,
+        val members: List<GroupMember>,
+        val avatarPath: String?,
         val revision: Int,
         val description: String? = null,
-        val disappearingMessagesTimer: Int = 0,
+        val disappearingMessagesDuration: Int = 0,
         val announcementsOnly: Boolean = false,
+        val accessControl: GroupAccessControl? = null,
+        val pendingMembers: List<PendingMember> = emptyList(),
+        val requestingMembers: List<RequestingMember> = emptyList(),
+        val bannedMembers: List<BannedMember> = emptyList(),
+        val inviteLinkPassword: String? = null,
+    ) {
+        val memberAcis: List<String> get() = members.map { it.aci.toString() }
+
+        fun findMemberOrEmpty(aci: UUID): GroupMember {
+            return members.find { it.aci == aci } ?: GroupMember(aci)
+        }
+    }
+
+    data class GroupChange(
+        var groupMasterKey: ByteArray,
+        val sourceServiceId: String? = null,
+        var revision: Int = 0,
+        val addMembers: MutableList<GroupMember> = mutableListOf(),
+        val deleteMembers: MutableList<UUID> = mutableListOf(),
+        val modifyMemberRoles: MutableList<Pair<UUID, MemberRole>> = mutableListOf(),
+        val modifyMemberProfileKeys: MutableList<Pair<UUID, ByteArray>> = mutableListOf(),
+        val addPendingMembers: MutableList<PendingMember> = mutableListOf(),
+        val deletePendingMembers: MutableList<String> = mutableListOf(),
+        val promotePendingMembers: MutableList<Pair<UUID, ByteArray>> = mutableListOf(),
+        var modifyTitle: String? = null,
+        var modifyAvatar: String? = null,
+        var modifyDisappearingMessagesDuration: Int? = null,
+        var modifyAttributesAccess: AccessControl? = null,
+        var modifyMemberAccess: AccessControl? = null,
+        var modifyAddFromInviteLinkAccess: AccessControl? = null,
+        val addRequestingMembers: MutableList<RequestingMember> = mutableListOf(),
+        val deleteRequestingMembers: MutableList<UUID> = mutableListOf(),
+        val promoteRequestingMembers: MutableList<Pair<UUID, MemberRole>> = mutableListOf(),
+        var modifyDescription: String? = null,
+        var modifyAnnouncementsOnly: Boolean? = null,
+        val addBannedMembers: MutableList<BannedMember> = mutableListOf(),
+        val deleteBannedMembers: MutableList<String> = mutableListOf(),
+        val promotePendingPniAciMembers: MutableList<Triple<UUID, ByteArray, UUID>> = mutableListOf(),
+        var modifyInviteLinkPassword: String? = null,
+    ) {
+        fun isEmpty(): Boolean {
+            return addMembers.isEmpty() && deleteMembers.isEmpty() &&
+                modifyMemberRoles.isEmpty() && modifyMemberProfileKeys.isEmpty() &&
+                addPendingMembers.isEmpty() &&
+                promotePendingMembers.isEmpty() && modifyTitle == null &&
+                modifyAvatar == null && modifyDisappearingMessagesDuration == null &&
+                modifyAttributesAccess == null && modifyMemberAccess == null &&
+                modifyAddFromInviteLinkAccess == null && addRequestingMembers.isEmpty() &&
+                deleteRequestingMembers.isEmpty() && promoteRequestingMembers.isEmpty() &&
+                modifyDescription == null && modifyAnnouncementsOnly == null &&
+                addBannedMembers.isEmpty()
+        }
+
+        fun resolveConflict(group: SignalGroup) {
+            if (modifyTitle != null && modifyTitle == group.title) modifyTitle = null
+            if (modifyDescription != null && modifyDescription == group.description) modifyDescription = null
+            if (modifyAvatar != null && modifyAvatar == group.avatarPath) modifyAvatar = null
+            if (modifyDisappearingMessagesDuration != null &&
+                modifyDisappearingMessagesDuration == group.disappearingMessagesDuration
+            ) modifyDisappearingMessagesDuration = null
+            if (modifyAttributesAccess != null && modifyAttributesAccess == group.accessControl?.attributes) {
+                modifyAttributesAccess = null
+            }
+            if (modifyMemberAccess != null && modifyMemberAccess == group.accessControl?.members) {
+                modifyAttributesAccess = null
+            }
+            if (modifyAddFromInviteLinkAccess != null &&
+                modifyAddFromInviteLinkAccess == group.accessControl?.addFromInviteLink
+            ) modifyAddFromInviteLinkAccess = null
+            if (modifyAnnouncementsOnly != null && modifyAnnouncementsOnly == group.announcementsOnly) {
+                modifyAnnouncementsOnly = null
+            }
+            val memberMap = group.members.associate { it.aci to it.role }
+            val pendingSet = group.pendingMembers.map { it.serviceId }.toSet()
+            val requestingSet = group.requestingMembers.map { it.aci }.toSet()
+            addMembers.removeAll { memberMap.containsKey(it.aci) }
+            promotePendingMembers.removeAll { memberMap.containsKey(it.first) }
+            promoteRequestingMembers.removeAll { memberMap.containsKey(it.first) }
+            addPendingMembers.removeAll { pendingSet.contains(it.serviceId) }
+            addRequestingMembers.removeAll { requestingSet.contains(it.aci) }
+            deletePendingMembers.removeAll { !pendingSet.contains(it) }
+            deleteRequestingMembers.removeAll { !requestingSet.contains(it) }
+            deleteMembers.removeAll { !memberMap.containsKey(it) }
+            modifyMemberRoles.removeAll { memberMap[it.first] == it.second }
+        }
+    }
+
+    data class GroupChangeState(
+        val groupState: SignalGroup?,
+        val groupChange: GroupChange?,
     )
 
     private val cache = ConcurrentHashMap<String, SignalGroup>()
     private val credentialCache = ConcurrentHashMap<Long, ByteArray>()
+    private val activeCalls = ConcurrentHashMap<String, String>()
+
+    fun updateActiveCall(groupId: String, callId: String): Boolean {
+        val currentCallId = activeCalls[groupId]
+        if (currentCallId != null && currentCallId == callId) {
+            activeCalls.remove(groupId)
+            return false
+        }
+        activeCalls[groupId] = callId
+        return true
+    }
 
     suspend fun fetchGroup(groupId: String, masterKey: ByteArray): SignalGroup? {
         return try {
@@ -59,18 +193,38 @@ class GroupManager(
                 username = auth.username,
                 password = auth.password,
             )
-            if (response.code !in 200..299) return null
+            if (response.code != 200) return null
 
             val groupProto = Group.parseFrom(response.body?.bytes())
+            val members = groupProto.membersList.map { member ->
+                val bb = ByteBuffer.wrap(member.userId.toByteArray())
+                GroupMember(
+                    aci = UUID(bb.getLong(), bb.getLong()),
+                    role = MemberRole.entries.find { it.value == member.role.number } ?: MemberRole.UNKNOWN,
+                    profileKey = member.profileKey.toByteArray(),
+                    joinedAtRevision = member.joinedAtVersion,
+                )
+            }
             val group = SignalGroup(
                 groupId = groupId,
-                title = groupProto.title.toStringUtf8(),
-                memberAcis = groupProto.membersList.map {
-                    val bb = ByteBuffer.wrap(it.userId.toByteArray())
-                    UUID(bb.getLong(), bb.getLong()).toString()
-                },
-                avatarUrl = groupProto.avatarUrl.ifEmpty { null },
+                title = cleanupStringProperty(groupProto.title.toStringUtf8()),
+                members = members,
+                avatarPath = groupProto.avatarUrl.ifEmpty { null },
                 revision = groupProto.version,
+                description = runCatching {
+                    cleanupStringProperty(groupProto.description.toStringUtf8())
+                }.getOrNull(),
+                announcementsOnly = groupProto.announcementsOnly,
+                accessControl = groupProto.accessControl?.let {
+                    GroupAccessControl(
+                        members = AccessControl.entries.find { ac -> ac.value == it.members.number } ?: AccessControl.UNKNOWN,
+                        addFromInviteLink = AccessControl.entries.find { ac -> ac.value == it.addFromInviteLink.number } ?: AccessControl.UNKNOWN,
+                        attributes = AccessControl.entries.find { ac -> ac.value == it.attributes.number } ?: AccessControl.UNKNOWN,
+                    )
+                },
+                inviteLinkPassword = groupProto.inviteLinkPassword?.let {
+                    if (it.isEmpty) null else Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP)
+                },
             )
 
             cache[groupId] = group
@@ -79,7 +233,7 @@ class GroupManager(
                     groupId = groupId,
                     masterKey = masterKey,
                     title = group.title,
-                    avatarUrl = group.avatarUrl,
+                    avatarUrl = group.avatarPath,
                     revision = group.revision,
                 )
             )
@@ -90,6 +244,14 @@ class GroupManager(
         }
     }
 
+    suspend fun retrieveGroupByID(groupId: String, masterKey: ByteArray, revision: Int = 0): SignalGroup? {
+        val cached = cache[groupId]
+        if (cached != null && cached.revision >= revision) {
+            return cached
+        }
+        return fetchGroup(groupId, masterKey)
+    }
+
     suspend fun getOrFetchGroup(groupId: String, masterKey: ByteArray): SignalGroup? {
         cache[groupId]?.let { return it }
         return fetchGroup(groupId, masterKey)
@@ -97,11 +259,51 @@ class GroupManager(
 
     fun getCachedGroup(groupId: String): SignalGroup? = cache[groupId]
 
+    fun invalidateCachedGroup(groupId: String) {
+        cache.remove(groupId)
+    }
+
     fun deriveGroupId(masterKey: ByteArray): String {
         val groupMasterKey = GroupMasterKey(masterKey)
         val groupSecretParams = GroupSecretParams.deriveFromMasterKey(groupMasterKey)
         val groupId = groupSecretParams.publicParams.groupIdentifier.serialize()
         return Base64.encodeToString(groupId, Base64.NO_WRAP)
+    }
+
+    suspend fun storeMasterKey(groupId: String, masterKey: ByteArray) {
+        groupStore.storeGroup(
+            SignalGroupEntity(
+                groupId = groupId,
+                masterKey = masterKey,
+                title = "",
+                avatarUrl = null,
+                revision = 0,
+            )
+        )
+    }
+
+    suspend fun downloadGroupAvatar(avatarPath: String, masterKey: ByteArray): ByteArray? {
+        return try {
+            val response = SignalHttpClient.request(
+                host = SignalHttpClient.CDN1_HOST,
+                method = "GET",
+                path = avatarPath,
+            )
+            if (response.code !in 200..299) return null
+            val encryptedAvatar = response.body?.bytes() ?: return null
+            decryptGroupAvatar(encryptedAvatar, masterKey)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to download group avatar", e)
+            null
+        }
+    }
+
+    private fun decryptGroupAvatar(encryptedAvatar: ByteArray, masterKey: ByteArray): ByteArray {
+        val groupMasterKey = GroupMasterKey(masterKey)
+        val groupSecretParams = GroupSecretParams.deriveFromMasterKey(groupMasterKey)
+        val decryptedBlob = groupSecretParams.decryptBlobWithPadding(encryptedAvatar)
+        val blob = GroupAttributeBlob.parseFrom(decryptedBlob)
+        return blob.avatar.toByteArray()
     }
 
     private data class GroupAuthResult(val username: String, val password: String)
@@ -120,8 +322,8 @@ class GroupManager(
 
             val authCredResponse = AuthCredentialWithPniResponse(credential)
             val authCred = clientZkAuth.receiveAuthCredentialWithPniAsServiceId(
-                java.util.UUID.fromString(aci),
-                java.util.UUID.fromString(pni),
+                ServiceId.Aci(java.util.UUID.fromString(aci)),
+                ServiceId.Pni(java.util.UUID.fromString(pni)),
                 todaySeconds,
                 authCredResponse,
             )
@@ -147,9 +349,14 @@ class GroupManager(
             val sevenDays = todaySeconds + 7 * 86400
             val path = "/v1/certificate/auth/group?redemptionStartSeconds=$todaySeconds&redemptionEndSeconds=$sevenDays&pniAsServiceId=true"
             val response = ws.sendRequest("GET", path)
-            if (response.status !in 200..299) return null
+            if (response.status != 200) return null
 
-            val json = JSONObject(response.body)
+            val json = JSONObject(response.body.toStringUtf8())
+            val pniFromResponse = json.optString("pni", "")
+            if (pniFromResponse.isNotEmpty() && pniFromResponse != pni) {
+                Log.e(TAG, "Mismatching PNI in group credentials: $pniFromResponse != $pni")
+                return null
+            }
             val credentials = json.getJSONArray("credentials")
             for (i in 0 until credentials.length()) {
                 val cred = credentials.getJSONObject(i)
@@ -174,6 +381,20 @@ class GroupManager(
 
         private fun hexEncode(bytes: ByteArray): String {
             return bytes.joinToString("") { "%02x".format(it) }
+        }
+
+        fun cleanupStringProperty(property: String): String {
+            val cleaned = property.filter { ch ->
+                val type = Character.getType(ch)
+                type != Character.CONTROL.toInt() &&
+                    type != Character.FORMAT.toInt() &&
+                    type != Character.SURROGATE.toInt() &&
+                    type != Character.UNASSIGNED.toInt() &&
+                    type != Character.PRIVATE_USE.toInt() &&
+                    type != Character.LINE_SEPARATOR.toInt() &&
+                    type != Character.PARAGRAPH_SEPARATOR.toInt()
+            }
+            return cleaned.trim()
         }
     }
 }

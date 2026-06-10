@@ -12,9 +12,9 @@ import com.vayunmathur.messages.telegram.mtproto.tl.TlBuffer
 import com.vayunmathur.messages.telegram.mtproto.tl.TlObject
 import com.vayunmathur.messages.telegram.mtproto.transport.TcpTransport
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicInteger
 
 class MtProtoConnection(
@@ -27,6 +27,7 @@ class MtProtoConnection(
     private val TAG = "MtProtoConn"
     private val transport = TcpTransport()
     val rpcEngine = RpcEngine()
+    private val secureRandom = SecureRandom()
 
     var authKey: ByteArray = ByteArray(0)
         private set
@@ -39,10 +40,20 @@ class MtProtoConnection(
 
     private val seqNo = AtomicInteger(0)
     private val writeMutex = Mutex()
+    private val sendMutex = Mutex()
     private val pendingAcks = mutableListOf<Long>()
     private var scope: CoroutineScope? = null
     @Volatile var connected = false
         private set
+
+    private var serverTimeOffset: Long = 0L
+    private var serverTimeOffsetSet = false
+    private val futureSalts = mutableListOf<MessageFraming.FutureSalt>()
+    private var pongDeferred: CompletableDeferred<Unit>? = null
+
+    private companion object {
+        const val ACK_BATCH_SIZE = 20
+    }
 
     fun setAuthData(authKey: ByteArray, authKeyId: ByteArray, salt: Long, sessionId: Long) {
         this.authKey = authKey
@@ -72,13 +83,15 @@ class MtProtoConnection(
     }
 
     suspend fun send(payload: ByteArray, contentRelated: Boolean): Long {
-        val msgId = MessageId.generate()
-        val sn = nextSeqNo(contentRelated)
-        val encrypted = MtProtoCipher.encrypt(authKey, salt, sessionId, msgId, sn, payload)
-        writeMutex.withLock {
-            transport.send(encrypted)
+        sendMutex.withLock {
+            val msgId = MessageId.generate()
+            val sn = nextSeqNo(contentRelated)
+            val encrypted = MtProtoCipher.encrypt(authKey, salt, sessionId, msgId, sn, payload)
+            writeMutex.withLock {
+                transport.send(encrypted)
+            }
+            return msgId
         }
-        return msgId
     }
 
     fun disconnect() {
@@ -96,7 +109,20 @@ class MtProtoConnection(
                 if (raw.size < 24) continue
                 try {
                     val decrypted = MtProtoCipher.decrypt(authKey, raw)
-                    handleDecrypted(decrypted.data, decrypted.messageId)
+                    if (decrypted.sessionId != sessionId) {
+                        Log.w(TAG, "Session ID mismatch, rejecting message")
+                        continue
+                    }
+                    val nowSeconds = (System.currentTimeMillis() / 1000) + serverTimeOffset
+                    if (!MessageId.checkMessageId(nowSeconds, decrypted.messageId)) {
+                        Log.w(TAG, "Message ID time validation failed, rejecting")
+                        continue
+                    }
+                    if (!MessageId.consume(decrypted.messageId)) {
+                        Log.w(TAG, "Duplicate message ID detected, rejecting")
+                        continue
+                    }
+                    handleDecrypted(decrypted.data, decrypted.messageId, decrypted.seqNo)
                 } catch (e: Exception) {
                     Log.w(TAG, "Decrypt/handle error: ${e.message}")
                 }
@@ -111,7 +137,12 @@ class MtProtoConnection(
         }
     }
 
-    private suspend fun handleDecrypted(data: ByteArray, msgId: Long) {
+    private suspend fun handleDecrypted(data: ByteArray, msgId: Long, seqNo: Int) {
+        if (MessageFraming.needsAck(seqNo)) {
+            synchronized(pendingAcks) { pendingAcks.add(msgId) }
+            checkAckBatchFlush()
+        }
+
         val buf = TlBuffer(data)
         if (buf.remaining < 4) return
         val typeId = buf.peekId()
@@ -121,13 +152,12 @@ class MtProtoConnection(
                 buf.int32() // consume type id
                 val messages = MessageFraming.parseContainer(buf)
                 for (msg in messages) {
-                    handleDecrypted(msg.data, msg.msgId)
+                    handleDecrypted(msg.data, msg.msgId, msg.seqNo)
                 }
             }
             MessageFraming.TYPE_RPC_RESULT -> {
                 buf.int32() // consume type id
                 val (reqMsgId, resultBuf) = MessageFraming.parseRpcResult(buf)
-                synchronized(pendingAcks) { pendingAcks.add(msgId) }
                 if (resultBuf.remaining >= 4) {
                     val innerType = resultBuf.peekId()
                     if (innerType == MessageFraming.TYPE_GZIP_PACKED) {
@@ -138,6 +168,8 @@ class MtProtoConnection(
                         resultBuf.int32()
                         val err = MessageFraming.parseRpcError(resultBuf)
                         rpcEngine.notifyError(reqMsgId, err.errorCode, err.errorMessage)
+                    } else if (innerType == MessageFraming.TYPE_PONG) {
+                        handlePong(resultBuf)
                     } else {
                         rpcEngine.notifyResult(reqMsgId, resultBuf)
                     }
@@ -146,11 +178,10 @@ class MtProtoConnection(
             MessageFraming.TYPE_GZIP_PACKED -> {
                 buf.int32()
                 val decompressed = MessageFraming.gunzipPacked(buf)
-                handleDecrypted(decompressed, msgId)
+                handleDecrypted(decompressed, msgId, seqNo)
             }
             MessageFraming.TYPE_PONG -> {
-                buf.int32()
-                MessageFraming.parsePong(buf)
+                handlePong(buf)
             }
             MessageFraming.TYPE_MSGS_ACK -> {
                 buf.int32()
@@ -172,16 +203,26 @@ class MtProtoConnection(
             }
             MessageFraming.TYPE_BAD_MSG_NOTIFICATION -> {
                 buf.int32()
-                val badMsgId = buf.int64()
-                val badMsgSeqno = buf.int32()
-                val errorCode = buf.int32()
-                Log.w(TAG, "Bad msg notification: msgId=$badMsgId, code=$errorCode")
-                rpcEngine.notifyError(badMsgId, errorCode, "bad_msg_notification error code $errorCode")
+                val notification = MessageFraming.parseBadMsgNotification(buf)
+                if (notification.errorCode == 16 || notification.errorCode == 17) {
+                    val serverTime = MessageId.timeSeconds(msgId)
+                    val localTime = System.currentTimeMillis() / 1000
+                    serverTimeOffset = serverTime - localTime
+                    serverTimeOffsetSet = true
+                    MessageId.reset()
+                    Log.d(TAG, "Time resynced: offset=${serverTimeOffset}s (error code ${notification.errorCode})")
+                }
+                rpcEngine.notifyError(notification.badMsgId, notification.errorCode,
+                    "bad_msg_notification error code ${notification.errorCode}")
             }
             MessageFraming.TYPE_FUTURE_SALTS -> {
                 buf.int32()
-                buf.data() // consume and ignore future salts
-                Log.d(TAG, "Received future_salts (ignored)")
+                val fs = MessageFraming.parseFutureSalts(buf)
+                synchronized(futureSalts) {
+                    futureSalts.clear()
+                    futureSalts.addAll(fs.salts)
+                }
+                Log.d(TAG, "Stored ${fs.salts.size} future salts")
             }
             MessageFraming.TYPE_MSG_DETAILED_INFO,
             MessageFraming.TYPE_MSG_NEW_DETAILED_INFO -> {
@@ -192,10 +233,15 @@ class MtProtoConnection(
                 buf.int32()
                 val ns = MessageFraming.parseNewSession(buf)
                 salt = ns.serverSalt
-                synchronized(pendingAcks) { pendingAcks.add(msgId) }
+                if (!serverTimeOffsetSet) {
+                    val serverTime = MessageId.timeSeconds(ns.firstMsgId)
+                    val localTime = System.currentTimeMillis() / 1000
+                    serverTimeOffset = serverTime - localTime
+                    serverTimeOffsetSet = true
+                    Log.d(TAG, "Server time offset set from new session: ${serverTimeOffset}s")
+                }
             }
             else -> {
-                synchronized(pendingAcks) { pendingAcks.add(msgId) }
                 try {
                     val obj = TlRegistry.decode(buf)
                     onUpdate(obj)
@@ -206,13 +252,28 @@ class MtProtoConnection(
         }
     }
 
+    private fun handlePong(buf: TlBuffer) {
+        buf.int32()
+        MessageFraming.parsePong(buf)
+        pongDeferred?.complete(Unit)
+    }
+
     private suspend fun pingLoop() {
         while (connected) {
             delay(60_000)
             if (!connected) break
             try {
-                val ping = MessageFraming.writePingDelayDisconnect(System.nanoTime(), 75)
+                val deferred = CompletableDeferred<Unit>()
+                pongDeferred = deferred
+                val ping = MessageFraming.writePingDelayDisconnect(secureRandom.nextLong(), 75)
                 send(ping, false)
+                try {
+                    withTimeout(15_000) { deferred.await() }
+                } catch (_: TimeoutCancellationException) {
+                    Log.w(TAG, "Pong timeout, connection may be dead")
+                } finally {
+                    pongDeferred = null
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Ping failed: ${e.message}")
             }
@@ -222,18 +283,27 @@ class MtProtoConnection(
     private suspend fun ackLoop() {
         while (connected) {
             delay(15_000)
-            val ids: List<Long>
-            synchronized(pendingAcks) {
-                ids = pendingAcks.toList()
-                pendingAcks.clear()
-            }
-            if (ids.isNotEmpty()) {
-                try {
-                    val ack = MessageFraming.writeMsgsAck(ids)
-                    send(ack, false)
-                } catch (e: Exception) {
-                    Log.w(TAG, "ACK send failed: ${e.message}")
-                }
+            flushAcks()
+        }
+    }
+
+    private suspend fun checkAckBatchFlush() {
+        val shouldFlush = synchronized(pendingAcks) { pendingAcks.size >= ACK_BATCH_SIZE }
+        if (shouldFlush) flushAcks()
+    }
+
+    private suspend fun flushAcks() {
+        val ids: List<Long>
+        synchronized(pendingAcks) {
+            ids = pendingAcks.toList()
+            pendingAcks.clear()
+        }
+        if (ids.isNotEmpty()) {
+            try {
+                val ack = MessageFraming.writeMsgsAck(ids)
+                send(ack, false)
+            } catch (e: Exception) {
+                Log.w(TAG, "ACK send failed: ${e.message}")
             }
         }
     }
@@ -248,6 +318,6 @@ class MtProtoConnection(
     }
 
     private suspend fun handleDecrypted(data: com.vayunmathur.messages.telegram.mtproto.crypto.DecryptedMessage) {
-        handleDecrypted(data.data, data.messageId)
+        handleDecrypted(data.data, data.messageId, data.seqNo)
     }
 }

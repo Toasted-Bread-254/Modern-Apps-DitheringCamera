@@ -166,11 +166,6 @@ class MetaMqttClient(
     }
 
     private suspend fun sendConnectPacket() {
-        val connectionType = when (authData.platform) {
-            MetaAuthData.Platform.INSTAGRAM -> "cookie_auth"
-            MetaAuthData.Platform.MESSENGER -> "websocket"
-        }
-
         val connectJsonStr = MetaProtocol.buildConnectJson(
             accountId = authData.userId,
             sessionId = sessionId,
@@ -243,19 +238,23 @@ class MetaMqttClient(
         sendSubscribePacket(MetaProtocol.TOPIC_LS_FOREGROUND_STATE, MqttPackets.QOS_LEVEL_0)
         sendSubscribePacket(MetaProtocol.TOPIC_LS_RESP, MqttPackets.QOS_LEVEL_0)
 
-        previouslyConnected = true
         _connectionState.emit(ConnectionState.Connected)
         startPing()
 
         // Fetch threads for SyncGroup 1 and SyncGroup 95 (from messagix/events.go)
         if (versionId > 0) {
-            syncDatabase(1)
-            syncDatabase(95)
+            val fetchPayloadSG1 = MetaProtocol.buildFetchThreadsPayload(versionId)
+            makeLSRequest(fetchPayloadSG1, MetaProtocol.LS_REQUEST_TYPE_TASK)
+
+            val fetchPayloadSG95 = MetaProtocol.buildFetchThreadsPayload(versionId, syncGroup = 95)
+            makeLSRequest(fetchPayloadSG95, MetaProtocol.LS_REQUEST_TYPE_TASK)
 
             // Report app state as FOREGROUND (from messagix/events.go)
             val reportPayload = MetaProtocol.buildReportAppStatePayload(versionId)
             makeLSRequest(reportPayload, MetaProtocol.LS_REQUEST_TYPE_TASK)
         }
+
+        previouslyConnected = true
     }
 
     private suspend fun syncDatabase(databaseId: Long, cursor: String? = null) {
@@ -281,11 +280,12 @@ class MetaMqttClient(
     }
 
     private fun handlePublishMessage(publish: MqttFraming.MqttResponse.PublishMessage) {
-        // Send PUBACK if QoS > 0
-        if (publish.qos > 0 && publish.packetId > 0) {
+        if (publish.qos == MqttPackets.QOS_LEVEL_1.toInt() && publish.packetId > 0) {
             scope.launch {
                 sendData(MqttFraming.buildPubAckPacket(publish.packetId))
             }
+        } else if (publish.qos == MqttPackets.QOS_LEVEL_2.toInt()) {
+            Log.e(TAG, "Got packet with QoS level 2")
         }
 
         val mqttMessage = MetaProtocol.MqttMessage(
@@ -379,7 +379,7 @@ class MetaMqttClient(
         }
 
         // PUBLISH type doesn't expect a response
-        if (type == MetaProtocol.LS_REQUEST_TYPE_PUBLISH) {
+        if (type == MetaProtocol.LS_REQUEST_TYPE_STATELESS) {
             requestChannels.remove(packetId)
             return null
         }

@@ -52,7 +52,7 @@ object MetaProtocol {
     const val LS_REQUEST_TYPE_DB_QUERY = 1
     const val LS_REQUEST_TYPE_DB_QUERY_CURSOR = 2
     const val LS_REQUEST_TYPE_TASK = 3
-    const val LS_REQUEST_TYPE_PUBLISH = 4
+    const val LS_REQUEST_TYPE_STATELESS = 4
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -187,12 +187,36 @@ object MetaProtocol {
         @SerialName("otid") val otid: String,
         val source: Int = 0,
         @SerialName("send_type") val sendType: Int = 1,
+        @SerialName("attachment_fbids") val attachmentFbIds: List<Long>? = null,
         @SerialName("sync_group") val syncGroup: Long = 1,
+        @SerialName("reply_metadata") val replyMetadata: ReplyMetaData? = null,
+        @SerialName("mention_data") val mentionData: MentionData? = null,
         val text: String = "",
+        @SerialName("hot_emoji_size") val hotEmojiSize: Int = 0,
+        @SerialName("sticker_id") val stickerId: Long = 0,
         @SerialName("initiating_source") val initiatingSource: Int = 0,
         @SerialName("skip_url_preview_gen") val skipUrlPreviewGen: Int = 0,
         @SerialName("text_has_links") val textHasLinks: Int = 0,
+        @SerialName("strip_forwarded_msg_caption") val stripForwardedMsgCaption: Int = 0,
+        @SerialName("forwarded_msg_id") val forwardedMsgId: String = "",
         @SerialName("multitab_env") val multitabEnv: Int = 0,
+        val url: String = "",
+        @SerialName("attribution_app_id") val attributionAppId: Long = 0,
+    )
+
+    @Serializable
+    data class ReplyMetaData(
+        @SerialName("reply_source_id") val replySourceId: String,
+        @SerialName("reply_source_type") val replySourceType: Long = 1,
+        @SerialName("reply_type") val replyType: Long = 0,
+    )
+
+    @Serializable
+    data class MentionData(
+        @SerialName("mention_ids") val mentionIds: String,
+        @SerialName("mention_offsets") val mentionOffsets: String,
+        @SerialName("mention_lengths") val mentionLengths: String,
+        @SerialName("mention_types") val mentionTypes: String,
     )
 
     @Serializable
@@ -474,13 +498,19 @@ object MetaProtocol {
     )
 
     @Serializable
+    data class DeleteMessageMeOnlyTask(
+        @SerialName("thread_key") val threadKey: Long = 0,
+        @SerialName("message_id") val messageId: String,
+    )
+
+    @Serializable
     data class EditMessageTask(
         @SerialName("message_id") val messageId: String,
         val text: String,
     )
 
-    fun buildFetchThreadsPayload(versionId: Long): String {
-        val task = FetchThreadsTask()
+    fun buildFetchThreadsPayload(versionId: Long, syncGroup: Int = 1): String {
+        val task = FetchThreadsTask(syncGroup = syncGroup)
         val taskJson = json.encodeToString(task)
         return buildTaskPayload(
             label = TASK_LABELS["FetchThreadsTask"] ?: "145",
@@ -512,7 +542,7 @@ object MetaProtocol {
 
     fun buildReportAppStatePayload(versionId: Long): String {
         val task = ReportAppStateTask(
-            requestId = generateEpochId().toString(),
+            requestId = java.util.UUID.randomUUID().toString(),
         )
         val taskJson = json.encodeToString(task)
         return buildTaskPayload(
@@ -539,6 +569,24 @@ object MetaProtocol {
         )
     }
 
+    fun buildDeleteMessageMeOnlyPayload(
+        threadKey: Long,
+        messageId: String,
+        versionId: Long,
+    ): String {
+        val task = DeleteMessageMeOnlyTask(
+            threadKey = threadKey,
+            messageId = messageId,
+        )
+        val taskJson = json.encodeToString(task)
+        return buildTaskPayload(
+            label = TASK_LABELS["DeleteMessageMeOnlyTask"] ?: "155",
+            taskPayloadJson = taskJson,
+            queueName = "155",
+            versionId = versionId,
+        )
+    }
+
     fun buildEditMessagePayload(
         messageId: String,
         text: String,
@@ -553,6 +601,72 @@ object MetaProtocol {
             label = TASK_LABELS["EditMessageTask"] ?: "742",
             taskPayloadJson = taskJson,
             queueName = "edit_message",
+            versionId = versionId,
+        )
+    }
+
+    @Serializable
+    data class DeleteThreadTask(
+        @SerialName("thread_key") val threadKey: Long,
+        @SerialName("remove_type") val removeType: Long = 0,
+        @SerialName("sync_group") val syncGroup: Long = 1,
+    )
+
+    fun buildDeleteThreadPayload(
+        threadKey: Long,
+        versionId: Long,
+    ): String {
+        val task = DeleteThreadTask(threadKey = threadKey)
+        val taskJson = json.encodeToString(task)
+        return buildTaskPayload(
+            label = TASK_LABELS["DeleteThreadTask"] ?: "146",
+            taskPayloadJson = taskJson,
+            queueName = threadKey.toString(),
+            versionId = versionId,
+        )
+    }
+
+    @Serializable
+    data class MuteThreadTask(
+        @SerialName("thread_key") val threadKey: Long,
+        @SerialName("mailbox_type") val mailboxType: Long = 0,
+        @SerialName("mute_expire_time_ms") val muteExpireTimeMs: Long,
+        @SerialName("sync_group") val syncGroup: Long = 1,
+    )
+
+    fun buildMuteThreadPayload(
+        threadKey: Long,
+        muteExpireTimeMs: Long,
+        versionId: Long,
+    ): String {
+        val task = MuteThreadTask(threadKey = threadKey, muteExpireTimeMs = muteExpireTimeMs)
+        val taskJson = json.encodeToString(task)
+        return buildTaskPayload(
+            label = TASK_LABELS["MuteThreadTask"] ?: "144",
+            taskPayloadJson = taskJson,
+            queueName = threadKey.toString(),
+            versionId = versionId,
+        )
+    }
+
+    @Serializable
+    data class RenameThreadTask(
+        @SerialName("thread_key") val threadKey: Long,
+        @SerialName("thread_name") val threadName: String,
+        @SerialName("sync_group") val syncGroup: Long = 1,
+    )
+
+    fun buildRenameThreadPayload(
+        threadKey: Long,
+        threadName: String,
+        versionId: Long,
+    ): String {
+        val task = RenameThreadTask(threadKey = threadKey, threadName = threadName)
+        val taskJson = json.encodeToString(task)
+        return buildTaskPayload(
+            label = TASK_LABELS["RenameThreadTask"] ?: "32",
+            taskPayloadJson = taskJson,
+            queueName = threadKey.toString(),
             versionId = versionId,
         )
     }

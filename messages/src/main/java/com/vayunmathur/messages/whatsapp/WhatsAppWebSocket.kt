@@ -303,6 +303,8 @@ class WhatsAppWebSocket(
             payloadBuilder.device = authData.deviceId
             payloadBuilder.passive = true
             payloadBuilder.pull = true
+            payloadBuilder.lidDbMigrated = true
+            payloadBuilder.lc = 1
         } else {
             // Registration payload (new device pairing)
             payloadBuilder.passive = false
@@ -394,6 +396,10 @@ class WhatsAppWebSocket(
     }
 
     private fun scheduleReconnect() {
+        if (authData == null) {
+            Log.w(TAG, "No auth data, not reconnecting")
+            return
+        }
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
             delay(RECONNECT_DELAY_MS)

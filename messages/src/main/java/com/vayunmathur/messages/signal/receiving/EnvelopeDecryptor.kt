@@ -30,6 +30,10 @@ object EnvelopeDecryptor {
         val error: Throwable? = null,
         val senderE164: String? = null,
         val unidentified: Boolean = false,
+        val retriable: Boolean = false,
+        val unencrypted: Boolean = false,
+        val contentHint: Int = 0,
+        val groupId: ByteArray? = null,
     )
 
     fun decrypt(
@@ -58,17 +62,27 @@ object EnvelopeDecryptor {
                 SignalServiceProtos.Envelope.Type.DOUBLE_RATCHET -> {
                     val address = SignalProtocolAddress(senderAci, senderDeviceId)
                     val cipher = SessionCipher(protocolStore, address)
-                    val plaintext = cipher.decrypt(SignalMessage(envelope.content.toByteArray()))
-                    val content = SignalServiceProtos.Content.parseFrom(stripPadding(plaintext))
-                    DecryptionResult(senderAci, senderDeviceId, content, timestamp, serverTimestamp)
+                    try {
+                        val plaintext = cipher.decrypt(SignalMessage(envelope.content.toByteArray()))
+                        val content = SignalServiceProtos.Content.parseFrom(stripPadding(plaintext))
+                        DecryptionResult(senderAci, senderDeviceId, content, timestamp, serverTimestamp)
+                    } catch (e: Exception) {
+                        DecryptionResult(senderAci, senderDeviceId, null, timestamp, serverTimestamp,
+                            error = e, retriable = true)
+                    }
                 }
 
                 SignalServiceProtos.Envelope.Type.PREKEY_MESSAGE -> {
                     val address = SignalProtocolAddress(senderAci, senderDeviceId)
                     val cipher = SessionCipher(protocolStore, address)
-                    val plaintext = cipher.decrypt(PreKeySignalMessage(envelope.content.toByteArray()))
-                    val content = SignalServiceProtos.Content.parseFrom(stripPadding(plaintext))
-                    DecryptionResult(senderAci, senderDeviceId, content, timestamp, serverTimestamp)
+                    try {
+                        val plaintext = cipher.decrypt(PreKeySignalMessage(envelope.content.toByteArray()))
+                        val content = SignalServiceProtos.Content.parseFrom(stripPadding(plaintext))
+                        DecryptionResult(senderAci, senderDeviceId, content, timestamp, serverTimestamp)
+                    } catch (e: Exception) {
+                        DecryptionResult(senderAci, senderDeviceId, null, timestamp, serverTimestamp,
+                            error = e, retriable = true)
+                    }
                 }
 
                 SignalServiceProtos.Envelope.Type.UNIDENTIFIED_SENDER -> {
@@ -87,6 +101,8 @@ object EnvelopeDecryptor {
                         serverTimestamp = serverTimestamp,
                         senderE164 = result.senderE164.orElse(null),
                         unidentified = true,
+                        contentHint = result.contentHint,
+                        groupId = result.groupId.orElse(null),
                     )
                 }
 
@@ -95,11 +111,13 @@ object EnvelopeDecryptor {
                     val content = SignalServiceProtos.Content.newBuilder()
                         .setDecryptionErrorMessage(com.google.protobuf.ByteString.copyFrom(plaintext))
                         .build()
-                    DecryptionResult(senderAci, senderDeviceId, content, timestamp, serverTimestamp)
+                    DecryptionResult(senderAci, senderDeviceId, content, timestamp, serverTimestamp,
+                        unencrypted = true)
                 }
 
                 SignalServiceProtos.Envelope.Type.SERVER_DELIVERY_RECEIPT -> {
-                    DecryptionResult(senderAci, senderDeviceId, null, timestamp, serverTimestamp)
+                    DecryptionResult(senderAci, senderDeviceId, null, timestamp, serverTimestamp,
+                        error = IllegalArgumentException("Server delivery receipt envelopes are not yet supported"))
                 }
 
                 else -> {
@@ -117,7 +135,8 @@ object EnvelopeDecryptor {
     private fun stripPadding(padded: ByteArray): ByteArray {
         var i = padded.size - 1
         while (i >= 0 && padded[i] == 0.toByte()) i--
-        if (i >= 0 && padded[i] == 0x80.toByte()) return padded.copyOfRange(0, i)
-        throw IllegalArgumentException("Invalid padding: no 0x80 marker found")
+        if (i < 0) throw IllegalArgumentException("invalid ISO7816 padding (length ${padded.size})")
+        if (padded[i] == 0x80.toByte()) return padded.copyOfRange(0, i)
+        throw IllegalArgumentException("invalid ISO7816 padding")
     }
 }

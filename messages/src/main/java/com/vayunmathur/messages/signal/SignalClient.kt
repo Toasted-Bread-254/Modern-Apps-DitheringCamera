@@ -48,9 +48,12 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import org.signal.libsignal.protocol.IdentityKeyPair
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 object SignalClient {
 
@@ -79,8 +82,10 @@ object SignalClient {
     private lateinit var appContext: Context
     private var authData: SignalAuthData? = null
     private var webSocket: SignalWebSocket? = null
+    private var unauthedWebSocket: SignalWebSocket? = null
     private var backfillJob: Job? = null
     private var provisioningJob: Job? = null
+    private var keyCheckJob: Job? = null
 
     private var db: SignalDatabase? = null
     private var sessionStore: SignalSessionStore? = null
@@ -92,8 +97,30 @@ object SignalClient {
     private var profileManager: ProfileManager? = null
     private var groupManager: GroupManager? = null
     private var contactDiscovery: ContactDiscovery? = null
+    var syncContactsOnConnect: Boolean = false
+    private var lastContactRequestTime: Long = 0L
+    val encryptionLock = Mutex()
 
     private val nameCache = ConcurrentHashMap<String, String>()
+
+    fun isConnected(): Boolean {
+        return webSocket?.isConnected() == true && unauthedWebSocket?.isConnected() == true
+    }
+
+    fun isLoggedIn(): Boolean {
+        return authData?.isDeviceLoggedIn() == true
+    }
+
+    suspend fun getRemoteConfig(): String? {
+        val ws = webSocket ?: return null
+        return try {
+            val response = ws.sendRequest("GET", "/v2/config")
+            if (response.status in 200..299) response.body.toStringUtf8() else null
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get remote config: ${e.message}")
+            null
+        }
+    }
 
     fun init(context: Context) {
         if (!initialized.compareAndSet(false, true)) return
@@ -123,17 +150,26 @@ object SignalClient {
         }
     }
 
-    fun stop() {
-        Log.i(TAG, "stop — clearing Signal session")
+    fun disconnect() {
+        Log.i(TAG, "disconnect — stopping Signal websockets")
         backfillJob?.cancel()
-        provisioningJob?.cancel()
+        keyCheckJob?.cancel()
+        keyCheckJob = null
         webSocket?.disconnect()
         webSocket = null
+        unauthedWebSocket?.disconnect()
+        unauthedWebSocket = null
         messageSender = null
         contactManager = null
         contactDiscovery = null
         profileManager = null
         groupManager = null
+        _state.value = State.Disconnected("Disconnected")
+    }
+
+    fun stop() {
+        Log.i(TAG, "stop — clearing Signal session")
+        disconnect()
         nameCache.clear()
         scope.launch { SignalAuthData.clear(appContext) }
         _state.value = State.NeedsSetup
@@ -161,7 +197,10 @@ object SignalClient {
                                 pniIdentityKeyPair = data.pniIdentityKeyPair,
                                 aciRegistrationId = data.aciRegistrationId,
                                 pniRegistrationId = data.pniRegistrationId,
-                                profileKey = data.profileKey,
+                                masterKey = data.masterKey,
+                                accountEntropyPool = data.accountEntropyPool,
+                                ephemeralBackupKey = data.ephemeralBackupKey,
+                                mediaRootBackupKey = data.mediaRootBackupKey,
                             )
                             auth.save(appContext)
                             authData = auth
@@ -316,6 +355,16 @@ object SignalClient {
             senderKeyStore = skStore
 
             val basicAuth = "${auth.aci}.${auth.deviceId}:${auth.password}"
+
+            if (webSocket != null) {
+                webSocket?.disconnect()
+                webSocket = null
+            }
+            if (unauthedWebSocket != null) {
+                unauthedWebSocket?.disconnect()
+                unauthedWebSocket = null
+            }
+
             val ws = SignalWebSocket(
                 appContext,
                 android.util.Base64.encodeToString(
@@ -323,11 +372,12 @@ object SignalClient {
                     android.util.Base64.NO_WRAP,
                 ),
             )
-            ws.connect("wss://chat.signal.org/v1/websocket/?login=${auth.aci}.${auth.deviceId}")
+            ws.connect("wss://chat.signal.org/v1/websocket/")
             webSocket = ws
 
             val unauthedWs = SignalWebSocket(appContext)
             unauthedWs.connect("wss://chat.signal.org/v1/websocket/")
+            unauthedWebSocket = unauthedWs
 
             val devManager = DeviceManager(ws, sessStore, idStore, pkStore, pkStore, pkStore, skStore)
             val recipientStore = SignalRecipientStore(database)
@@ -335,7 +385,7 @@ object SignalClient {
             messageSender = sender
             contactManager = ContactManager(recipientStore)
             contactDiscovery = ContactDiscovery(recipientStore, auth.aci, auth.deviceId, auth.password, appContext)
-            profileManager = ProfileManager(ws, recipientStore)
+            profileManager = ProfileManager(unauthedWs, recipientStore)
             groupManager = GroupManager(ws, SignalGroupStore(database), auth.aci, auth.pni, auth.password)
 
             ws.incomingRequestHandler = { request ->
@@ -350,11 +400,7 @@ object SignalClient {
                     ws.sendRequest(
                         "PUT",
                         "/v1/devices/capabilities",
-                        org.json.JSONObject().apply {
-                            put("attachmentBackfill", true)
-                            put("spqr", true)
-                        }.toString().toByteArray(),
-                        mapOf("Content-Type" to "application/json"),
+                        Provisioning.signalCapabilities.toString().toByteArray(),
                     )
                     Log.d(TAG, "Successfully registered capabilities")
                 } catch (t: Throwable) {
@@ -372,7 +418,26 @@ object SignalClient {
                 }
             }
 
-            kickoffBackfill()
+            keyCheckJob?.cancel()
+            keyCheckJob = scope.launch {
+                try {
+                    val aciKeyPair = IdentityKeyPair(Base64.decode(auth.aciIdentityKeyPair, Base64.NO_WRAP))
+                    val pniKeyPair = IdentityKeyPair(Base64.decode(auth.pniIdentityKeyPair, Base64.NO_WRAP))
+                    PreKeyManager.keyCheckLoop(ws, pkStore, aciKeyPair, pniKeyPair)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Key check loop terminated: ${t.message}")
+                    if (t.message?.contains("422") == true) {
+                        _state.value = State.Disconnected("Logged out")
+                        stop()
+                    }
+                }
+            }
+
+            if (syncContactsOnConnect) {
+                kickoffBackfill()
+            }
 
             if (auth.masterKey == null) {
                 scope.launch {
@@ -437,6 +502,7 @@ object SignalClient {
                     val decrypted = ContentDispatcher.dispatch(
                         result.senderAci, result.senderDeviceId,
                         result.content, result.timestamp, result.serverTimestamp,
+                        selfAci = auth.aci,
                     )
                     handleDecryptedMessage(decrypted)
 

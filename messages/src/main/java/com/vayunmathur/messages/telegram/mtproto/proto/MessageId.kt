@@ -4,34 +4,84 @@ import java.util.concurrent.atomic.AtomicLong
 
 object MessageId {
     private val lastNano = AtomicLong(0)
-    private val seen = LinkedHashSet<Long>()
-    private const val MAX_SEEN = 1000
     private const val MIN_RESOLUTION_NANOS = 10L
+    private const val MESSAGE_ID_MODULO = 4L
+
+    private const val YIELD_CLIENT = 0L
+    private const val YIELD_SERVER_RESPONSE = 1L
+    private const val YIELD_FROM_SERVER = 3L
+
+    const val MAX_PAST_SECONDS = 300L
+    const val MAX_FUTURE_SECONDS = 30L
+
+    enum class MessageType {
+        UNKNOWN, FROM_CLIENT, SERVER_RESPONSE, FROM_SERVER
+    }
 
     fun generate(): Long {
         val nowNano = System.currentTimeMillis() * 1_000_000L
         val nano = lastNano.updateAndGet { prev ->
             if (nowNano > prev) nowNano else prev + MIN_RESOLUTION_NANOS
         }
-        val seconds = nano / 1_000_000_000L
-        val fracPart = (nano % 1_000_000_000L) and -4L
-        return (seconds shl 32) or fracPart
+        return newMessageId(nano, YIELD_CLIENT)
+    }
+
+    private fun newMessageId(nowNano: Long, yield: Long): Long {
+        val nano = 1_000_000_000L
+        val intPart = nowNano / nano
+        var fracPart = nowNano % nano
+        fracPart = fracPart and -MESSAGE_ID_MODULO
+        fracPart += yield
+        return (intPart shl 32) or fracPart
     }
 
     fun reset() {
         lastNano.set(0)
     }
 
-    fun isReplay(msgId: Long): Boolean {
-        synchronized(seen) {
-            if (msgId in seen) return true
-            seen.add(msgId)
-            while (seen.size > MAX_SEEN) {
-                val iter = seen.iterator()
-                iter.next()
-                iter.remove()
-            }
-            return false
+    fun type(id: Long): MessageType {
+        return when (id % MESSAGE_ID_MODULO) {
+            YIELD_CLIENT -> MessageType.FROM_CLIENT
+            YIELD_SERVER_RESPONSE -> MessageType.SERVER_RESPONSE
+            YIELD_FROM_SERVER -> MessageType.FROM_SERVER
+            else -> MessageType.UNKNOWN
         }
     }
+
+    fun timeSeconds(id: Long): Long = id ushr 32
+
+    fun checkMessageId(nowSeconds: Long, rawId: Long): Boolean {
+        val t = type(rawId)
+        if (t != MessageType.FROM_SERVER && t != MessageType.SERVER_RESPONSE) return false
+        if (nowSeconds > 0) {
+            val created = timeSeconds(rawId)
+            if (created < nowSeconds && nowSeconds - created > MAX_PAST_SECONDS) return false
+            if (created > nowSeconds && created - nowSeconds > MAX_FUTURE_SECONDS) return false
+        }
+        return true
+    }
+
+    private const val BUF_SIZE = 100
+    private val idBuf = LongArray(BUF_SIZE)
+    private val idBufLock = Any()
+
+    fun consume(msgId: Long): Boolean {
+        synchronized(idBufLock) {
+            var minIdx = 0
+            var minId = 0L
+            for (i in idBuf.indices) {
+                if (idBuf[i] == msgId) return false
+                if (idBuf[i] < minId) {
+                    minIdx = i
+                    minId = idBuf[i]
+                }
+            }
+            if (msgId < minId) return false
+            idBuf[minIdx] = msgId
+            return true
+        }
+    }
+
+    @Deprecated("Use consume() instead", ReplaceWith("!consume(msgId)"))
+    fun isReplay(msgId: Long): Boolean = !consume(msgId)
 }

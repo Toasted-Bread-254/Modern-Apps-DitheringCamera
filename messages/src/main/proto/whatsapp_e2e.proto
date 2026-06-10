@@ -25,6 +25,10 @@ message ContextInfo {
     optional string ephemeralSettingTimestamp = 36;
 }
 
+message FutureProofMessage {
+    optional Message message = 1;
+}
+
 message Message {
     optional string conversation = 1;
     optional ExtendedTextMessage extendedTextMessage = 6;
@@ -40,6 +44,7 @@ message Message {
     optional SenderKeyDistributionMessage senderKeyDistributionMessage = 2;
     optional DeviceSentMessage deviceSentMessage = 31;
     optional MessageContextInfo messageContextInfo = 35;
+    optional FutureProofMessage editedMessage = 58;
 }
 
 message ExtendedTextMessage {

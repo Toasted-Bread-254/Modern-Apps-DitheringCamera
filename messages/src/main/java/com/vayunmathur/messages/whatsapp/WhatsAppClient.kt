@@ -138,15 +138,16 @@ object WhatsAppClient {
                 }
                 
                 // 3. Generate QR data with real keys
-                // Format: ref,base64(noisePublicKey),base64(identityPublicKey),base64(advSecretKey)
-                // Use a placeholder ref until the server sends one
+                // Go format: https://wa.me/settings/linked_devices#ref,noise,identity,adv,clientType
+                // Use a placeholder ref until the server sends one via pair-device IQ
                 val refBytes = ByteArray(16).apply { random.nextBytes(this) }
                 val ref = Base64.encodeToString(refBytes, Base64.NO_WRAP)
-                val qrData = listOf(
+                val qrData = "https://wa.me/settings/linked_devices#" + listOf(
                     ref,
                     Base64.encodeToString(noisePub, Base64.NO_WRAP),
                     Base64.encodeToString(identityPub, Base64.NO_WRAP),
-                    Base64.encodeToString(advSecretKey, Base64.NO_WRAP)
+                    Base64.encodeToString(advSecretKey, Base64.NO_WRAP),
+                    "1" // PairClientChrome (from whatsmeow/pair-code.go)
                 ).joinToString(",")
                 _state.value = State.AwaitingQrScan(qrData)
                 
@@ -183,7 +184,7 @@ object WhatsAppClient {
                         noisePublicKey = Base64.encodeToString(noisePub, Base64.NO_WRAP),
                         identityPrivateKey = Base64.encodeToString(identityPriv, Base64.NO_WRAP),
                         identityPublicKey = Base64.encodeToString(identityPub, Base64.NO_WRAP),
-                        registrationId = random.nextInt(16380) + 1,
+                        registrationId = random.nextInt(),
                         signedPreKeyId = 1,
                         signedPreKeyPublic = Base64.encodeToString(signedPreKP.second, Base64.NO_WRAP),
                         signedPreKeyPrivate = Base64.encodeToString(signedPreKP.first, Base64.NO_WRAP),
@@ -249,8 +250,58 @@ object WhatsAppClient {
                     webSocket?.send(WhatsAppProtocol.encodeNode(ack))
                 }
 
+                // Handle receipts (read, delivered) from Go handleWAReceipt
+                if (node.tag == "receipt") {
+                    val receiptType = node.attrs["type"]
+                    if (receiptType == "read" || receiptType == "read-self") {
+                        val from = node.attrs["from"] ?: return@launch
+                        _events.emit(GMEvent.ReadReceipt(
+                            source = MessageSource.WHATSAPP,
+                            conversationId = "wa:$from",
+                            messageId = node.attrs["id"] ?: "",
+                            timestamp = (node.attrs["t"]?.toLongOrNull() ?: System.currentTimeMillis() / 1000) * 1000,
+                        ))
+                    }
+                    return@launch
+                }
+
+                // Handle chat presence (typing indicators) from Go handleWAChatPresence
+                if (node.tag == "chatstate") {
+                    val from = node.attrs["from"] ?: return@launch
+                    val composing = node.getChildByTag("composing") != null
+                    _events.emit(GMEvent.TypingIndicator(
+                        source = MessageSource.WHATSAPP,
+                        conversationId = "wa:$from",
+                        isTyping = composing,
+                    ))
+                    return@launch
+                }
+
                 if (node.tag != "message") return@launch
                 val message = WhatsAppProtocol.parseMessage(node) ?: return@launch
+
+                // Handle revoke (message deletion) from Go handleWAMessage/revoke case
+                if (message.isRevoke && message.revokeTargetId != null) {
+                    _events.emit(GMEvent.MessageDeleted(
+                        source = MessageSource.WHATSAPP,
+                        conversationId = "wa:${message.from}",
+                        messageId = message.revokeTargetId,
+                        timestamp = message.timestamp * 1000,
+                    ))
+                    return@launch
+                }
+
+                // Handle edit from Go handleWAMessage/edit case
+                if (message.isEdit && message.editTargetId != null) {
+                    _events.emit(GMEvent.MessageEdited(
+                        source = MessageSource.WHATSAPP,
+                        conversationId = "wa:${message.from}",
+                        messageId = message.editTargetId,
+                        newBody = message.body,
+                        timestamp = message.timestamp * 1000,
+                    ))
+                    return@launch
+                }
 
                 _events.emit(GMEvent.IncomingMessage(
                     source = MessageSource.WHATSAPP,
@@ -265,8 +316,7 @@ object WhatsAppClient {
                 // Send delivery receipt
                 val receiptAttrs = mutableMapOf(
                     "id" to message.id,
-                    "to" to message.from,
-                    "t" to (System.currentTimeMillis() / 1000).toString()
+                    "to" to message.from
                 )
                 node.attrs["participant"]?.let { receiptAttrs["participant"] = it }
                 node.attrs["recipient"]?.let { receiptAttrs["recipient"] = it }
@@ -366,6 +416,86 @@ object WhatsAppClient {
             id = id,
         )
         ws.send(WhatsAppProtocol.encodeNode(node))
+    }
+
+    /**
+     * Send a typing indicator (chat presence).
+     * From whatsmeow HandleMatrixTyping / SendChatPresence
+     */
+    suspend fun sendTyping(conversationId: String, isTyping: Boolean, isAudio: Boolean = false) {
+        if (_state.value !is State.Connected) return
+        val ws = webSocket ?: return
+        val chatJid = extractJid(conversationId) ?: return
+        val node = WhatsAppProtocol.buildChatPresence(chatJid, isTyping, isAudio, authData?.wid ?: "")
+        ws.send(WhatsAppProtocol.encodeNode(node))
+    }
+
+    /**
+     * Edit a previously sent message.
+     * From whatsmeow HandleMatrixEdit / BuildEdit
+     */
+    suspend fun sendEdit(conversationId: String, targetMessageId: String, newBody: String): Boolean {
+        if (_state.value !is State.Connected) return false
+        val ws = webSocket ?: return false
+        val chatJid = extractJid(conversationId) ?: return false
+        val id = WhatsAppProtocol.generateMessageId(authData?.wid)
+        val ownJid = authData?.wid ?: ""
+
+        val node = WhatsAppProtocol.buildEditMessage(chatJid, targetMessageId, newBody, ownJid, id)
+        return ws.send(WhatsAppProtocol.encodeNode(node))
+    }
+
+    /**
+     * Revoke (delete) a previously sent message.
+     * From whatsmeow HandleMatrixMessageRemove / BuildRevoke
+     */
+    suspend fun sendRevoke(conversationId: String, targetMessageId: String, senderJid: String = ""): Boolean {
+        if (_state.value !is State.Connected) return false
+        val ws = webSocket ?: return false
+        val chatJid = extractJid(conversationId) ?: return false
+        val id = WhatsAppProtocol.generateMessageId(authData?.wid)
+        val ownJid = authData?.wid ?: ""
+
+        val node = WhatsAppProtocol.buildRevokeMessage(chatJid, senderJid, targetMessageId, ownJid, id)
+        return ws.send(WhatsAppProtocol.encodeNode(node))
+    }
+
+    fun isLoggedIn(): Boolean {
+        return authData != null && _state.value is State.Connected
+    }
+
+    /**
+     * Logout from WhatsApp server and clear local data.
+     * From whatsmeow LogoutRemote
+     */
+    fun logoutRemote() {
+        scope.launch {
+            val ws = webSocket
+            val ownJid = authData?.wid ?: ""
+            if (ws != null && ownJid.isNotEmpty()) {
+                val logoutNode = WhatsAppProtocol.Node(
+                    tag = "iq",
+                    attrs = mapOf(
+                        "to" to "s.whatsapp.net",
+                        "type" to "set",
+                        "xmlns" to "md",
+                        "id" to WhatsAppProtocol.generateMessageId(authData?.wid),
+                    ),
+                    content = listOf(
+                        WhatsAppProtocol.Node(
+                            tag = "remove-companion-device",
+                            attrs = mapOf("jid" to ownJid, "reason" to "user_initiated")
+                        )
+                    )
+                )
+                try {
+                    ws.send(WhatsAppProtocol.encodeNode(logoutNode))
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to send logout", e)
+                }
+            }
+            stop()
+        }
     }
 
     private fun extractJid(conversationId: String): String? {

@@ -41,4 +41,12 @@ class SignalSessionStore(private val db: SignalDatabase) : SessionStore {
     override fun deleteAllSessions(name: String) {
         runBlocking { db.sessionDao().deleteAll(name) }
     }
+
+    fun removeAllSessions() {
+        runBlocking { db.sessionDao().deleteAllSessions() }
+    }
+
+    fun getAllSessionsForAddress(address: String): List<SignalSessionEntity> {
+        return runBlocking { db.sessionDao().getAllForAddress(address) }
+    }
 }

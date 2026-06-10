@@ -2,6 +2,7 @@ package com.vayunmathur.messages.signal.media
 
 import android.util.Log
 import com.vayunmathur.messages.signal.web.SignalHttpClient
+import com.vayunmathur.messages.signal.proto.StickerProtos
 import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.Mac
@@ -12,32 +13,37 @@ object StickerManager {
 
     private const val TAG = "StickerManager"
 
-    suspend fun downloadStickerPackManifest(packId: ByteArray, packKey: ByteArray): ByteArray? {
-        if (packId.size != 16 || packKey.size != 32) return null
+    suspend fun downloadStickerPackManifest(packId: ByteArray, packKey: ByteArray): StickerProtos.Pack? {
+        if (packId.size != 16) return null
         val hexId = packId.joinToString("") { "%02x".format(it) }
-        return downloadStickerData("/stickers/$hexId/manifest.proto", packKey)
+        val decrypted = downloadStickerData("/stickers/$hexId/manifest.proto", packKey) ?: return null
+        return try {
+            StickerProtos.Pack.parseFrom(decrypted)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse sticker pack manifest", e)
+            null
+        }
     }
 
     suspend fun downloadStickerPackItem(packId: ByteArray, packKey: ByteArray, stickerId: Int): ByteArray? {
-        if (packId.size != 16 || packKey.size != 32) return null
+        if (packId.size != 16) return null
         val hexId = packId.joinToString("") { "%02x".format(it) }
         return downloadStickerData("/stickers/$hexId/full/$stickerId", packKey)
     }
 
     private suspend fun downloadStickerData(path: String, packKey: ByteArray): ByteArray? {
-        return try {
-            val response = SignalHttpClient.request(
-                host = SignalHttpClient.CDN1_HOST,
-                method = "GET",
-                path = path,
-            )
-            if (!response.isSuccessful) return null
-            val body = response.body?.bytes() ?: return null
-            decryptSticker(packKey, body)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to download sticker data", e)
-            null
+        if (packKey.size != 32) return null
+        val response = SignalHttpClient.request(
+            host = SignalHttpClient.CDN1_HOST,
+            method = "GET",
+            path = path,
+        )
+        if (response.code != 200) {
+            Log.e(TAG, "Sticker download failed: ${response.code}")
+            return null
         }
+        val body = response.body?.bytes() ?: return null
+        return decryptSticker(packKey, body)
     }
 
     private fun decryptSticker(packKey: ByteArray, ciphertext: ByteArray): ByteArray {
@@ -46,9 +52,8 @@ object StickerManager {
     }
 
     private fun deriveStickerPackKey(key: ByteArray): ByteArray {
-        val info = "Sticker Pack".toByteArray()
         val salt = ByteArray(32)
-        return hkdfExpand(key, salt, info, 64)
+        return hkdfExpand(key, salt, "Sticker Pack".toByteArray(), 2 * 32)
     }
 
     fun hkdfExpand(ikm: ByteArray, salt: ByteArray, info: ByteArray, length: Int): ByteArray {

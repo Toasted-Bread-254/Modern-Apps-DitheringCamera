@@ -52,6 +52,7 @@ object WhatsAppProtocol {
     const val MEDIA_KEY_AUDIO = "WhatsApp Audio Keys"
     const val MEDIA_KEY_DOCUMENT = "WhatsApp Document Keys"
     const val MEDIA_KEY_STICKER = "WhatsApp Image Keys"
+    const val MEDIA_KEY_PTV = "WhatsApp Video Keys"
     const val MEDIA_KEY_HISTORY = "WhatsApp History Keys"
     const val MEDIA_KEY_APP_STATE = "WhatsApp App State Keys"
     const val MEDIA_KEY_STICKER_PACK = "WhatsApp Sticker Pack Keys"
@@ -842,7 +843,7 @@ object WhatsAppProtocol {
             attrs = mapOf(
                 "to" to chatJid,
                 "id" to id,
-                "type" to "text"
+                "type" to "reaction"
             ),
             content = listOf(
                 Node(
@@ -869,8 +870,7 @@ object WhatsAppProtocol {
 
         val attrs = mutableMapOf(
             "id" to messageIds.first(),
-            "to" to chatJid,
-            "t" to (System.currentTimeMillis() / 1000).toString()
+            "to" to chatJid
         )
         if (receiptType.isNotEmpty()) {
             attrs["type"] = receiptType
@@ -996,6 +996,7 @@ object WhatsAppProtocol {
         chatJid: String,
         messageIds: List<String>,
         senderJid: String? = null,
+        timestamp: Long = System.currentTimeMillis() / 1000,
     ): Node {
         if (messageIds.isEmpty()) throw IllegalArgumentException("No message IDs")
 
@@ -1003,7 +1004,7 @@ object WhatsAppProtocol {
             "id" to messageIds.first(),
             "type" to "read",
             "to" to chatJid,
-            "t" to (System.currentTimeMillis() / 1000).toString()
+            "t" to timestamp.toString()
         )
         if (senderJid != null && chatJid.contains("@g.us")) {
             attrs["participant"] = senderJid
@@ -1021,6 +1022,138 @@ object WhatsAppProtocol {
     }
 
     /**
+     * Build an edit message node.
+     * From whatsmeow/send.go BuildEdit()
+     * Go wraps in EditedMessage -> FutureProofMessage -> Message -> ProtocolMessage
+     */
+    fun buildEditMessage(
+        chatJid: String,
+        targetMessageId: String,
+        newText: String,
+        ownJid: String,
+        id: String,
+    ): Node {
+        val messageKey = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.MessageKey.newBuilder()
+            .setFromMe(true)
+            .setId(targetMessageId)
+            .setRemoteJid(chatJid)
+            .build()
+
+        val newContent = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message.newBuilder()
+            .setConversation(newText)
+            .build()
+
+        val protocolMessage = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.ProtocolMessage.newBuilder()
+            .setType(com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.ProtocolMessage.Type.MESSAGE_EDIT)
+            .setKey(messageKey)
+            .setEditedMessage(newContent)
+            .setTimestampMs(System.currentTimeMillis())
+            .build()
+
+        val innerMessage = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message.newBuilder()
+            .setProtocolMessage(protocolMessage)
+            .build()
+
+        val futureProof = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.FutureProofMessage.newBuilder()
+            .setMessage(innerMessage)
+            .build()
+
+        val e2eMessage = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message.newBuilder()
+            .setEditedMessage(futureProof)
+            .build()
+        val plaintext = e2eMessage.toByteArray()
+
+        return Node(
+            tag = "message",
+            attrs = mapOf(
+                "to" to chatJid,
+                "id" to id,
+                "type" to "text",
+                "edit" to "1"
+            ),
+            content = listOf(
+                Node(
+                    tag = "enc",
+                    attrs = mapOf("v" to "2", "type" to "msg", "decrypt-fail" to "hide"),
+                    data = padMessage(plaintext)
+                )
+            )
+        )
+    }
+
+    /**
+     * Build a revoke (delete) message node.
+     * From whatsmeow/send.go BuildRevoke()
+     */
+    fun buildRevokeMessage(
+        chatJid: String,
+        senderJid: String,
+        targetMessageId: String,
+        ownJid: String,
+        id: String,
+    ): Node {
+        val isFromMe = senderJid.isEmpty() || senderJid == ownJid ||
+            senderJid.substringBefore("@") == ownJid.substringBefore("@")
+        val messageKey = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.MessageKey.newBuilder()
+            .setFromMe(isFromMe)
+            .setId(targetMessageId)
+            .setRemoteJid(chatJid)
+        if (!isFromMe && chatJid.contains("@g.us")) {
+            messageKey.setParticipant(senderJid)
+        }
+
+        val protocolMessage = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.ProtocolMessage.newBuilder()
+            .setType(com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.ProtocolMessage.Type.REVOKE)
+            .setKey(messageKey.build())
+            .build()
+
+        val e2eMessage = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message.newBuilder()
+            .setProtocolMessage(protocolMessage)
+            .build()
+        val plaintext = e2eMessage.toByteArray()
+
+        return Node(
+            tag = "message",
+            attrs = mapOf(
+                "to" to chatJid,
+                "id" to id,
+                "type" to "text",
+                "edit" to if (isFromMe) "7" else "8"
+            ),
+            content = listOf(
+                Node(
+                    tag = "enc",
+                    attrs = mapOf("v" to "2", "type" to "msg", "decrypt-fail" to "hide"),
+                    data = padMessage(plaintext)
+                )
+            )
+        )
+    }
+
+    /**
+     * Build a chat presence (typing indicator) node.
+     * From whatsmeow/send.go SendChatPresence()
+     */
+    fun buildChatPresence(
+        chatJid: String,
+        isComposing: Boolean,
+        isAudio: Boolean = false,
+        ownJid: String = "",
+    ): Node {
+        val state = if (isComposing) "composing" else "paused"
+        val childAttrs = if (isComposing && isAudio) mapOf("media" to "audio") else emptyMap()
+        val attrs = mutableMapOf("to" to chatJid)
+        if (ownJid.isNotEmpty()) attrs["from"] = ownJid
+        return Node(
+            tag = "chatstate",
+            attrs = attrs,
+            content = listOf(
+                Node(tag = state, attrs = childAttrs)
+            )
+        )
+    }
+
+    /**
      * Build a keepalive (ping) IQ node.
      * From whatsmeow/keepalive.go
      */
@@ -1032,8 +1165,7 @@ object WhatsAppProtocol {
                 "xmlns" to "w:p",
                 "type" to "get",
                 "to" to "s.whatsapp.net"
-            ),
-            content = listOf(Node(tag = "ping"))
+            )
         )
     }
 
@@ -1056,7 +1188,7 @@ object WhatsAppProtocol {
         )
         if (participant != null) attrs["participant"] = participant
         if (recipient != null) attrs["recipient"] = recipient
-        if (type != null) attrs["type"] = type
+        if (type != null && nodeClass != "message") attrs["type"] = type
         return Node(tag = "ack", attrs = attrs)
     }
 
@@ -1102,6 +1234,55 @@ object WhatsAppProtocol {
 
     // -- Message parsing --
 
+    fun getMessageType(e2eMessage: com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message?): String {
+        return when {
+            e2eMessage == null -> "ignore"
+            e2eMessage.hasConversation() || e2eMessage.hasExtendedTextMessage() -> "text"
+            e2eMessage.hasImageMessage() -> "image ${e2eMessage.imageMessage.mimetype}"
+            e2eMessage.hasStickerMessage() -> "sticker ${e2eMessage.stickerMessage.mimetype}"
+            e2eMessage.hasVideoMessage() -> "video ${e2eMessage.videoMessage.mimetype}"
+            e2eMessage.hasPtvMessage() -> "round video ${e2eMessage.ptvMessage.mimetype}"
+            e2eMessage.hasAudioMessage() -> "audio ${e2eMessage.audioMessage.mimetype}"
+            e2eMessage.hasDocumentMessage() -> "document ${e2eMessage.documentMessage.mimetype}"
+            e2eMessage.hasContactMessage() -> "contact"
+            e2eMessage.hasContactsArrayMessage() -> "contact array"
+            e2eMessage.hasLocationMessage() -> "location"
+            e2eMessage.hasLiveLocationMessage() -> "live location start"
+            e2eMessage.hasGroupInviteMessage() -> "group invite"
+            e2eMessage.hasReactionMessage() -> {
+                if (e2eMessage.reactionMessage.text.isNullOrEmpty()) "reaction remove" else "reaction"
+            }
+            e2eMessage.hasPollCreationMessage() || e2eMessage.hasPollCreationMessageV2() || e2eMessage.hasPollCreationMessageV3() -> "poll create"
+            e2eMessage.hasPollUpdateMessage() -> "poll update"
+            e2eMessage.hasProtocolMessage() -> {
+                when (e2eMessage.protocolMessage.type) {
+                    com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.ProtocolMessage.Type.REVOKE -> {
+                        if (e2eMessage.protocolMessage.hasKey()) "revoke" else "ignore"
+                    }
+                    com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.ProtocolMessage.Type.MESSAGE_EDIT -> "edit"
+                    com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.ProtocolMessage.Type.EPHEMERAL_SETTING -> "disappearing timer change"
+                    com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.ProtocolMessage.Type.APP_STATE_SYNC_KEY_SHARE,
+                    com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.ProtocolMessage.Type.HISTORY_SYNC_NOTIFICATION,
+                    com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.ProtocolMessage.Type.INITIAL_SECURITY_NOTIFICATION_SETTING_SYNC -> "ignore"
+                    else -> "unknown_protocol_${e2eMessage.protocolMessage.type.number}"
+                }
+            }
+            e2eMessage.hasEventMessage() -> "event"
+            e2eMessage.hasCommentMessage() -> "comment"
+            e2eMessage.hasOrderMessage() -> "order"
+            e2eMessage.hasProductMessage() -> "product"
+            e2eMessage.hasPaymentInviteMessage() -> "payment"
+            e2eMessage.hasListMessage() -> "list"
+            e2eMessage.hasListResponseMessage() -> "list response"
+            e2eMessage.hasButtonsMessage() -> "buttons"
+            e2eMessage.hasButtonsResponseMessage() -> "buttons response"
+            e2eMessage.hasTemplateMessage() -> "template"
+            e2eMessage.hasInteractiveMessage() -> "interactive"
+            e2eMessage.hasKeepInChatMessage() -> "keep in chat"
+            else -> "unknown"
+        }
+    }
+
     fun parseMessage(node: Node): WhatsAppMessage? {
         if (node.tag != "message") return null
 
@@ -1116,24 +1297,62 @@ object WhatsAppProtocol {
             return try {
                 val plaintext = unpadMessage(encNode.data)
                 val e2eMessage = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message.parseFrom(plaintext)
+
+                val parsedType = getMessageType(e2eMessage)
+                if (parsedType == "ignore" || parsedType.startsWith("unknown_protocol_")) {
+                    return null
+                }
+
                 val body = when {
                     e2eMessage.hasConversation() -> e2eMessage.conversation
                     e2eMessage.hasExtendedTextMessage() -> e2eMessage.extendedTextMessage.text
                     e2eMessage.hasImageMessage() -> e2eMessage.imageMessage.caption.ifEmpty { "[Image]" }
                     e2eMessage.hasVideoMessage() -> e2eMessage.videoMessage.caption.ifEmpty { "[Video]" }
+                    e2eMessage.hasPtvMessage() -> e2eMessage.ptvMessage.caption.ifEmpty { "[Round Video]" }
                     e2eMessage.hasAudioMessage() -> "[Audio]"
                     e2eMessage.hasDocumentMessage() -> "[Document: ${e2eMessage.documentMessage.title}]"
                     e2eMessage.hasStickerMessage() -> "[Sticker]"
+                    e2eMessage.hasContactMessage() -> "[Contact: ${e2eMessage.contactMessage.displayName}]"
+                    e2eMessage.hasContactsArrayMessage() -> "[${e2eMessage.contactsArrayMessage.contactsCount} Contacts]"
+                    e2eMessage.hasLocationMessage() -> "[Location: ${e2eMessage.locationMessage.degreesLatitude}, ${e2eMessage.locationMessage.degreesLongitude}]"
+                    e2eMessage.hasLiveLocationMessage() -> "[Live Location]"
+                    e2eMessage.hasGroupInviteMessage() -> "[Group Invite: ${e2eMessage.groupInviteMessage.groupName}]"
                     e2eMessage.hasReactionMessage() -> e2eMessage.reactionMessage.text
+                    e2eMessage.hasPollCreationMessage() -> "[Poll: ${e2eMessage.pollCreationMessage.name}]"
+                    e2eMessage.hasPollCreationMessageV2() -> "[Poll: ${e2eMessage.pollCreationMessageV2.name}]"
+                    e2eMessage.hasPollCreationMessageV3() -> "[Poll: ${e2eMessage.pollCreationMessageV3.name}]"
+                    e2eMessage.hasPollUpdateMessage() -> "[Poll Vote]"
+                    e2eMessage.hasEventMessage() -> "[Event: ${e2eMessage.eventMessage.name}]"
+                    e2eMessage.hasCommentMessage() -> e2eMessage.commentMessage.message?.conversation ?: "[Comment]"
+                    e2eMessage.hasProtocolMessage() -> {
+                        when (parsedType) {
+                            "revoke" -> "[Message Deleted]"
+                            "edit" -> e2eMessage.protocolMessage.editedMessage?.conversation ?: "[Edited]"
+                            "disappearing timer change" -> "[Disappearing Timer Changed]"
+                            else -> ""
+                        }
+                    }
+                    e2eMessage.hasOrderMessage() -> "[Order]"
+                    e2eMessage.hasProductMessage() -> "[Product]"
+                    e2eMessage.hasListMessage() -> e2eMessage.listMessage.title.ifEmpty { "[List]" }
+                    e2eMessage.hasButtonsMessage() -> e2eMessage.buttonsMessage.contentText.ifEmpty { "[Buttons]" }
+                    e2eMessage.hasTemplateMessage() -> "[Template]"
+                    e2eMessage.hasInteractiveMessage() -> "[Interactive]"
                     else -> ""
                 }
                 val mediaUrl = when {
                     e2eMessage.hasImageMessage() -> e2eMessage.imageMessage.url
                     e2eMessage.hasVideoMessage() -> e2eMessage.videoMessage.url
+                    e2eMessage.hasPtvMessage() -> e2eMessage.ptvMessage.url
                     e2eMessage.hasAudioMessage() -> e2eMessage.audioMessage.url
                     e2eMessage.hasDocumentMessage() -> e2eMessage.documentMessage.url
+                    e2eMessage.hasStickerMessage() -> e2eMessage.stickerMessage.url
                     else -> null
                 }
+                val isRevoke = parsedType == "revoke"
+                val revokeTargetId = if (isRevoke) e2eMessage.protocolMessage.key.id else null
+                val isEdit = parsedType == "edit"
+                val editTargetId = if (isEdit) e2eMessage.protocolMessage.key.id else null
                 WhatsAppMessage(
                     id = id,
                     from = from,
@@ -1145,6 +1364,11 @@ object WhatsAppProtocol {
                     mediaUrl = mediaUrl,
                     isReaction = e2eMessage.hasReactionMessage(),
                     reactionTargetId = if (e2eMessage.hasReactionMessage()) e2eMessage.reactionMessage.key.id else null,
+                    isRevoke = isRevoke,
+                    revokeTargetId = revokeTargetId,
+                    isEdit = isEdit,
+                    editTargetId = editTargetId,
+                    messageType = parsedType,
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to parse E2E message", e)
@@ -1179,4 +1403,9 @@ data class WhatsAppMessage(
     val mediaUrl: String? = null,
     val isReaction: Boolean = false,
     val reactionTargetId: String? = null,
+    val isRevoke: Boolean = false,
+    val revokeTargetId: String? = null,
+    val isEdit: Boolean = false,
+    val editTargetId: String? = null,
+    val messageType: String = "unknown",
 )

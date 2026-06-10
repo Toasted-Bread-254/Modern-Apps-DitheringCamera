@@ -60,7 +60,7 @@ data class Channel(
             if (flags.has(18)) TlSkip.skipBoxedType(buf) // default_banned_rights
             if (flags.has(17)) buf.int32() // participants_count
             if (flags2.has(0)) TlSkip.skipVectorBoxed(buf) // usernames
-            if (flags2.has(4)) buf.int32() // stories_max_id
+            if (flags2.has(4)) TlSkip.skipRecentStory(buf) // stories_max_id
             if (flags2.has(7)) TlSkip.skipBoxedType(buf) // color
             if (flags2.has(8)) TlSkip.skipBoxedType(buf) // profile_color
             if (flags2.has(9)) TlSkip.skipBoxedType(buf) // emoji_status

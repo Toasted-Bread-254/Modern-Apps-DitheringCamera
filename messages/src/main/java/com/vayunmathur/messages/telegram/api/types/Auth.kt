@@ -14,7 +14,6 @@ data class AuthSentCode(
         fun decode(buf: TlBuffer): AuthSentCode {
             val flags = Fields.decode(buf)
             val typeId = buf.int32() // type constructor id
-            // Only some code types have a length field
             when (typeId) {
                 0x3dbb5986.toInt(), // sentCodeTypeApp
                 0xc000bba2.toInt(), // sentCodeTypeSms
@@ -22,6 +21,41 @@ data class AuthSentCode(
                 -> buf.int32() // length
                 0xab03c6d9.toInt(), // sentCodeTypeFlashCall
                 -> buf.string() // pattern
+                0x82006484.toInt() -> { // sentCodeTypeMissedCall
+                    buf.string() // prefix
+                    buf.int32() // length
+                }
+                0xd9565c39.toInt() -> { // sentCodeTypeFragmentSms
+                    buf.string() // url
+                    buf.int32() // length
+                }
+                0xa416ac81.toInt() -> { // sentCodeTypeSmsWord
+                    val f = Fields.decode(buf)
+                    if (f.has(0)) buf.string() // beginning
+                }
+                0xb37794af.toInt() -> { // sentCodeTypeSmsPhrase
+                    val f = Fields.decode(buf)
+                    if (f.has(0)) buf.string() // beginning
+                }
+                0x009fd736.toInt() -> { // sentCodeTypeFirebaseSms
+                    val f = Fields.decode(buf)
+                    if (f.has(0)) buf.bytes() // nonce
+                    if (f.has(2)) buf.int64() // play_integrity_project_id
+                    if (f.has(2)) buf.bytes() // play_integrity_nonce
+                    if (f.has(1)) buf.string() // receipt
+                    if (f.has(1)) buf.int32() // push_timeout
+                    buf.int32() // length
+                }
+                0xf450f59b.toInt() -> { // sentCodeTypeEmailCode
+                    val f = Fields.decode(buf)
+                    buf.string() // email_pattern
+                    buf.int32() // length
+                    if (f.has(3)) buf.int32() // reset_available_period
+                    if (f.has(4)) buf.int32() // reset_pending_date
+                }
+                0xa5491dea.toInt() -> { // sentCodeTypeSetUpEmailRequired
+                    Fields.decode(buf)
+                }
             }
             val phoneCodeHash = buf.string()
             if (flags.has(1)) buf.int32() // next_type constructor

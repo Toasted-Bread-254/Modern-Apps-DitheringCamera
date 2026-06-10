@@ -32,8 +32,18 @@ data class WhatsAppAuthData(
     val signedPreKeySignature: String, // Base64
     // ADV secret key (used in QR pairing)
     val advSecretKey: String, // Base64
-    // Device ID assigned by server after pairing
+    // Device ID assigned by server after pairing (from Go UserLoginMetadata.WADeviceID)
     val deviceId: Int = 0,
+    // Timezone of user (from Go UserLoginMetadata.Timezone)
+    val timezone: String = "",
+    // Timestamp when the user logged in (from Go UserLoginMetadata.LoggedInAt)
+    val loggedInAt: Long = 0L,
+    // Phone last seen time (from Go UserLoginMetadata.PhoneLastSeen)
+    val phoneLastSeen: Long = 0L,
+    // Phone last pinged time (from Go UserLoginMetadata.PhoneLastPinged)
+    val phoneLastPinged: Long = 0L,
+    // Platform type (from Go store.DeviceProps.PlatformType)
+    val platformType: String = "WEB",
 ) {
     companion object {
         private const val PREFS_NAME = "whatsapp_auth"

@@ -11,7 +11,6 @@ object PqMath {
         val one = BigInteger.ONE
         val fifteen = BigInteger.valueOf(15)
         val seventeen = BigInteger.valueOf(17)
-        val rndMax = one.shiftLeft(64)
 
         var what = pq
         var g = BigInteger.ZERO
@@ -21,8 +20,8 @@ object PqMath {
             var v = BigInteger(64, random).and(fifteen).add(seventeen).mod(what)
             var x = BigInteger(64, random).mod(what.subtract(one)).add(one)
             var y = x
-            val lim = 1 shl (i + 18)
-            var j = 1
+            val lim = 1L shl (i + 18)
+            var j = 1L
             var flag = true
 
             while (j < lim && flag) {
@@ -44,7 +43,7 @@ object PqMath {
                 val z = if (x < y) what.add(x).subtract(y) else x.subtract(y)
                 g = z.gcd(what)
 
-                if ((j and (j - 1)) == 0) y = x
+                if ((j and (j - 1)) == 0L) y = x
                 j++
                 if (g != one) flag = false
             }

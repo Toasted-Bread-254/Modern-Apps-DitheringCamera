@@ -10,8 +10,12 @@ data class ContactsSearch(val q: String, val limit: Int = 50) : TlMethod<TlObjec
     override fun encode(buf: TlBuffer) { buf.putId(typeId); buf.putString(q); buf.putInt32(limit) }
 }
 
-// contacts.resolveUsername
+// contacts.resolveUsername#725afbbc
 data class ContactsResolveUsername(val username: String) : TlMethod<TlObject> {
-    override val typeId = 0xf93ccba3.toInt()
-    override fun encode(buf: TlBuffer) { buf.putId(typeId); buf.putString(username) }
+    override val typeId = 0x725afbbc.toInt()
+    override fun encode(buf: TlBuffer) {
+        buf.putId(typeId)
+        buf.putInt32(0) // flags (no referer)
+        buf.putString(username)
+    }
 }

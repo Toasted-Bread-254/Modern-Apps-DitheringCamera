@@ -3,6 +3,7 @@ package com.vayunmathur.messages.signal.receiving
 import android.util.Log
 import com.vayunmathur.messages.signal.proto.WebSocketProtos
 import com.vayunmathur.messages.signal.proto.SignalServiceProtos
+import com.vayunmathur.messages.signal.sending.MessageSender
 import org.signal.libsignal.protocol.state.IdentityKeyStore
 import org.signal.libsignal.protocol.state.SessionStore
 import org.signal.libsignal.protocol.state.PreKeyStore
@@ -11,6 +12,7 @@ import org.signal.libsignal.protocol.state.KyberPreKeyStore
 import org.signal.libsignal.protocol.groups.state.SenderKeyStore
 import org.signal.libsignal.protocol.groups.GroupSessionBuilder
 import org.signal.libsignal.protocol.message.SenderKeyDistributionMessage
+import kotlinx.coroutines.runBlocking
 import org.signal.libsignal.protocol.SignalProtocolAddress
 
 class MessageReceiver(
@@ -24,14 +26,18 @@ class MessageReceiver(
     private val deviceId: Int,
     private val onDecrypted: (DecryptedMessage) -> Unit,
     private val recipientStore: com.vayunmathur.messages.signal.store.SignalRecipientStore? = null,
+    private val messageSender: MessageSender? = null,
+    private val sendWsResponse: ((Long, Int, String?) -> Unit)? = null,
 ) {
     fun handleRequest(request: WebSocketProtos.WebSocketRequestMessage) {
         if (request.verb == "PUT" && request.path == "/api/v1/queue/empty") {
             Log.d(TAG, "Received queue empty notice")
+            sendWsResponse?.invoke(request.id, 200, "OK")
             return
         }
         if (request.verb != "PUT" || request.path != "/api/v1/message") {
-            Log.d(TAG, "Ignoring request: ${request.verb} ${request.path}")
+            Log.w(TAG, "Unknown websocket request: ${request.verb} ${request.path}")
+            sendWsResponse?.invoke(request.id, 200, "OK")
             return
         }
 
@@ -57,10 +63,26 @@ class MessageReceiver(
 
         if (result.error != null) {
             Log.e(TAG, "Decryption failed from ${result.senderAci}:${result.senderDeviceId}", result.error)
+            if (result.retriable && envelope.urgent) {
+                Log.d(TAG, "Decryption error is retriable for ${result.senderAci}")
+            }
+            sendWsResponse?.invoke(request.id, 200, "OK")
             return
         }
 
         val content = result.content
+
+        if (content != null && content.hasDecryptionErrorMessage()) {
+            Log.d(TAG, "Received decryption error message from ${result.senderAci}:${result.senderDeviceId}")
+            sendWsResponse?.invoke(request.id, 200, "OK")
+            return
+        }
+
+        if (result.unencrypted && content != null && !content.hasDecryptionErrorMessage()) {
+            Log.w(TAG, "Unexpected non-decryption-error content in unencrypted message")
+            sendWsResponse?.invoke(request.id, 200, "OK")
+            return
+        }
 
         if (content != null && content.hasSenderKeyDistributionMessage()) {
             try {
@@ -77,27 +99,28 @@ class MessageReceiver(
 
         if (content != null && content.hasDataMessage() && content.dataMessage.profileKey.size() == 32) {
             try {
-                recipientStore?.storeProfileKey(
-                    result.senderAci,
-                    content.dataMessage.profileKey.toByteArray()
-                )
+                runBlocking {
+                    recipientStore?.storeProfileKey(
+                        result.senderAci,
+                        content.dataMessage.profileKey.toByteArray()
+                    )
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to store profile key from ${result.senderAci}", e)
             }
         }
 
         if (content == null) {
-            Log.d(TAG, "No content (server delivery receipt) from ${result.senderAci}")
-            onDecrypted(
-                DecryptedMessage(
-                    senderAci = result.senderAci,
-                    senderDeviceId = result.senderDeviceId,
-                    timestamp = result.timestamp,
-                    serverTimestamp = result.serverTimestamp,
-                    content = MessageContent.DeliveryReceipt(timestamps = listOf(result.timestamp)),
-                )
-            )
+            Log.d(TAG, "No content from ${result.senderAci}")
+            sendWsResponse?.invoke(request.id, 200, "OK")
             return
+        }
+
+        val isBlocked = try {
+            runBlocking { recipientStore?.isBlocked(result.senderAci) ?: false }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to check if ${result.senderAci} is blocked", e)
+            false
         }
 
         val message = ContentDispatcher.dispatch(
@@ -106,8 +129,82 @@ class MessageReceiver(
             content = content,
             timestamp = result.timestamp,
             serverTimestamp = result.serverTimestamp,
+            selfAci = selfAci,
         )
+
+        if (message == null) {
+            sendWsResponse?.invoke(request.id, 200, "OK")
+            return
+        }
+
+        if (message.content is MessageContent.DeliveryReceipt && result.senderAci == selfAci) {
+            sendWsResponse?.invoke(request.id, 200, "OK")
+            return
+        }
+
+        if (isBlocked) {
+            when (message.content) {
+                is MessageContent.TextMessage,
+                is MessageContent.Reaction,
+                is MessageContent.Delete,
+                is MessageContent.Edit,
+                is MessageContent.Attachment,
+                is MessageContent.Sticker -> {
+                    if (message.content.let { c ->
+                        (c is MessageContent.TextMessage && c.groupId == null) ||
+                        (c is MessageContent.Reaction && c.groupId == null) ||
+                        (c is MessageContent.Delete && c.groupId == null) ||
+                        (c is MessageContent.Edit && c.groupId == null) ||
+                        (c is MessageContent.Attachment && c.groupId == null) ||
+                        (c is MessageContent.Sticker && c.groupId == null)
+                    }) {
+                        Log.d(TAG, "Dropping direct message from blocked user ${result.senderAci}")
+                        sendWsResponse?.invoke(request.id, 200, "OK")
+                        return
+                    }
+                }
+                is MessageContent.Typing -> {
+                    if (message.content.groupId == null) {
+                        sendWsResponse?.invoke(request.id, 200, "OK")
+                        return
+                    }
+                }
+                is MessageContent.Call -> {
+                    Log.d(TAG, "Dropping call from blocked user ${result.senderAci}")
+                    sendWsResponse?.invoke(request.id, 200, "OK")
+                    return
+                }
+                else -> {}
+            }
+        }
+
         onDecrypted(message)
+        sendWsResponse?.invoke(request.id, 200, "OK")
+
+        val shouldSendDeliveryReceipt = envelope.urgent && when (message.content) {
+            is MessageContent.TextMessage,
+            is MessageContent.Reaction,
+            is MessageContent.Delete,
+            is MessageContent.Attachment,
+            is MessageContent.Sticker,
+            is MessageContent.Edit,
+            is MessageContent.GroupCallUpdate -> true
+            else -> false
+        }
+        if (shouldSendDeliveryReceipt && messageSender != null) {
+            try {
+                val deliveryTs = when {
+                    content.hasDataMessage() -> content.dataMessage.timestamp
+                    content.hasEditMessage() && content.editMessage.hasDataMessage() -> content.editMessage.dataMessage.timestamp
+                    else -> result.timestamp
+                }
+                runBlocking {
+                    messageSender.sendDeliveryReceipt(result.senderAci, listOf(deliveryTs))
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to send delivery receipt to ${result.senderAci}", e)
+            }
+        }
     }
 
     companion object {

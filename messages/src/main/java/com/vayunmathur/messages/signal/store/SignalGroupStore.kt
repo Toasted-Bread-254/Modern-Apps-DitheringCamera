@@ -6,8 +6,16 @@ class SignalGroupStore(private val db: SignalDatabase) {
         return db.groupDao().get(groupId)
     }
 
+    suspend fun getMasterKeyByGroupId(groupId: String): ByteArray? {
+        return db.groupDao().get(groupId)?.masterKey
+    }
+
     suspend fun storeGroup(entity: SignalGroupEntity) {
         db.groupDao().insert(entity)
+    }
+
+    suspend fun storeMasterKey(groupId: String, masterKey: ByteArray) {
+        db.groupDao().insert(SignalGroupEntity(groupId = groupId, masterKey = masterKey))
     }
 
     suspend fun getAllGroups(): List<SignalGroupEntity> {

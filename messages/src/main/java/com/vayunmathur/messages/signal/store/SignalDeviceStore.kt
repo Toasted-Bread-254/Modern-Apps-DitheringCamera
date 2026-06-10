@@ -16,12 +16,29 @@ data class SignalDeviceData(
     val pniIdentityKeyPair: String,
     val aciRegistrationId: Int,
     val pniRegistrationId: Int,
-    val profileKey: String? = null,
     val masterKey: String? = null,
     val accountEntropyPool: String? = null,
     val ephemeralBackupKey: String? = null,
     val mediaRootBackupKey: String? = null,
+    val accountRecord: String? = null,
 ) {
+    fun basicAuthCreds(): Pair<String, String> {
+        return Pair("$aci.$deviceId", password)
+    }
+
+    fun isDeviceLoggedIn(): Boolean {
+        return aci.isNotBlank() && aci != "00000000-0000-0000-0000-000000000000" && deviceId != 0 && password.isNotEmpty()
+    }
+
+    fun clearPassword(): SignalDeviceData {
+        return copy(password = "")
+    }
+
+    suspend fun clearPasswordAndSave(context: Context) {
+        val cleared = copy(password = "")
+        cleared.save(context)
+    }
+
     suspend fun save(context: Context) {
         DataStoreUtils.getInstance(context).setString(
             DATA_STORE_KEY,

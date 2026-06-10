@@ -290,10 +290,10 @@ object GVoiceClient {
 
     private fun mimeToVoiceMediaType(mime: String): Requests.ReqSendSMS.Media.Type? =
         when (mime.lowercase()) {
-            "image/jpeg", "image/jpg" -> Requests.ReqSendSMS.Media.Type.JPEG
             "image/png" -> Requests.ReqSendSMS.Media.Type.PNG
+            "image/jpeg" -> Requests.ReqSendSMS.Media.Type.JPEG
             "image/gif" -> Requests.ReqSendSMS.Media.Type.GIF
-            "image/bmp", "image/x-ms-bmp" -> Requests.ReqSendSMS.Media.Type.BMP
+            "image/bmp" -> Requests.ReqSendSMS.Media.Type.BMP
             "image/tiff" -> Requests.ReqSendSMS.Media.Type.TIFF
             "image/webp" -> Requests.ReqSendSMS.Media.Type.WEBP
             else -> null
@@ -809,6 +809,13 @@ object GVoiceClient {
                 }
                 else -> {}
             }
+        }
+
+        // If no text and no MMS, this is an unknown message type
+        // (matches Go's convertMessage fallback: `logUnknownGVMessage` +
+        // `convertUnknownGVMessage` which returns "Unknown message type").
+        if (m.text.isEmpty() && !m.hasMMS()) {
+            return "Unknown message type, please view it on the Google Voice app"
         }
 
         // MMS messages

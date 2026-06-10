@@ -68,7 +68,7 @@ data class AuthData(
     val webEncryptionKeyB64: String? = null,
 ) {
 
-    fun isPaired(): Boolean = !tachyonAuthTokenB64.isNullOrBlank() && mobileDeviceB64 != null
+    fun isPaired(): Boolean = !tachyonAuthTokenB64.isNullOrBlank() && browserDeviceB64 != null
 
     fun isGoogleAccount(): Boolean = !destRegId.isNullOrBlank()
 

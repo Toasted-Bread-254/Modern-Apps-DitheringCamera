@@ -43,7 +43,12 @@ object Provisioning {
         data class Error(val message: String) : ProvisioningEvent
     }
 
-    fun startProvisioning(context: Context): Flow<ProvisioningEvent> = channelFlow {
+    val signalCapabilities = JSONObject().apply {
+        put("attachmentBackfill", true)
+        put("spqr", true)
+    }
+
+    fun startProvisioning(context: Context, allowBackup: Boolean = true, deviceName: String = "Android"): Flow<ProvisioningEvent> = channelFlow {
         try {
             val cipher = ProvisioningCipher()
             val ws = SignalWebSocket(context)
@@ -54,11 +59,9 @@ object Provisioning {
             ws.connectionEvents.first { it is SignalWebSocket.ConnectionEvent.Connected }
 
             // Step 1: Receive provisioning UUID via PUT /v1/address
-            var addressReq = requests.receive()
-            while (addressReq.verb != "PUT" || addressReq.path != "/v1/address") {
-                Log.d(TAG, "Skipping non-address request: ${addressReq.verb} ${addressReq.path} (${addressReq.body.size()} bytes)")
-                ws.sendResponse(addressReq.id, 200)
-                addressReq = requests.receive()
+            val addressReq = requests.receive()
+            if (addressReq.verb != "PUT" || addressReq.path != "/v1/address") {
+                throw IOException("Expected PUT /v1/address, got ${addressReq.verb} ${addressReq.path}")
             }
             val provAddress = ProvisioningProtos.ProvisioningAddress.parseFrom(addressReq.body)
             ws.sendResponse(addressReq.id, 200)
@@ -66,16 +69,15 @@ object Provisioning {
 
             // Step 2: Emit QR code URL
             val pubKeyBase64 = Base64.encodeToString(cipher.getPublicKey().serialize(), Base64.NO_WRAP)
-            val qrUrl = "sgnl://linkdevice?uuid=${Uri.encode(provAddress.address)}&pub_key=${Uri.encode(pubKeyBase64)}&capabilities=${Uri.encode("backup4,backup5")}"
+            val capabilitiesPart = if (allowBackup) "&capabilities=${Uri.encode("backup4,backup5")}" else ""
+            val qrUrl = "sgnl://linkdevice?uuid=${Uri.encode(provAddress.address)}&pub_key=${Uri.encode(pubKeyBase64)}$capabilitiesPart"
             send(ProvisioningEvent.QrUrl(qrUrl))
             Log.d(TAG, "QR URL generated")
 
             // Step 3: Receive encrypted provisioning message via PUT /v1/message
-            var msgReq = requests.receive()
-            while (msgReq.verb != "PUT" || msgReq.path != "/v1/message") {
-                Log.d(TAG, "Skipping non-message request: ${msgReq.verb} ${msgReq.path} (${msgReq.body.size()} bytes)")
-                ws.sendResponse(msgReq.id, 200)
-                msgReq = requests.receive()
+            val msgReq = requests.receive()
+            if (msgReq.verb != "PUT" || msgReq.path != "/v1/message") {
+                throw IOException("Expected PUT /v1/message, got ${msgReq.verb} ${msgReq.path}")
             }
             Log.d(TAG, "Got provision envelope: ${msgReq.body.size()} bytes")
             val envelope = ProvisioningProtos.ProvisionEnvelope.parseFrom(msgReq.body)
@@ -127,7 +129,7 @@ object Provisioning {
             preKeyStore.storeLastResortKyberPreKey(pniPqLastResort.id, pniPqLastResort)
 
             // Step 8: Encrypt device name
-            val encryptedName = encryptDeviceName("Android", aciIdentityKeyPair.publicKey.publicKey)
+            val encryptedName = encryptDeviceName(deviceName, aciIdentityKeyPair.publicKey.publicKey)
 
             // Step 9: Build and send device confirmation
             val payload = JSONObject().apply {
@@ -137,10 +139,7 @@ object Provisioning {
                     put("name", encryptedName)
                     put("registrationId", aciRegistrationId)
                     put("pniRegistrationId", pniRegistrationId)
-                    put("capabilities", JSONObject().apply {
-                        put("attachmentBackfill", true)
-                        put("spqr", true)
-                    })
+                    put("capabilities", signalCapabilities)
                 })
                 put("aciSignedPreKey", signedPreKeyToJson(aciSignedPreKey))
                 put("pniSignedPreKey", signedPreKeyToJson(pniSignedPreKey))
@@ -161,8 +160,9 @@ object Provisioning {
 
             val respJson = JSONObject(response.body?.string() ?: throw IOException("Empty response"))
             val aci = respJson.getString("uuid")
-            val pni = respJson.getString("pni")
-            val deviceId = respJson.optInt("deviceId", 1)
+            val pni = respJson.optString("pni", "")
+            val rawDeviceId = respJson.optInt("deviceId", 0)
+            val deviceId = if (rawDeviceId != 0) rawDeviceId else 1
 
             // Store identity keys
             val identityKeyStore = com.vayunmathur.messages.signal.store.SignalIdentityKeyStore(
@@ -171,25 +171,33 @@ object Provisioning {
                 aciRegistrationId,
             )
             identityKeyStore.saveIdentity(
-                SignalProtocolAddress(aci, 1),
+                SignalProtocolAddress(aci, deviceId),
                 aciIdentityKeyPair.publicKey,
             )
             identityKeyStore.saveIdentity(
-                SignalProtocolAddress(pni, 1),
+                SignalProtocolAddress(pni, deviceId),
                 pniIdentityKeyPair.publicKey,
             )
 
-            // Store own profile key as recipient
-            if (provMsg.profileKey != null) {
-                val recipientStore = com.vayunmathur.messages.signal.store.SignalRecipientStore(database)
-                recipientStore.storeRecipient(com.vayunmathur.messages.signal.store.SignalRecipientEntity(
-                    aci = aci,
-                    profileKey = provMsg.profileKey.toByteArray(),
-                ))
-            }
+            // Store own profile key as recipient (with PNI and E164, matching Go reference)
+            val recipientStore = com.vayunmathur.messages.signal.store.SignalRecipientStore(database)
+            recipientStore.storeRecipient(com.vayunmathur.messages.signal.store.SignalRecipientEntity(
+                aci = aci,
+                pni = pni,
+                e164 = number,
+                profileKey = provMsg.profileKey?.toByteArray(),
+            ))
 
             // Step 10: Build and emit device data
             val accountEntropyPool = if (provMsg.hasAccountEntropyPool()) provMsg.accountEntropyPool else null
+
+            // Extract backup keys from provisioning message (matches Go reference)
+            val ephemeralBackupKey = if (provMsg.hasEphemeralBackupKey() && provMsg.ephemeralBackupKey.size() > 0)
+                Base64.encodeToString(provMsg.ephemeralBackupKey.toByteArray(), Base64.NO_WRAP)
+            else null
+            val mediaRootBackupKey = if (provMsg.hasMediaRootBackupKey() && provMsg.mediaRootBackupKey.size() > 0)
+                Base64.encodeToString(provMsg.mediaRootBackupKey.toByteArray(), Base64.NO_WRAP)
+            else null
 
             // Derive master key from account entropy pool (matches Go reference)
             val derivedMasterKey = if (accountEntropyPool != null) {
@@ -214,9 +222,10 @@ object Provisioning {
                 pniIdentityKeyPair = Base64.encodeToString(pniIdentityKeyPair.serialize(), Base64.NO_WRAP),
                 aciRegistrationId = aciRegistrationId,
                 pniRegistrationId = pniRegistrationId,
-                profileKey = provMsg.profileKey?.let { Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP) },
                 accountEntropyPool = accountEntropyPool,
                 masterKey = derivedMasterKey?.let { Base64.encodeToString(it, Base64.NO_WRAP) },
+                ephemeralBackupKey = ephemeralBackupKey,
+                mediaRootBackupKey = mediaRootBackupKey,
             )
             send(ProvisioningEvent.Success(deviceData))
             Log.d(TAG, "Provisioning complete, deviceId=$deviceId")
@@ -258,6 +267,17 @@ object Provisioning {
             null
         }
     }
+
+    suspend fun unlink(ws: SignalWebSocket, deviceId: Int) {
+        val response = ws.sendRequest("DELETE", "/v1/devices/$deviceId")
+        if (response.status < 200 || response.status >= 300) {
+            throw IOException("Failed to unlink device: status=${response.status}")
+        }
+    }
+
+    private val scope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+    )
 
     private fun encryptDeviceName(name: String, identityPublicKey: ECPublicKey): String {
         val ephemeral = ECKeyPair.generate()

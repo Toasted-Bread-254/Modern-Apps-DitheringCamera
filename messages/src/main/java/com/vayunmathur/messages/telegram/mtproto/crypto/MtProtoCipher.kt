@@ -63,6 +63,10 @@ object MtProtoCipher {
         val messageId = buf.int64()
         val seqNo = buf.int32()
         val dataLen = buf.int32()
+        require(dataLen >= 0) { "Message data length is negative" }
+        require(dataLen % 4 == 0) { "Message data length is not divisible by 4" }
+        val paddingLen = plaintext.size - 32 - dataLen
+        require(paddingLen in 0..1024) { "Invalid message padding: $paddingLen" }
         val msgData = buf.rawBytes(dataLen)
 
         return DecryptedMessage(salt, sessionId, messageId, seqNo, msgData)

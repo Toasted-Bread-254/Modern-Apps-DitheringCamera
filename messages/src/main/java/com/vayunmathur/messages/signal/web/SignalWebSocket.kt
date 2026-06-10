@@ -30,16 +30,21 @@ import java.util.concurrent.atomic.AtomicLong
 class SignalWebSocket(
     private val context: Context,
     private val basicAuth: String? = null,
-    private val userAgent: String = "signalmeow",
 ) {
     sealed class ConnectionEvent {
+        object Connecting : ConnectionEvent()
         object Connected : ConnectionEvent()
         data class Disconnected(val reason: String) : ConnectionEvent()
         object LoggedOut : ConnectionEvent()
+        data class Error(val reason: String) : ConnectionEvent()
+        data class FatalError(val reason: String) : ConnectionEvent()
+        object CleanShutdown : ConnectionEvent()
     }
 
-    private companion object {
+    companion object {
         const val TAG = "SignalWebSocket"
+        const val WEBSOCKET_PATH = "/v1/websocket/"
+        const val WEBSOCKET_PROVISIONING_PATH = "/v1/websocket/provisioning/"
         const val PING_INTERVAL_MS = 30_000L
         const val PING_TIMEOUT_MS = 20_000L
         const val PING_TIMEOUT_LIMIT = 5
@@ -48,6 +53,34 @@ class SignalWebSocket(
         const val MAX_BACKOFF_MS = 60_000L
         const val MAX_REQUEST_RETRIES = 3
         const val ERROR_COUNT_LIMIT = 500
+
+        fun createWsRequest(
+            method: String,
+            path: String,
+            body: ByteArray? = null,
+            username: String? = null,
+            password: String? = null,
+        ): WebSocketRequestMessage {
+            val builder = WebSocketRequestMessage.newBuilder()
+                .setVerb(method)
+                .setPath(path)
+
+            if (body != null) {
+                builder.setBody(com.google.protobuf.ByteString.copyFrom(body))
+            }
+
+            builder.addHeaders("content-type:application/json; charset=utf-8")
+
+            if (username != null && password != null) {
+                val encoded = android.util.Base64.encodeToString(
+                    "$username:$password".toByteArray(),
+                    android.util.Base64.NO_WRAP
+                )
+                builder.addHeaders("authorization:Basic $encoded")
+            }
+
+            return builder.build()
+        }
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -55,13 +88,14 @@ class SignalWebSocket(
     private val pendingRequests = ConcurrentHashMap<Long, CompletableDeferred<WebSocketResponseMessage>>()
 
     private var webSocket: WebSocket? = null
-    private var pingJob: Job? = null
     private var reconnectJob: Job? = null
     private var currentUrl: String? = null
     private var currentBackoff = INITIAL_BACKOFF_MS
     private var shouldReconnect = false
     private var consecutivePingFailures = 0
     private var errorCount = 0
+    @Volatile
+    private var forceReconnectRequested = false
 
     private val _connectionEvents = MutableSharedFlow<ConnectionEvent>(replay = 1)
     val connectionEvents: SharedFlow<ConnectionEvent> = _connectionEvents.asSharedFlow()
@@ -76,6 +110,7 @@ class SignalWebSocket(
         OkHttpClient.Builder()
             .sslSocketFactory(sslSocketFactory, trustManager)
             .readTimeout(0, TimeUnit.MILLISECONDS)
+            .pingInterval(PING_INTERVAL_MS, TimeUnit.MILLISECONDS)
             .build()
     }
 
@@ -84,7 +119,7 @@ class SignalWebSocket(
             Log.d(TAG, "Connected")
             isConnected = true
             currentBackoff = INITIAL_BACKOFF_MS
-            startPingLoop()
+            resetPingState()
             scope.launch { _connectionEvents.emit(ConnectionEvent.Connected) }
         }
 
@@ -94,6 +129,8 @@ class SignalWebSocket(
                 when (message.type) {
                     WebSocketMessage.Type.RESPONSE -> handleResponse(message.response)
                     WebSocketMessage.Type.REQUEST -> handleRequest(message.request)
+                    WebSocketMessage.Type.UNKNOWN ->
+                        Log.e(TAG, "Received message with UNKNOWN type")
                     else -> Log.w(TAG, "Unknown message type: ${message.type}")
                 }
             } catch (e: Exception) {
@@ -114,9 +151,10 @@ class SignalWebSocket(
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             Log.e(TAG, "Failure: ${t.message}")
             errorCount++
-            if (errorCount >= ERROR_COUNT_LIMIT) {
-                Log.e(TAG, "Error count limit reached ($ERROR_COUNT_LIMIT), fatal")
+            if (errorCount > ERROR_COUNT_LIMIT) {
+                Log.e(TAG, "Error count limit reached ($errorCount), fatal")
                 shouldReconnect = false
+                scope.launch { _connectionEvents.emit(ConnectionEvent.FatalError("Too many errors")) }
                 onDisconnected("Too many errors")
                 return
             }
@@ -125,6 +163,19 @@ class SignalWebSocket(
                 onDisconnected("Logged out")
                 scope.launch { _connectionEvents.emit(ConnectionEvent.LoggedOut) }
                 return
+            }
+            if (response != null && response.code > 0 && response.code < 500) {
+                shouldReconnect = false
+                scope.launch { _connectionEvents.emit(ConnectionEvent.FatalError("Unexpected status: ${response.code}")) }
+                onDisconnected("Unexpected status: ${response.code}")
+                return
+            }
+            if (response != null && response.code in 500..599) {
+                scope.launch { _connectionEvents.emit(ConnectionEvent.Disconnected("Server error: ${response.code}")) }
+            } else if (currentBackoff < MAX_BACKOFF_MS) {
+                scope.launch { _connectionEvents.emit(ConnectionEvent.Disconnected("Transient error: ${t.message ?: "Unknown error"}")) }
+            } else {
+                scope.launch { _connectionEvents.emit(ConnectionEvent.Error("Continuing error: ${t.message ?: "Unknown error"}")) }
             }
             onDisconnected(t.message ?: "Unknown error")
         }
@@ -138,12 +189,17 @@ class SignalWebSocket(
 
     fun disconnect() {
         shouldReconnect = false
-        pingJob?.cancel()
         reconnectJob?.cancel()
-        webSocket?.close(1000, "Client disconnect")
+        webSocket?.close(1000, "")
         webSocket = null
         isConnected = false
         failAllPending("Disconnected")
+        scope.launch { _connectionEvents.emit(ConnectionEvent.CleanShutdown) }
+    }
+
+    fun forceReconnect() {
+        forceReconnectRequested = true
+        webSocket?.cancel()
     }
 
     suspend fun sendRequest(
@@ -152,19 +208,24 @@ class SignalWebSocket(
         body: ByteArray? = null,
         headers: Map<String, String> = emptyMap(),
     ): WebSocketResponseMessage {
+        val isSelfDelete = method == "DELETE" && path.startsWith("/v1/devices/")
+
         var lastException: Exception? = null
-        for (attempt in 0 until MAX_REQUEST_RETRIES) {
+        for (attempt in 0..MAX_REQUEST_RETRIES) {
             try {
                 return sendRequestOnce(method, path, body, headers)
             } catch (e: IOException) {
                 lastException = e
-                Log.w(TAG, "Request attempt ${attempt + 1}/$MAX_REQUEST_RETRIES failed: ${e.message}")
-                if (attempt < MAX_REQUEST_RETRIES - 1) {
-                    delay(1000L * (attempt + 1))
+                if (isSelfDelete) {
+                    throw e
                 }
+                if (e.message?.contains("Took too long") == true) {
+                    throw e
+                }
+                Log.w(TAG, "Received nil response, retrying (attempt ${attempt + 1}/$MAX_REQUEST_RETRIES): ${e.message}")
             }
         }
-        throw lastException ?: IOException("Request failed after $MAX_REQUEST_RETRIES attempts")
+        throw lastException ?: IOException("Retried $MAX_REQUEST_RETRIES times, giving up")
     }
 
     private suspend fun sendRequestOnce(
@@ -184,14 +245,18 @@ class SignalWebSocket(
             .apply {
                 if (body != null) {
                     setBody(com.google.protobuf.ByteString.copyFrom(body))
-                    if ("content-type" !in headers.keys.map { it.lowercase() }) {
-                        addHeaders("content-type:application/json")
-                    }
+                }
+                var hasContentType = false
+                headers.forEach { (k, v) ->
+                    if (k.lowercase() == "content-type") hasContentType = true
+                    addHeaders("${k.lowercase()}:$v")
+                }
+                if (!hasContentType && body != null) {
+                    addHeaders("content-type:application/json")
                 }
                 if (basicAuth != null) {
                     addHeaders("authorization:Basic $basicAuth")
                 }
-                headers.forEach { (k, v) -> addHeaders("$k:$v") }
             }
             .build()
 
@@ -209,26 +274,32 @@ class SignalWebSocket(
         return deferred.await()
     }
 
-    fun sendResponse(requestId: Long, status: Int, message: String = "OK") {
+    fun sendResponse(requestId: Long, status: Int) {
+        if (status != 200 && status != 400) {
+            throw IllegalArgumentException("Unsupported response status: $status")
+        }
+        val msg = if (status == 200) "OK" else "Unknown"
+
         val response = WebSocketResponseMessage.newBuilder()
             .setId(requestId)
             .setStatus(status)
-            .setMessage(message)
+            .setMessage(msg)
+            .addAllHeaders(emptyList())
             .build()
 
-        val msg = WebSocketMessage.newBuilder()
+        val wsMsg = WebSocketMessage.newBuilder()
             .setType(WebSocketMessage.Type.RESPONSE)
             .setResponse(response)
             .build()
 
-        webSocket?.send(msg.toByteArray().toByteString())
+        webSocket?.send(wsMsg.toByteArray().toByteString())
     }
 
     private fun openSocket(url: String) {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", userAgent)
-            .header("X-Signal-Agent", "MAU")
+            .header("User-Agent", SignalHttpClient.USER_AGENT)
+            .header("X-Signal-Agent", SignalHttpClient.SIGNAL_AGENT)
             .apply {
                 if (basicAuth != null) {
                     header("Authorization", "Basic $basicAuth")
@@ -250,60 +321,16 @@ class SignalWebSocket(
 
     private fun handleRequest(request: WebSocketRequestMessage) {
         val handler = incomingRequestHandler
-        if (handler != null) {
-            handler(request)
-        } else {
-            Log.w(TAG, "No handler for incoming request: ${request.verb} ${request.path}")
-            sendResponse(request.id, 400)
-        }
+            ?: throw IllegalStateException("Received request but no handler")
+        handler(request)
     }
 
-    private fun startPingLoop() {
-        pingJob?.cancel()
+    private fun resetPingState() {
         consecutivePingFailures = 0
-        pingJob = scope.launch {
-            while (true) {
-                delay(PING_INTERVAL_MS)
-                if (isConnected) {
-                    val pingId = requestId.getAndIncrement()
-                    val deferred = CompletableDeferred<WebSocketResponseMessage>()
-                    pendingRequests[pingId] = deferred
-
-                    val keepAlive = WebSocketMessage.newBuilder()
-                        .setType(WebSocketMessage.Type.REQUEST)
-                        .setRequest(
-                            WebSocketRequestMessage.newBuilder()
-                                .setId(pingId)
-                                .setVerb("GET")
-                                .setPath("/v1/keepalive")
-                                .build()
-                        ).build()
-                    webSocket?.send(keepAlive.toByteArray().toByteString())
-
-                    try {
-                        kotlinx.coroutines.withTimeout(PING_TIMEOUT_MS) {
-                            deferred.await()
-                        }
-                        consecutivePingFailures = 0
-                    } catch (_: Exception) {
-                        pendingRequests.remove(pingId)
-                        consecutivePingFailures++
-                        Log.w(TAG, "Ping timeout ($consecutivePingFailures/$PING_TIMEOUT_LIMIT)")
-                        if (consecutivePingFailures >= PING_TIMEOUT_LIMIT) {
-                            Log.e(TAG, "Ping timeout limit reached, reconnecting")
-                            webSocket?.cancel()
-                            onDisconnected("Ping timeout")
-                            return@launch
-                        }
-                    }
-                }
-            }
-        }
     }
 
     private fun onDisconnected(reason: String) {
         isConnected = false
-        pingJob?.cancel()
         failAllPending(reason)
         scope.launch { _connectionEvents.emit(ConnectionEvent.Disconnected(reason)) }
         scheduleReconnect()
@@ -315,9 +342,14 @@ class SignalWebSocket(
 
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
-            Log.d(TAG, "Reconnecting in ${currentBackoff}ms")
-            delay(currentBackoff)
-            currentBackoff = (currentBackoff + BACKOFF_INCREMENT_MS).coerceAtMost(MAX_BACKOFF_MS)
+            if (forceReconnectRequested) {
+                forceReconnectRequested = false
+                currentBackoff = INITIAL_BACKOFF_MS
+            } else {
+                Log.d(TAG, "Reconnecting in ${currentBackoff}ms")
+                delay(currentBackoff)
+                currentBackoff = (currentBackoff + BACKOFF_INCREMENT_MS).coerceAtMost(MAX_BACKOFF_MS)
+            }
             openSocket(url)
         }
     }

@@ -39,7 +39,7 @@ data class User(
             if (flags2.has(0)) { // usernames vector
                 TlSkip.skipVectorBoxed(buf)
             }
-            if (flags2.has(5)) buf.int32() // stories_max_id
+            if (flags2.has(5)) TlSkip.skipRecentStory(buf) // stories_max_id
             if (flags2.has(8)) TlSkip.skipBoxedType(buf) // color
             if (flags2.has(9)) TlSkip.skipBoxedType(buf) // profile_color
             if (flags2.has(12)) buf.int32() // bot_active_users

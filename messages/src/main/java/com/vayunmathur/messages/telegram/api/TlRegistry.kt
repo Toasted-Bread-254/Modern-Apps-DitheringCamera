@@ -61,10 +61,18 @@ object TlRegistry {
 
             // UpdatesState / UpdatesDifference
             0xa56c2a3e.toInt() -> UpdatesState.decode(buf)
-            0x00f49ca0 -> decodeUpdatesDifference(buf)
+            0x00f49ca0.toInt() -> decodeUpdatesDifference(buf)
+            0xa8fb1981.toInt() -> decodeUpdatesDifferenceSlice(buf)
+            0x5d75a138.toInt() -> UpdatesDifferenceEmpty(buf.int32(), buf.int32())
+            0x4afe8f6d.toInt() -> UpdatesDifferenceTooLong(buf.int32())
 
             // Auth export/import
             0xb434e2b8.toInt() -> AuthExportedAuthorization.decode(buf)
+
+            // Peers
+            0x59511722.toInt() -> PeerUser(buf.int64())
+            0x36c6019a.toInt() -> PeerChat(buf.int64())
+            0xa2a5371e.toInt() -> PeerChannel(buf.int64())
 
             else -> {
                 Log.w(TAG, "Unknown type: 0x${typeId.toUInt().toString(16)}")
@@ -201,7 +209,7 @@ object TlRegistry {
         val maxId = buf.int32()
         val pts = buf.int32()
         val ptsCount = buf.int32()
-        return UpdateReadHistoryOutbox(peer, maxId, pts)
+        return UpdateReadHistoryOutbox(peer, maxId, pts, ptsCount)
     }
 
     private fun decodeUpdateReadChannelInbox(buf: TlBuffer): UpdateReadChannelInbox {
@@ -211,19 +219,18 @@ object TlRegistry {
         val maxId = buf.int32()
         buf.int32() // still_unread_count
         val pts = buf.int32()
-        return UpdateReadChannelInbox(channelId, maxId)
+        return UpdateReadChannelInbox(channelId, maxId, pts)
     }
 
     private fun decodeUpdateReadHistoryInbox(buf: TlBuffer): UpdateReadHistoryInbox {
         val flags = Fields.decode(buf)
         if (flags.has(0)) buf.int32() // folder_id
         val peer = decodePeer(buf)
-        if (flags.has(1)) buf.int32() // top_msg_id
         val maxId = buf.int32()
         buf.int32() // still_unread_count
         val pts = buf.int32()
         val ptsCount = buf.int32()
-        return UpdateReadHistoryInbox(peer, maxId, pts)
+        return UpdateReadHistoryInbox(peer, maxId, pts, ptsCount)
     }
 
     private fun decodeDialog(buf: TlBuffer): TlObject {
@@ -274,7 +281,7 @@ object TlRegistry {
         val count = buf.int32()
         if (flags.has(0)) buf.int32() // next_rate
         if (flags.has(2)) buf.int32() // offset_id_offset
-        if (flags.has(3)) buf.int32() // search_flood
+        if (flags.has(3)) TlSkip.skipBoxedType(buf) // search_flood (SearchPostsFlood)
         val messages = decodeVector(buf) { decodeMessage(it) }
         skipTopicsVector(buf)
         val chats = decodeVector(buf) { decodeChat(it) }
@@ -299,8 +306,8 @@ object TlRegistry {
     }
 
     private fun decodeContactsFound(buf: TlBuffer): ContactsFound {
-        val myResults = decodeVector(buf) { val id = it.int32(); decodeById(id, it) }
-        val results = decodeVector(buf) { val id = it.int32(); decodeById(id, it) }
+        val myResults = decodeVector(buf) { decodePeer(it) }
+        val results = decodeVector(buf) { decodePeer(it) }
         val chats = decodeVector(buf) { decodeChat(it) }
         val users = decodeVector(buf) { decodeUser(it) }
         return ContactsFound(myResults, results, chats, users)
@@ -315,6 +322,17 @@ object TlRegistry {
         val stateId = buf.int32() // UpdatesState constructor
         val state = UpdatesState.decode(buf)
         return UpdatesDifference(newMessages, newEncryptedMessages, otherUpdates, chats, users, state)
+    }
+
+    private fun decodeUpdatesDifferenceSlice(buf: TlBuffer): UpdatesDifferenceSlice {
+        val newMessages = decodeVector(buf) { decodeMessage(it) }
+        val newEncryptedMessages = decodeVector(buf) { val id = it.int32(); decodeById(id, it) }
+        val otherUpdates = decodeVector(buf) { val id = it.int32(); decodeById(id, it) }
+        val chats = decodeVector(buf) { decodeChat(it) }
+        val users = decodeVector(buf) { decodeUser(it) }
+        val stateId = buf.int32() // UpdatesState constructor
+        val state = UpdatesState.decode(buf)
+        return UpdatesDifferenceSlice(newMessages, newEncryptedMessages, otherUpdates, chats, users, state)
     }
 }
 

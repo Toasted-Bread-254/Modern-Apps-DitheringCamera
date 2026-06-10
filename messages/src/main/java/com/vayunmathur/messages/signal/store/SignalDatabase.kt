@@ -23,7 +23,7 @@ data class SignalSessionEntity(
 data class SignalIdentityKeyEntity(
     @PrimaryKey val serviceId: String,
     val identityKey: ByteArray,
-    val trusted: Boolean,
+    val trustLevel: String,
 )
 
 @Entity(tableName = "signal_pre_keys")
@@ -45,11 +45,20 @@ data class SignalKyberPreKeyEntity(
     val record: ByteArray,
 )
 
-@Entity(tableName = "signal_sender_keys", primaryKeys = ["address", "distributionId"])
+@Entity(tableName = "signal_sender_keys", primaryKeys = ["address", "deviceId", "distributionId"])
 data class SignalSenderKeyEntity(
     val address: String,
+    val deviceId: Int,
     val distributionId: String,
     val record: ByteArray,
+)
+
+@Entity(tableName = "signal_sender_key_info")
+data class SignalSenderKeyInfoEntity(
+    @PrimaryKey val groupId: String,
+    val distributionId: String,
+    val sharedWith: String,
+    val createdAt: Long = System.currentTimeMillis(),
 )
 
 @Entity(tableName = "signal_recipients")
@@ -57,9 +66,19 @@ data class SignalRecipientEntity(
     @PrimaryKey val aci: String,
     val pni: String? = null,
     val e164: String? = null,
-    val profileName: String? = null,
-    val profileAvatar: String? = null,
+    val contactName: String? = null,
+    val contactAvatarHash: String? = null,
+    val nickname: String? = null,
     val profileKey: ByteArray? = null,
+    val profileName: String? = null,
+    val profileAbout: String? = null,
+    val profileAboutEmoji: String? = null,
+    val profileAvatarPath: String? = null,
+    val profileFetchedAt: Long? = null,
+    val needsPniSignature: Boolean = false,
+    val blocked: Boolean = false,
+    val whitelisted: Boolean = false,
+    val unregistered: Boolean = false,
 )
 
 @Entity(tableName = "signal_groups")
@@ -68,7 +87,15 @@ data class SignalGroupEntity(
     val masterKey: ByteArray,
     val title: String? = null,
     val avatarUrl: String? = null,
-    val revision: Int,
+    val revision: Int = 0,
+)
+
+@Entity(tableName = "signal_event_buffer")
+data class SignalEventBufferEntity(
+    @PrimaryKey val ciphertextHash: ByteArray,
+    val plaintext: ByteArray?,
+    val serverTimestamp: Long,
+    val insertTimestamp: Long,
 )
 
 @Dao
@@ -78,6 +105,9 @@ interface SignalSessionDao {
 
     @Query("SELECT deviceId FROM signal_sessions WHERE address = :address")
     suspend fun getSubDeviceIds(address: String): List<Int>
+
+    @Query("SELECT * FROM signal_sessions WHERE address = :address")
+    suspend fun getAllForAddress(address: String): List<SignalSessionEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: SignalSessionEntity)
@@ -112,6 +142,9 @@ interface SignalPreKeyDao {
     @Query("SELECT * FROM signal_pre_keys WHERE id = :id LIMIT 1")
     suspend fun get(id: Int): SignalPreKeyEntity?
 
+    @Query("SELECT * FROM signal_pre_keys")
+    suspend fun getAll(): List<SignalPreKeyEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: SignalPreKeyEntity)
 
@@ -123,6 +156,12 @@ interface SignalPreKeyDao {
 
     @Query("DELETE FROM signal_pre_keys")
     suspend fun deleteAll()
+
+    @Query("SELECT COUNT(*) FROM signal_pre_keys")
+    suspend fun getCount(): Int
+
+    @Query("SELECT COALESCE(MAX(id), 0) FROM signal_pre_keys")
+    suspend fun getMaxId(): Int
 }
 
 @Dao
@@ -154,11 +193,17 @@ interface SignalKyberPreKeyDao {
     @Query("SELECT * FROM signal_kyber_pre_keys")
     suspend fun getAll(): List<SignalKyberPreKeyEntity>
 
+    @Query("SELECT * FROM signal_kyber_pre_keys WHERE lastResort = 0")
+    suspend fun getAllNonLastResort(): List<SignalKyberPreKeyEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: SignalKyberPreKeyEntity)
 
     @Query("SELECT COUNT(*) > 0 FROM signal_kyber_pre_keys WHERE id = :id")
     suspend fun exists(id: Int): Boolean
+
+    @Query("SELECT lastResort FROM signal_kyber_pre_keys WHERE id = :id")
+    suspend fun isLastResort(id: Int): Boolean?
 
     @Query("DELETE FROM signal_kyber_pre_keys WHERE id = :id")
     suspend fun delete(id: Int)
@@ -168,18 +213,36 @@ interface SignalKyberPreKeyDao {
 
     @Query("DELETE FROM signal_kyber_pre_keys")
     suspend fun deleteAll()
+
+    @Query("SELECT COUNT(*) FROM signal_kyber_pre_keys")
+    suspend fun getCount(): Int
+
+    @Query("SELECT COALESCE(MAX(id), 0) FROM signal_kyber_pre_keys")
+    suspend fun getMaxId(): Int
 }
 
 @Dao
 interface SignalSenderKeyDao {
-    @Query("SELECT * FROM signal_sender_keys WHERE address = :address AND distributionId = :distributionId LIMIT 1")
-    suspend fun get(address: String, distributionId: String): SignalSenderKeyEntity?
+    @Query("SELECT * FROM signal_sender_keys WHERE address = :address AND deviceId = :deviceId AND distributionId = :distributionId LIMIT 1")
+    suspend fun get(address: String, deviceId: Int, distributionId: String): SignalSenderKeyEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: SignalSenderKeyEntity)
 
-    @Query("DELETE FROM signal_sender_keys WHERE address = :address AND distributionId = :distributionId")
-    suspend fun delete(address: String, distributionId: String)
+    @Query("DELETE FROM signal_sender_keys WHERE address = :address AND deviceId = :deviceId AND distributionId = :distributionId")
+    suspend fun delete(address: String, deviceId: Int, distributionId: String)
+}
+
+@Dao
+interface SignalSenderKeyInfoDao {
+    @Query("SELECT * FROM signal_sender_key_info WHERE groupId = :groupId LIMIT 1")
+    suspend fun get(groupId: String): SignalSenderKeyInfoEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(entity: SignalSenderKeyInfoEntity)
+
+    @Query("DELETE FROM signal_sender_key_info WHERE groupId = :groupId")
+    suspend fun delete(groupId: String)
 }
 
 @Dao
@@ -190,14 +253,26 @@ interface SignalRecipientDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: SignalRecipientEntity)
 
+    @Query("SELECT * FROM signal_recipients WHERE pni = :pni LIMIT 1")
+    suspend fun getByPni(pni: String): SignalRecipientEntity?
+
     @Query("SELECT * FROM signal_recipients WHERE e164 = :e164 LIMIT 1")
     suspend fun getByE164(e164: String): SignalRecipientEntity?
 
-    @Query("SELECT * FROM signal_recipients WHERE profileName LIKE '%' || :query || '%' OR e164 LIKE '%' || :query || '%'")
+    @Query("SELECT * FROM signal_recipients WHERE contactName LIKE '%' || :query || '%' OR profileName LIKE '%' || :query || '%' OR e164 LIKE '%' || :query || '%'")
     suspend fun search(query: String): List<SignalRecipientEntity>
 
     @Query("SELECT * FROM signal_recipients")
     suspend fun getAll(): List<SignalRecipientEntity>
+
+    @Query("SELECT * FROM signal_recipients WHERE (contactName IS NOT NULL AND contactName <> '') OR (profileName IS NOT NULL AND profileName <> '') OR (e164 IS NOT NULL AND e164 <> '')")
+    suspend fun getAllContacts(): List<SignalRecipientEntity>
+
+    @Query("SELECT profileKey FROM signal_recipients WHERE aci = :aci LIMIT 1")
+    suspend fun getProfileKey(aci: String): ByteArray?
+
+    @Query("DELETE FROM signal_recipients WHERE pni = :pni")
+    suspend fun deleteByPni(pni: String)
 }
 
 @Dao
@@ -205,11 +280,29 @@ interface SignalGroupDao {
     @Query("SELECT * FROM signal_groups WHERE groupId = :groupId LIMIT 1")
     suspend fun get(groupId: String): SignalGroupEntity?
 
+    @Query("SELECT masterKey FROM signal_groups WHERE groupId = :groupId LIMIT 1")
+    suspend fun getMasterKey(groupId: String): ByteArray?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: SignalGroupEntity)
 
     @Query("SELECT * FROM signal_groups")
     suspend fun getAll(): List<SignalGroupEntity>
+}
+
+@Dao
+interface SignalEventBufferDao {
+    @Query("SELECT * FROM signal_event_buffer WHERE ciphertextHash = :hash LIMIT 1")
+    suspend fun get(hash: ByteArray): SignalEventBufferEntity?
+
+    @Insert
+    suspend fun insert(entity: SignalEventBufferEntity)
+
+    @Query("UPDATE signal_event_buffer SET plaintext = NULL WHERE ciphertextHash = :hash")
+    suspend fun clearPlaintext(hash: ByteArray)
+
+    @Query("DELETE FROM signal_event_buffer WHERE insertTimestamp < :maxTimestamp AND plaintext IS NULL")
+    suspend fun deleteOlderThan(maxTimestamp: Long)
 }
 
 @Database(
@@ -220,10 +313,12 @@ interface SignalGroupDao {
         SignalSignedPreKeyEntity::class,
         SignalKyberPreKeyEntity::class,
         SignalSenderKeyEntity::class,
+        SignalSenderKeyInfoEntity::class,
         SignalRecipientEntity::class,
         SignalGroupEntity::class,
+        SignalEventBufferEntity::class,
     ],
-    version = 1,
+    version = 4,
     exportSchema = false,
 )
 abstract class SignalDatabase : RoomDatabase() {
@@ -233,8 +328,10 @@ abstract class SignalDatabase : RoomDatabase() {
     abstract fun signedPreKeyDao(): SignalSignedPreKeyDao
     abstract fun kyberPreKeyDao(): SignalKyberPreKeyDao
     abstract fun senderKeyDao(): SignalSenderKeyDao
+    abstract fun senderKeyInfoDao(): SignalSenderKeyInfoDao
     abstract fun recipientDao(): SignalRecipientDao
     abstract fun groupDao(): SignalGroupDao
+    abstract fun eventBufferDao(): SignalEventBufferDao
 
     companion object {
         @Volatile

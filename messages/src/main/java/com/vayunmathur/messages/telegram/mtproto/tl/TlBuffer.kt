@@ -115,8 +115,9 @@ class TlBuffer {
     }
 
     fun consumeId(expected: Int) {
-        val got = int32()
+        val got = peekId()
         check(got == expected) { "Unexpected type ID: expected 0x${expected.toUInt().toString(16)}, got 0x${got.toUInt().toString(16)}" }
+        pos += 4
     }
 
     fun string(): String = bytes().toString(Charsets.UTF_8)
@@ -154,7 +155,9 @@ class TlBuffer {
 
     fun vectorHeader(): Int {
         consumeId(TYPE_VECTOR)
-        return int32()
+        val n = int32()
+        check(n >= 0) { "Invalid vector length: $n" }
+        return n
     }
 
     fun rawBytes(n: Int): ByteArray {

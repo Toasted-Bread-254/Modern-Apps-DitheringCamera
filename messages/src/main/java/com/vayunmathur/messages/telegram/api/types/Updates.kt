@@ -26,12 +26,12 @@ data class UpdateEditMessage(val message: TlObject, val pts: Int, val ptsCount: 
     override fun encode(buf: TlBuffer) {}
 }
 
-data class UpdateReadHistoryInbox(val peer: TlObject, val maxId: Int, val pts: Int) : TlObject {
+data class UpdateReadHistoryInbox(val peer: TlObject, val maxId: Int, val pts: Int, val ptsCount: Int) : TlObject {
     override val typeId = 0x9e84bc99.toInt()
     override fun encode(buf: TlBuffer) {}
 }
 
-data class UpdateReadChannelInbox(val channelId: Long, val maxId: Int) : TlObject {
+data class UpdateReadChannelInbox(val channelId: Long, val maxId: Int, val pts: Int) : TlObject {
     override val typeId = 0x922e6e10.toInt()
     override fun encode(buf: TlBuffer) {}
 }
@@ -46,7 +46,7 @@ data class UpdateDeleteChannelMessages(val channelId: Long, val messages: List<I
     override fun encode(buf: TlBuffer) {}
 }
 
-data class UpdateReadHistoryOutbox(val peer: TlObject, val maxId: Int, val pts: Int) : TlObject {
+data class UpdateReadHistoryOutbox(val peer: TlObject, val maxId: Int, val pts: Int, val ptsCount: Int) : TlObject {
     override val typeId = 0x2f2f21bf.toInt()
     override fun encode(buf: TlBuffer) {}
 }
@@ -57,7 +57,7 @@ data class UpdateChannel(val channelId: Long) : TlObject {
 }
 
 data class UpdateUserTyping(val userId: Long, val actionTypeId: Int) : TlObject {
-    override val typeId = 0xc01e857f.toInt()
+    override val typeId = 0x2a17bf5c.toInt()
     override fun encode(buf: TlBuffer) {}
 }
 
@@ -77,7 +77,7 @@ data class UpdateChatTitle(val chatId: Long, val title: String) : TlObject {
 }
 
 data class UpdateMessageReactions(val peer: TlObject, val msgId: Int) : TlObject {
-    override val typeId = 0x5e1b3cb8.toInt()
+    override val typeId = 0x1e297bfa.toInt()
     override fun encode(buf: TlBuffer) {}
 }
 
@@ -133,5 +133,27 @@ data class UpdatesDifference(
     val state: UpdatesState,
 ) : TlObject {
     override val typeId = 0x00f49ca0.toInt()
+    override fun encode(buf: TlBuffer) {}
+}
+
+data class UpdatesDifferenceSlice(
+    val newMessages: List<TlObject>,
+    val newEncryptedMessages: List<TlObject>,
+    val otherUpdates: List<TlObject>,
+    val chats: List<TlObject>,
+    val users: List<TlObject>,
+    val intermediateState: UpdatesState,
+) : TlObject {
+    override val typeId = 0xa8fb1981.toInt()
+    override fun encode(buf: TlBuffer) {}
+}
+
+data class UpdatesDifferenceEmpty(val date: Int, val seq: Int) : TlObject {
+    override val typeId = 0x5d75a138.toInt()
+    override fun encode(buf: TlBuffer) {}
+}
+
+data class UpdatesDifferenceTooLong(val pts: Int) : TlObject {
+    override val typeId = 0x4afe8f6d.toInt()
     override fun encode(buf: TlBuffer) {}
 }

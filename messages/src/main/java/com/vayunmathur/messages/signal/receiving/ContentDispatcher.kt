@@ -18,6 +18,7 @@ sealed interface MessageContent {
     data class Delete(val targetTimestamp: Long, val groupId: String? = null) : MessageContent
     data class Edit(val targetTimestamp: Long, val newBody: String, val groupId: String? = null) : MessageContent
     data class ReadReceipt(val timestamps: List<Long>) : MessageContent
+    data class ViewedReceipt(val timestamps: List<Long>) : MessageContent
     data class DeliveryReceipt(val timestamps: List<Long>) : MessageContent
     data class Typing(val isTyping: Boolean, val groupId: String? = null) : MessageContent
     data class SyncSent(val destinationAci: String?, val message: MessageContent?, val timestamp: Long) : MessageContent
@@ -25,7 +26,9 @@ sealed interface MessageContent {
     data class SyncKeys(val masterKey: ByteArray?, val accountEntropyPool: String?) : MessageContent
     data class SyncFetchLatest(val type: String) : MessageContent
     data class SyncDeleteForMe(val timestamp: Long) : MessageContent
-    data class Call(val isRinging: Boolean) : MessageContent
+    data class SyncMessageRequestResponse(val threadAci: String?, val groupId: ByteArray?, val type: String) : MessageContent
+    data class Call(val isRinging: Boolean, val groupId: String? = null) : MessageContent
+    data class GroupCallUpdate(val eraId: String?, val groupId: String?) : MessageContent
     data class Attachment(val body: String?, val attachments: List<AttachmentPointer>, val groupId: String? = null, val expireTimer: Int = 0, val isViewOnce: Boolean = false) : MessageContent
     data class Sticker(val packId: ByteArray, val packKey: ByteArray, val stickerId: Int, val emoji: String?, val groupId: String? = null) : MessageContent
     data class ProfileKeyUpdate(val profileKey: ByteArray, val senderAci: String) : MessageContent
@@ -52,20 +55,30 @@ object ContentDispatcher {
         content: SignalServiceProtos.Content,
         timestamp: Long,
         serverTimestamp: Long,
-    ): DecryptedMessage {
+        selfAci: String? = null,
+    ): DecryptedMessage? {
         if (content.hasDataMessage() && content.dataMessage.profileKey.size() > 0) {
             // Profile key updates are handled by the caller
         }
 
         val messageContent = when {
-            content.hasEditMessage() -> dispatchEdit(content.editMessage)
+            content.hasSyncMessage() -> {
+                if (selfAci != null && senderAci != selfAci) {
+                    Log.w(TAG, "Ignoring sync message from non-self sender $senderAci")
+                    null
+                } else {
+                    dispatchSync(content.syncMessage, timestamp)
+                }
+            }
             content.hasDataMessage() -> dispatchData(content.dataMessage, timestamp, senderAci)
-            content.hasSyncMessage() -> dispatchSync(content.syncMessage, timestamp)
+            content.hasEditMessage() -> dispatchEdit(content.editMessage)
             content.hasReceiptMessage() -> dispatchReceipt(content.receiptMessage)
             content.hasTypingMessage() -> dispatchTyping(content.typingMessage)
             content.hasCallMessage() -> dispatchCall(content.callMessage)
+            content.hasStoryMessage() -> null
+            content.hasNullMessage() -> null
             else -> MessageContent.Unknown("Unrecognized content")
-        }
+        } ?: return null
 
         return DecryptedMessage(
             senderAci = senderAci,
@@ -124,6 +137,13 @@ object ContentDispatcher {
             )
         }
 
+        if (data.hasGroupCallUpdate()) {
+            return MessageContent.GroupCallUpdate(
+                eraId = if (data.groupCallUpdate.hasEraId()) data.groupCallUpdate.eraId else null,
+                groupId = groupId,
+            )
+        }
+
         if (data.hasBody()) {
             return MessageContent.TextMessage(
                 data.body, data.timestamp, groupId,
@@ -169,8 +189,20 @@ object ContentDispatcher {
 
         if (sync.hasKeys()) {
             val keys = sync.keys
+            val masterKey = if (keys.hasAccountEntropyPool() && keys.accountEntropyPool.isNotEmpty()) {
+                try {
+                    val aep = keys.accountEntropyPool
+                    val hkdf = org.signal.libsignal.protocol.hkdf.HKDF.createFor(3)
+                    hkdf.deriveSecrets(aep.toByteArray(), "20231031_Signal_Accounts_MasterKey".toByteArray(), 32)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to derive master key from AEP", e)
+                    null
+                }
+            } else if (keys.hasMaster() && keys.master.size() == 32) {
+                keys.master.toByteArray()
+            } else null
             return MessageContent.SyncKeys(
-                masterKey = null,
+                masterKey = masterKey,
                 accountEntropyPool = if (keys.hasAccountEntropyPool()) keys.accountEntropyPool else null,
             )
         }
@@ -181,6 +213,15 @@ object ContentDispatcher {
 
         if (sync.hasDeleteForMe()) {
             return MessageContent.SyncDeleteForMe(timestamp)
+        }
+
+        if (sync.hasMessageRequestResponse()) {
+            val mrr = sync.messageRequestResponse
+            return MessageContent.SyncMessageRequestResponse(
+                threadAci = if (mrr.hasThreadAci()) mrr.threadAci else null,
+                groupId = if (mrr.hasGroupId()) mrr.groupId.toByteArray() else null,
+                type = mrr.type.name,
+            )
         }
 
         if (sync.hasContacts()) {
@@ -199,7 +240,12 @@ object ContentDispatcher {
         val timestamps = receipt.timestampList.map { it }
         return when (receipt.type) {
             SignalServiceProtos.ReceiptMessage.Type.READ -> MessageContent.ReadReceipt(timestamps)
-            else -> MessageContent.DeliveryReceipt(timestamps)
+            SignalServiceProtos.ReceiptMessage.Type.VIEWED -> MessageContent.ViewedReceipt(timestamps)
+            SignalServiceProtos.ReceiptMessage.Type.DELIVERY -> MessageContent.DeliveryReceipt(timestamps)
+            else -> {
+                Log.w("SignalReceiver", "Unknown receipt type: ${receipt.type}")
+                MessageContent.DeliveryReceipt(timestamps)
+            }
         }
     }
 
@@ -209,9 +255,9 @@ object ContentDispatcher {
         return MessageContent.Typing(isTyping, groupId)
     }
 
-    private fun dispatchCall(call: SignalServiceProtos.CallMessage): MessageContent {
-        val isRinging = call.hasOffer()
-        return MessageContent.Call(isRinging)
+    private fun dispatchCall(call: SignalServiceProtos.CallMessage): MessageContent? {
+        if (!call.hasOffer() && !call.hasHangup()) return null
+        return MessageContent.Call(isRinging = call.hasOffer())
     }
 
     private fun extractGroupId(data: SignalServiceProtos.DataMessage): String? {

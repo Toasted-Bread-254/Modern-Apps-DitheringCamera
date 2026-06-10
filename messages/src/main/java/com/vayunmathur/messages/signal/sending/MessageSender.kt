@@ -39,7 +39,7 @@ class MessageSender(
     private var cachedSenderCertificate: org.signal.libsignal.metadata.certificate.SenderCertificate? = null
     private var senderCertExpiry: Long = 0
 
-    data class SendResult(val success: Boolean, val error: String? = null, val unidentified: Boolean = false)
+    class RecipientUnregisteredException(aci: String) : Exception("Recipient not registered (404): $aci")
 
     suspend fun sendMessage(
         recipientAci: String,
@@ -55,14 +55,66 @@ class MessageSender(
                 content.toBuilder().setDataMessage(dm).build()
             } else content
         } else content
+
+        val isDeliveryReceipt = contentWithProfileKey.hasReceiptMessage() &&
+            contentWithProfileKey.receiptMessage.type == SignalServiceProtos.ReceiptMessage.Type.DELIVERY
+        if (recipientAci == selfAci && !isDeliveryReceipt) {
+            if (contentWithProfileKey.hasDataMessage() || contentWithProfileKey.hasEditMessage()) {
+                sendSyncMessage(null, contentWithProfileKey, timestamp)
+            }
+            return SendResult(success = true)
+        }
+
         val paddedContent = padContent(contentWithProfileKey.toByteArray())
         return try {
-            sendToRecipient(recipientAci, paddedContent, timestamp, isUrgent(contentWithProfileKey))
-            sendSyncMessage(recipientAci, contentWithProfileKey, timestamp)
-            SendResult(success = true)
+            val sentUnidentified = sendToRecipient(recipientAci, paddedContent, timestamp, isUrgent(contentWithProfileKey))
+            if (contentWithProfileKey.hasDataMessage() || contentWithProfileKey.hasEditMessage()) {
+                sendSyncMessage(recipientAci, contentWithProfileKey, timestamp, unidentified = sentUnidentified)
+            }
+            SendResult(success = true, unidentified = sentUnidentified)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send message to $recipientAci", e)
             SendResult(success = false, error = e.message)
+        }
+    }
+
+    suspend fun sendReadReceipt(recipientAci: String, timestamps: List<Long>) {
+        try {
+            val content = ContentBuilders.readReceipt(timestamps)
+            sendMessage(recipientAci, content, System.currentTimeMillis())
+            val syncContent = ContentBuilders.syncReadMessage(recipientAci, timestamps)
+            val paddedSync = padContent(syncContent.toByteArray())
+            val selfDevices = deviceManager.getDeviceIds(selfAci)
+            for (deviceId in selfDevices) {
+                if (deviceId == selfDeviceId) continue
+                try {
+                    deviceManager.ensureSession(selfAci, deviceId)
+                    val address = SignalProtocolAddress(selfAci, deviceId)
+                    val encrypted = encryptFor(address, paddedSync)
+                    val messages = JSONArray().put(JSONObject().apply {
+                        put("type", encrypted.first)
+                        put("destinationDeviceId", deviceId)
+                        put("destinationRegistrationId", encrypted.second)
+                        put("content", encrypted.third)
+                    })
+                    val payload = JSONObject().apply {
+                        put("timestamp", System.currentTimeMillis())
+                        put("online", false)
+                        put("urgent", false)
+                        put("messages", messages)
+                    }
+                    ws.sendRequest(
+                        "PUT",
+                        "/v1/messages/$selfAci",
+                        payload.toString().toByteArray(),
+                        mapOf("Content-Type" to "application/json")
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to send read receipt sync to device $deviceId", e)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to send read receipt to $recipientAci", e)
         }
     }
 
@@ -83,10 +135,12 @@ class MessageSender(
                 SendResult(success = false, error = e.message)
             }
         }
-        try {
-            sendSyncMessage(null, content, timestamp, groupId, memberAcis)
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to send group sync message", e)
+        if (content.hasDataMessage() || content.hasEditMessage()) {
+            try {
+                sendSyncMessage(null, content, timestamp, groupId, memberAcis)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to send group sync message", e)
+            }
         }
         return results
     }
@@ -98,7 +152,7 @@ class MessageSender(
         urgent: Boolean = true,
         retryCount: Int = 0,
         useSealedSender: Boolean = true,
-    ) {
+    ): Boolean {
         if (retryCount > 3) throw IllegalStateException("Too many retries sending to $recipientAci")
 
         val deviceIds = deviceManager.getDeviceIds(recipientAci)
@@ -123,9 +177,11 @@ class MessageSender(
             put("messages", messages)
         }
 
+        var sentUnidentified = false
         val response = if (useSealedSender && unauthedWs != null && recipientAci != selfAci) {
             val profileKey = recipientStore?.getRecipient(recipientAci)?.profileKey
             if (profileKey != null) {
+                sentUnidentified = true
                 val accessKey = deriveAccessKey(profileKey)
                 unauthedWs!!.sendRequest(
                     "PUT",
@@ -154,36 +210,42 @@ class MessageSender(
         }
 
         when (response.status) {
-            in 200..299 -> return
-            409 -> {
-                Log.w(TAG, "Stale devices for $recipientAci, handling mismatched devices")
-                handleMismatchedDevices(recipientAci, response.body.toByteArray())
-                sendToRecipient(recipientAci, paddedContent, timestamp, urgent, retryCount + 1, useSealedSender)
-            }
-            410 -> {
-                Log.w(TAG, "Removed devices for $recipientAci, clearing sessions")
-                handleGoneDevices(recipientAci, response.body.toByteArray())
-                sendToRecipient(recipientAci, paddedContent, timestamp, urgent, retryCount + 1, useSealedSender)
+            200 -> return sentUnidentified
+            409, 410 -> {
+                Log.w(TAG, "Device mismatch (${response.status}) for $recipientAci")
+                handleDeviceMismatch(recipientAci, response.body.toByteArray())
+                return sendToRecipient(recipientAci, paddedContent, timestamp, urgent, retryCount + 1, useSealedSender)
             }
             428 -> {
-                Log.w(TAG, "Rate limited (428) for $recipientAci")
-                throw IllegalStateException("Got 428 rate limit error")
+                val retryAfter = try {
+                    val body = String(response.body.toByteArray())
+                    val json = JSONObject(body)
+                    json.optLong("retry_after", 0)
+                } catch (_: Exception) { 0L }
+                Log.w(TAG, "Rate limited (428) for $recipientAci, retry after ${retryAfter}s")
+                throw IllegalStateException("Got 428 rate limit error, retry after ${retryAfter}s")
             }
             401 -> {
-                Log.w(TAG, "Unauthorized (401) for $recipientAci, retrying without sealed sender")
-                sendToRecipient(recipientAci, paddedContent, timestamp, urgent, retryCount + 1, useSealedSender = false)
+                if (useSealedSender) {
+                    Log.w(TAG, "Unauthorized (401) for $recipientAci, retrying without sealed sender")
+                    return sendToRecipient(recipientAci, paddedContent, timestamp, urgent, retryCount + 1, useSealedSender = false)
+                } else {
+                    throw IllegalStateException("Send failed with status 401")
+                }
             }
             404 -> {
-                Log.w(TAG, "Recipient not found (404): $recipientAci, removing sessions")
-                val allDevices = deviceManager.getDeviceIds(recipientAci)
-                for (devId in allDevices) {
+                Log.w(TAG, "Recipient not found (404): $recipientAci, removing all sessions")
+                val subDevices = sessionStore.getSubDeviceSessions(recipientAci)
+                sessionStore.deleteSession(SignalProtocolAddress(recipientAci, 1))
+                for (devId in subDevices) {
                     sessionStore.deleteSession(SignalProtocolAddress(recipientAci, devId))
                 }
-                throw IllegalStateException("Recipient not registered (404)")
+                recipientStore?.markUnregistered(recipientAci, true)
+                throw RecipientUnregisteredException(recipientAci)
             }
             500, 503 -> {
                 Log.w(TAG, "Server error (${response.status}) for $recipientAci, retrying")
-                sendToRecipient(recipientAci, paddedContent, timestamp, urgent, retryCount + 1, useSealedSender)
+                return sendToRecipient(recipientAci, paddedContent, timestamp, urgent, retryCount + 1, useSealedSender)
             }
             else -> throw IllegalStateException("Send failed with status ${response.status}")
         }
@@ -211,20 +273,33 @@ class MessageSender(
         timestamp: Long,
         groupId: String? = null,
         memberAcis: List<String>? = null,
+        unidentified: Boolean = false,
     ) {
         val sentBuilder = SignalServiceProtos.SyncMessage.Sent.newBuilder()
             .setTimestamp(timestamp)
+            .setExpirationStartTimestamp(System.currentTimeMillis())
 
         if (content.hasDataMessage()) {
             sentBuilder.setMessage(content.dataMessage)
         }
 
-        if (recipientAci != null) {
-            sentBuilder.setDestinationServiceId(recipientAci)
+        if (content.hasEditMessage()) {
+            sentBuilder.setEditMessage(content.editMessage)
         }
 
-        val syncPadding = ByteArray(java.security.SecureRandom().nextInt(511) + 1)
-        java.security.SecureRandom().nextBytes(syncPadding)
+        if (recipientAci != null) {
+            sentBuilder.setDestinationServiceId(recipientAci)
+            sentBuilder.addUnidentifiedStatus(
+                SignalServiceProtos.SyncMessage.Sent.UnidentifiedDeliveryStatus.newBuilder()
+                    .setDestinationServiceId(recipientAci)
+                    .setUnidentified(unidentified)
+                    .build()
+            )
+        }
+
+        val rng = java.security.SecureRandom()
+        val syncPadding = ByteArray(rng.nextInt(511) + 1)
+        rng.nextBytes(syncPadding)
 
         val syncContent = SignalServiceProtos.Content.newBuilder()
             .setSyncMessage(
@@ -266,8 +341,11 @@ class MessageSender(
         }
     }
 
-    private suspend fun handleGoneDevices(recipientAci: String, responseBody: ByteArray?) {
-        if (responseBody == null) return
+    private suspend fun handleDeviceMismatch(recipientAci: String, responseBody: ByteArray?) {
+        if (responseBody == null) {
+            deviceManager.refreshDevices(recipientAci)
+            return
+        }
         try {
             val json = JSONObject(String(responseBody))
             val staleDevices = json.optJSONArray("staleDevices")
@@ -292,42 +370,9 @@ class MessageSender(
                     sessionStore.deleteSession(address)
                 }
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error parsing gone devices response", e)
-        }
-    }
-
-    private suspend fun handleMismatchedDevices(recipientAci: String, responseBody: ByteArray?) {
-        if (responseBody == null) {
-            deviceManager.refreshDevices(recipientAci)
-            return
-        }
-        try {
-            val json = JSONObject(String(responseBody))
-            val missingDevices = json.optJSONArray("missingDevices")
-            val extraDevices = json.optJSONArray("extraDevices")
-            val staleDevices = json.optJSONArray("staleDevices")
-            if (missingDevices != null) {
-                for (i in 0 until missingDevices.length()) {
-                    deviceManager.ensureSession(recipientAci, missingDevices.getInt(i))
-                }
-            }
-            if (extraDevices != null) {
-                for (i in 0 until extraDevices.length()) {
-                    val address = SignalProtocolAddress(recipientAci, extraDevices.getInt(i))
-                    sessionStore.deleteSession(address)
-                }
-            }
-            if (staleDevices != null) {
-                for (i in 0 until staleDevices.length()) {
-                    val address = SignalProtocolAddress(recipientAci, staleDevices.getInt(i))
-                    sessionStore.deleteSession(address)
-                    deviceManager.ensureSession(recipientAci, staleDevices.getInt(i))
-                }
-            }
             deviceManager.refreshDevices(recipientAci)
         } catch (e: Exception) {
-            Log.w(TAG, "Error parsing mismatched devices response", e)
+            Log.w(TAG, "Error handling device mismatch response", e)
             deviceManager.refreshDevices(recipientAci)
         }
     }
@@ -366,6 +411,7 @@ class MessageSender(
                 content.hasDataMessage() -> true
                 content.hasEditMessage() -> true
                 content.hasCallMessage() -> true
+                content.hasStoryMessage() -> true
                 content.hasSyncMessage() -> isSyncMessageUrgent(content)
                 else -> false
             }
@@ -378,3 +424,4 @@ class MessageSender(
         }
     }
 }
+    data class SendResult(val success: Boolean, val error: String? = null, val unidentified: Boolean = false)

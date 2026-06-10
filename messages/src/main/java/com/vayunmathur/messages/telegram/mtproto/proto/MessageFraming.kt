@@ -18,6 +18,9 @@ object MessageFraming {
     const val TYPE_MSG_DETAILED_INFO = 0x276d3ec6.toInt()
     const val TYPE_MSG_NEW_DETAILED_INFO = 0x809db6df.toInt()
 
+    private const val MAX_UNCOMPRESSED_SIZE = 10 * 1024 * 1024 // 10 MB
+    private const val MAX_INNER_MESSAGE_SIZE = 1024 * 1024 // 1 MB
+
     data class InnerMessage(val msgId: Long, val seqNo: Int, val data: ByteArray)
 
     fun writeUnencrypted(msgId: Long, data: ByteArray): ByteArray {
@@ -45,6 +48,7 @@ object MessageFraming {
             val msgId = buf.int64()
             val seqNo = buf.int32()
             val bytes = buf.int32()
+            require(bytes in 0..MAX_INNER_MESSAGE_SIZE) { "Container inner message too large: $bytes" }
             val body = buf.rawBytes(bytes)
             messages.add(InnerMessage(msgId, seqNo, body))
         }
@@ -60,7 +64,17 @@ object MessageFraming {
         val compressed = buf.bytes()
         val gzIn = GZIPInputStream(compressed.inputStream())
         val out = ByteArrayOutputStream()
-        gzIn.copyTo(out)
+        val buffer = ByteArray(8192)
+        var totalRead = 0
+        var n = gzIn.read(buffer)
+        while (n >= 0) {
+            totalRead += n
+            if (totalRead >= MAX_UNCOMPRESSED_SIZE) {
+                throw IllegalStateException("Decompression bomb detected: exceeds ${MAX_UNCOMPRESSED_SIZE} bytes")
+            }
+            out.write(buffer, 0, n)
+            n = gzIn.read(buffer)
+        }
         return out.toByteArray()
     }
 
@@ -81,7 +95,7 @@ object MessageFraming {
     }
 
     fun parseMsgsAck(buf: TlBuffer): List<Long> {
-        val header = buf.int32() // vector type id
+        buf.consumeId(0x1cb5c415.toInt()) // vector type id
         val count = buf.int32()
         return (0 until count).map { buf.int64() }
     }
@@ -120,5 +134,46 @@ object MessageFraming {
         buf.putInt64(pingId)
         buf.putInt32(disconnectDelay)
         return buf.raw
+    }
+
+    fun needsAck(seqNo: Int): Boolean = (seqNo and 0x01) != 0
+
+    data class BadMsgNotification(val badMsgId: Long, val badMsgSeqno: Int, val errorCode: Int)
+
+    fun parseBadMsgNotification(buf: TlBuffer): BadMsgNotification {
+        val badMsgId = buf.int64()
+        val badMsgSeqno = buf.int32()
+        val errorCode = buf.int32()
+        return BadMsgNotification(badMsgId, badMsgSeqno, errorCode)
+    }
+
+    data class FutureSalt(val validSince: Int, val validUntil: Int, val salt: Long)
+    data class FutureSalts(val reqMsgId: Long, val now: Int, val salts: List<FutureSalt>)
+
+    fun parseFutureSalts(buf: TlBuffer): FutureSalts {
+        val reqMsgId = buf.int64()
+        val now = buf.int32()
+        val count = buf.int32()
+        val salts = (0 until count).map {
+            FutureSalt(buf.int32(), buf.int32(), buf.int64())
+        }
+        return FutureSalts(reqMsgId, now, salts)
+    }
+
+    data class MsgDetailedInfo(val msgId: Long, val answerMsgId: Long, val bytes: Int)
+
+    fun parseMsgDetailedInfo(buf: TlBuffer): MsgDetailedInfo {
+        val msgId = buf.int64()
+        val answerMsgId = buf.int64()
+        val bytes = buf.int32()
+        return MsgDetailedInfo(msgId, answerMsgId, bytes)
+    }
+
+    data class MsgNewDetailedInfo(val answerMsgId: Long, val bytes: Int)
+
+    fun parseMsgNewDetailedInfo(buf: TlBuffer): MsgNewDetailedInfo {
+        val answerMsgId = buf.int64()
+        val bytes = buf.int32()
+        return MsgNewDetailedInfo(answerMsgId, bytes)
     }
 }

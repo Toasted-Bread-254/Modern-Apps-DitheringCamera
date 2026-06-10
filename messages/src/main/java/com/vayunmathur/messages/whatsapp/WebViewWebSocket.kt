@@ -387,6 +387,8 @@ class WebViewWebSocket(
             payloadBuilder.device = authData.deviceId
             payloadBuilder.passive = true
             payloadBuilder.pull = true
+            payloadBuilder.lidDbMigrated = true
+            payloadBuilder.lc = 1
         } else {
             payloadBuilder.passive = false
             payloadBuilder.pull = false

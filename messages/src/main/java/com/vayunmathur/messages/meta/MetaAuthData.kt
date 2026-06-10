@@ -75,7 +75,9 @@ data class MetaAuthData(
             Platform.INSTAGRAM -> {
                 cookies.containsKey("sessionid") &&
                 cookies.containsKey("csrftoken") &&
-                cookies.containsKey("ds_user_id")
+                cookies.containsKey("ds_user_id") &&
+                cookies.containsKey("mid") &&
+                cookies.containsKey("ig_did")
             }
         }
     }

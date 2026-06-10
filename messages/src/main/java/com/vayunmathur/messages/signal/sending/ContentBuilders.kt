@@ -26,6 +26,7 @@ object ContentBuilders {
         targetAuthorAci: String,
         targetTimestamp: Long,
         remove: Boolean = false,
+        timestamp: Long = System.currentTimeMillis(),
     ): SignalServiceProtos.Content {
         val reaction = SignalServiceProtos.DataMessage.Reaction.newBuilder()
             .setEmoji(emoji)
@@ -35,20 +36,20 @@ object ContentBuilders {
 
         val dm = SignalServiceProtos.DataMessage.newBuilder()
             .setReaction(reaction.build())
-            .setTimestamp(System.currentTimeMillis())
+            .setTimestamp(timestamp)
 
         return SignalServiceProtos.Content.newBuilder()
             .setDataMessage(dm.build())
             .build()
     }
 
-    fun deleteMessage(targetTimestamp: Long): SignalServiceProtos.Content {
+    fun deleteMessage(targetTimestamp: Long, timestamp: Long = System.currentTimeMillis()): SignalServiceProtos.Content {
         val delete = SignalServiceProtos.DataMessage.Delete.newBuilder()
             .setTargetSentTimestamp(targetTimestamp)
 
         val dm = SignalServiceProtos.DataMessage.newBuilder()
             .setDelete(delete.build())
-            .setTimestamp(System.currentTimeMillis())
+            .setTimestamp(timestamp)
 
         return SignalServiceProtos.Content.newBuilder()
             .setDataMessage(dm.build())
@@ -107,6 +108,60 @@ object ContentBuilders {
 
         return SignalServiceProtos.Content.newBuilder()
             .setReceiptMessage(receipt.build())
+            .build()
+    }
+
+    fun groupCallUpdateMessage(
+        eraId: String?,
+        groupContext: SignalServiceProtos.GroupContextV2,
+        timestamp: Long,
+    ): SignalServiceProtos.Content {
+        val gcuBuilder = SignalServiceProtos.DataMessage.GroupCallUpdate.newBuilder()
+        if (eraId != null) {
+            gcuBuilder.setEraId(eraId)
+        }
+        val dm = SignalServiceProtos.DataMessage.newBuilder()
+            .setGroupCallUpdate(gcuBuilder.build())
+            .setGroupV2(groupContext)
+            .setTimestamp(timestamp)
+
+        return SignalServiceProtos.Content.newBuilder()
+            .setDataMessage(dm.build())
+            .build()
+    }
+
+    fun syncReadMessage(
+        senderAci: String,
+        timestamps: List<Long>,
+    ): SignalServiceProtos.Content {
+        val syncBuilder = SignalServiceProtos.SyncMessage.newBuilder()
+        timestamps.forEach { ts ->
+            syncBuilder.addRead(
+                SignalServiceProtos.SyncMessage.Read.newBuilder()
+                    .setSenderAci(senderAci)
+                    .setTimestamp(ts)
+                    .build()
+            )
+        }
+        val rng = java.security.SecureRandom()
+        val syncPadding = ByteArray(rng.nextInt(511) + 1)
+        rng.nextBytes(syncPadding)
+        syncBuilder.setPadding(ByteString.copyFrom(syncPadding))
+
+        return SignalServiceProtos.Content.newBuilder()
+            .setSyncMessage(syncBuilder.build())
+            .build()
+    }
+
+    fun wrapSyncMessage(sync: SignalServiceProtos.SyncMessage): SignalServiceProtos.Content {
+        val syncWithPadding = sync.toBuilder()
+        val rng = java.security.SecureRandom()
+        val padding = ByteArray(rng.nextInt(511) + 1)
+        rng.nextBytes(padding)
+        syncWithPadding.setPadding(ByteString.copyFrom(padding))
+
+        return SignalServiceProtos.Content.newBuilder()
+            .setSyncMessage(syncWithPadding.build())
             .build()
     }
 }

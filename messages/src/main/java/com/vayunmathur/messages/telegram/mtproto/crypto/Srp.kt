@@ -19,13 +19,18 @@ object Srp {
     ): SrpAnswer {
         val pBig = BigInteger(1, p)
         val gBig = BigInteger.valueOf(g.toLong())
+
+        checkInput(g, pBig)
+
         val gBytes = ByteArray(256)
         val gBigBytes = gBig.toByteArray()
         System.arraycopy(gBigBytes, 0, gBytes, 256 - gBigBytes.size, gBigBytes.size)
 
         val aBig = BigInteger(1, randomA)
-        val ga = pad256(gBig.modPow(aBig, pBig))
-        val gb = pad256(BigInteger(1, srpB))
+        val gaResult = pad256Safe(gBig.modPow(aBig, pBig))
+            ?: throw IllegalStateException("g_a is too big")
+        val ga = gaResult
+        val gb = pad256Raw(srpB)
 
         val u = BigInteger(1, hash(ga, gb))
         val x = BigInteger(1, secondary(password, salt1, salt2))
@@ -36,7 +41,8 @@ object Srp {
         var t = BigInteger(1, srpB).subtract(kv)
         if (t.signum() < 0) t = t.add(pBig)
 
-        val sa = pad256(t.modPow(u.multiply(x).add(aBig), pBig))
+        val sa = pad256Safe(t.modPow(u.multiply(x).add(aBig), pBig))
+            ?: throw IllegalStateException("s_a is too big")
         val ka = MessageDigest.getInstance("SHA-256").digest(sa)
 
         val hP = MessageDigest.getInstance("SHA-256").digest(p)
@@ -95,12 +101,51 @@ object Srp {
         return result.copyOfRange(0, keyLength)
     }
 
-    private fun pad256(v: BigInteger): ByteArray {
-        val bytes = v.toByteArray()
+    private fun pad256Raw(data: ByteArray): ByteArray {
         return when {
-            bytes.size == 256 -> bytes
-            bytes.size > 256 -> bytes.copyOfRange(bytes.size - 256, bytes.size)
-            else -> ByteArray(256 - bytes.size) + bytes
+            data.size == 256 -> data
+            data.size > 256 -> data.copyOfRange(data.size - 256, data.size)
+            else -> ByteArray(256 - data.size) + data
         }
+    }
+
+    private fun pad256Safe(v: BigInteger): ByteArray? {
+        val bytes = v.toByteArray()
+        val stripped = if (bytes.isNotEmpty() && bytes[0] == 0.toByte()) bytes.copyOfRange(1, bytes.size) else bytes
+        if (stripped.size > 256) return null
+        return when {
+            stripped.size == 256 -> stripped
+            else -> ByteArray(256 - stripped.size) + stripped
+        }
+    }
+
+    private fun checkInput(g: Int, p: BigInteger) {
+        require(p.bitLength() == 2048) { "SRP: p must be 2048 bits" }
+        require(p.isProbablePrime(64)) { "SRP: p is not prime" }
+        val pMinus1Over2 = p.subtract(BigInteger.ONE).shiftRight(1)
+        require(pMinus1Over2.isProbablePrime(64)) { "SRP: (p-1)/2 is not prime" }
+        checkGP(g, p)
+    }
+
+    private fun checkGP(g: Int, p: BigInteger) {
+        val result = when (g) {
+            2 -> p.mod(BigInteger.valueOf(8)) == BigInteger.valueOf(7)
+            3 -> p.mod(BigInteger.valueOf(3)) == BigInteger.valueOf(2)
+            4 -> true
+            5 -> {
+                val rem = p.mod(BigInteger.valueOf(5))
+                rem == BigInteger.ONE || rem == BigInteger.valueOf(4)
+            }
+            6 -> {
+                val rem = p.mod(BigInteger.valueOf(24))
+                rem == BigInteger.valueOf(19) || rem == BigInteger.valueOf(23)
+            }
+            7 -> {
+                val rem = p.mod(BigInteger.valueOf(7))
+                rem == BigInteger.valueOf(3) || rem == BigInteger.valueOf(5) || rem == BigInteger.valueOf(6)
+            }
+            else -> throw IllegalArgumentException("SRP: unexpected g = $g: g should be equal to 2, 3, 4, 5, 6 or 7")
+        }
+        require(result) { "SRP: g should be a quadratic residue mod p" }
     }
 }

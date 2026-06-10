@@ -55,7 +55,7 @@ data class MessagesSendMessage(
     val message: String,
     val randomId: Long,
 ) : TlMethod<TlObject> {
-    override val typeId = 0x983f9745.toInt()
+    override val typeId = 0x545cd15a.toInt()
     override fun encode(buf: TlBuffer) {
         buf.putId(typeId)
         buf.putInt32(0) // flags
@@ -72,7 +72,7 @@ data class MessagesSendMedia(
     val message: String,
     val randomId: Long,
 ) : TlMethod<TlObject> {
-    override val typeId = 0x7852834e.toInt()
+    override val typeId = 0x0330e77f.toInt()
     override fun encode(buf: TlBuffer) {
         buf.putId(typeId)
         buf.putInt32(0) // flags
@@ -110,7 +110,7 @@ data class MessagesEditMessage(
     val id: Int,
     val message: String,
 ) : TlMethod<TlObject> {
-    override val typeId = 0xdfd14005.toInt()
+    override val typeId = 0x51e842e1.toInt()
     override fun encode(buf: TlBuffer) {
         buf.putId(typeId)
         buf.putInt32(1 shl 11) // flags: has message
@@ -125,11 +125,15 @@ data class MessagesSendReaction(
     val peer: TlObject,
     val msgId: Int,
     val reaction: List<TlObject>,
+    val big: Boolean = false,
 ) : TlMethod<TlObject> {
     override val typeId = 0xd30d78d4.toInt()
     override fun encode(buf: TlBuffer) {
         buf.putId(typeId)
-        buf.putInt32(if (reaction.isNotEmpty()) 1 else 0) // flags: has reaction list
+        var flags = if (reaction.isNotEmpty()) 1 else 0 // bit 0: has reaction list
+        if (big) flags = flags or (1 shl 1) // bit 1: big
+        flags = flags or (1 shl 2) // bit 2: add_to_recent
+        buf.putInt32(flags)
         peer.encode(buf)
         buf.putInt32(msgId)
         if (reaction.isNotEmpty()) {
@@ -172,14 +176,24 @@ data class InputMediaGeoPoint(val geoPoint: InputGeoPoint) : TlObject {
 }
 
 // inputMediaGeoLive for sending live locations
-data class InputMediaGeoLive(val geoPoint: InputGeoPoint, val period: Int = 0, val heading: Int = 0) : TlObject {
+data class InputMediaGeoLive(
+    val geoPoint: InputGeoPoint,
+    val stopped: Boolean = false,
+    val period: Int = 0,
+    val heading: Int = 0,
+    val proximityNotificationRadius: Int = 0,
+) : TlObject {
     override val typeId = 0x971fa843.toInt()
     override fun encode(buf: TlBuffer) {
         buf.putId(typeId)
-        val flags = (if (heading != 0) 1 shl 2 else 0) or (if (period != 0) 1 shl 1 else 0)
+        val flags = (if (stopped) 1 else 0) or
+            (if (period != 0) 1 shl 1 else 0) or
+            (if (heading != 0) 1 shl 2 else 0) or
+            (if (proximityNotificationRadius != 0) 1 shl 3 else 0)
         buf.putInt32(flags)
         geoPoint.encode(buf)
         if (heading != 0) buf.putInt32(heading)
         if (period != 0) buf.putInt32(period)
+        if (proximityNotificationRadius != 0) buf.putInt32(proximityNotificationRadius)
     }
 }

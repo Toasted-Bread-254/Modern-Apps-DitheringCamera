@@ -52,4 +52,50 @@ class SenderKeyManager(
         distributionCreatedAt.remove(groupId)
         Log.d(TAG, "Reset sender key distribution for group $groupId")
     }
+
+    fun processDistributionMessage(
+        groupId: String,
+        senderAci: String,
+        senderDeviceId: Int,
+        distributionMessage: SenderKeyDistributionMessage,
+    ) {
+        try {
+            val senderAddress = SignalProtocolAddress(senderAci, senderDeviceId)
+            val builder = GroupSessionBuilder(senderKeyStore)
+            builder.process(senderAddress, distributionMessage)
+            Log.d(TAG, "Processed sender key distribution message from $senderAci for group $groupId")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to process sender key distribution message", e)
+        }
+    }
+
+    fun encryptForGroup(
+        groupId: String,
+        plaintext: ByteArray,
+    ): ByteArray? {
+        val distributionId = distributionIds[groupId] ?: return null
+        val selfAddress = SignalProtocolAddress(selfAci, selfDeviceId)
+        return try {
+            val cipher = GroupCipher(senderKeyStore, selfAddress)
+            cipher.encrypt(distributionId, plaintext)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to encrypt for group $groupId", e)
+            null
+        }
+    }
+
+    fun decryptFromGroup(
+        senderAci: String,
+        senderDeviceId: Int,
+        ciphertext: ByteArray,
+    ): ByteArray? {
+        val senderAddress = SignalProtocolAddress(senderAci, senderDeviceId)
+        return try {
+            val cipher = GroupCipher(senderKeyStore, senderAddress)
+            cipher.decrypt(ciphertext)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to decrypt from group", e)
+            null
+        }
+    }
 }

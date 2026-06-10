@@ -8,6 +8,12 @@ object TlSkip {
 
     private const val TAG = "TlSkip"
 
+    fun skipRecentStory(buf: TlBuffer) {
+        val typeId = buf.int32() // constructor 0x711d692d
+        val flags = Fields.decode(buf)
+        if (flags.has(1)) buf.int32() // max_id
+    }
+
     fun skipMessageFwdHeader(buf: TlBuffer) {
         val flags = Fields.decode(buf)
         if (flags.has(0)) decodePeer(buf) // from_id
@@ -25,23 +31,22 @@ object TlSkip {
     fun skipReplyTo(buf: TlBuffer) {
         val typeId = buf.int32()
         when (typeId) {
-            0x9c98bfc1.toInt() -> { // messageReplyStoryHeader
+            0x0e5af939.toInt() -> { // messageReplyStoryHeader
                 decodePeer(buf) // peer
                 buf.int32() // story_id
             }
-            0xafbc09db.toInt() -> { // messageReplyHeader
+            0x1b97dd66.toInt() -> { // messageReplyHeader
                 val flags = Fields.decode(buf)
                 if (flags.has(4)) buf.int32() // reply_to_msg_id
                 if (flags.has(0)) decodePeer(buf) // reply_to_peer_id
-                if (flags.has(5)) {
-                    buf.int32() // MessageFwdHeader type id
-                    skipMessageFwdHeader(buf)
-                }
+                if (flags.has(5)) skipBoxedType(buf) // reply_from (MessageFwdHeader)
                 if (flags.has(8)) skipBoxedType(buf) // reply_media
                 if (flags.has(1)) buf.int32() // reply_to_top_id
                 if (flags.has(6)) buf.string() // quote_text
-                if (flags.has(7)) skipVectorBoxed(buf) // quote_entities
+                if (flags.has(7)) skipVector(buf) { skipMessageEntity(it) } // quote_entities
                 if (flags.has(10)) buf.int32() // quote_offset
+                if (flags.has(11)) buf.int32() // todo_item_id
+                if (flags.has(12)) buf.bytes() // poll_option
             }
         }
     }
@@ -121,12 +126,18 @@ object TlSkip {
         when (typeId) {
             // ---- MessageMedia ----
             0x3ded6320.toInt() -> {} // messageMediaEmpty
-            0x695150d7.toInt() -> { // messageMediaPhoto
+            0x695150d7.toInt() -> { // messageMediaPhoto (old)
                 val flags = Fields.decode(buf)
                 if (flags.has(0)) skipBoxedType(buf) // photo
                 if (flags.has(2)) buf.int32() // ttl_seconds
             }
-            0x4cf4d72d.toInt() -> { // messageMediaDocument
+            0xe216eb63.toInt() -> { // messageMediaPhoto (current)
+                val flags = Fields.decode(buf)
+                if (flags.has(0)) skipBoxedType(buf) // photo
+                if (flags.has(2)) buf.int32() // ttl_seconds
+                if (flags.has(4)) skipBoxedType(buf) // video
+            }
+            0x4cf4d72d.toInt() -> { // messageMediaDocument (old)
                 val flags = Fields.decode(buf)
                 if (flags.has(0)) skipBoxedType(buf) // document
                 if (flags.has(5)) skipBoxedType(buf) // alt_document
@@ -134,7 +145,22 @@ object TlSkip {
                 if (flags.has(10)) buf.int32() // video_timestamp
                 if (flags.has(2)) buf.int32() // ttl_seconds
             }
+            0x52d8ccd9.toInt() -> { // messageMediaDocument (current)
+                val flags = Fields.decode(buf)
+                if (flags.has(0)) skipBoxedType(buf) // document
+                if (flags.has(5)) skipVectorBoxed(buf) // alt_documents
+                if (flags.has(9)) skipBoxedType(buf) // video_cover
+                if (flags.has(10)) buf.int32() // video_timestamp
+                if (flags.has(2)) buf.int32() // ttl_seconds
+            }
             0x56e0d474.toInt() -> skipBoxedType(buf) // messageMediaGeo: geo
+            0xb940c666.toInt() -> { // messageMediaGeoLive
+                val f = Fields.decode(buf)
+                skipBoxedType(buf) // geo
+                if (f.has(0)) buf.int32() // heading
+                buf.int32() // period
+                if (f.has(1)) buf.int32() // proximity_notification_radius
+            }
             0x70322949.toInt() -> { // messageMediaContact
                 buf.string(); buf.string(); buf.string(); buf.string(); buf.int64()
             }
@@ -144,7 +170,13 @@ object TlSkip {
                 buf.string(); buf.string(); buf.string(); buf.string(); buf.string()
             }
             0xfdb19008.toInt() -> skipBoxedType(buf) // messageMediaGame: game
-            0x3f7ee58b.toInt() -> { buf.int32(); buf.string() } // messageMediaDice: value emoticon
+            0x3f7ee58b.toInt() -> { buf.int32(); buf.string() } // messageMediaDice (old): value emoticon
+            0x08cbec07.toInt() -> { // messageMediaDice (current)
+                val flags = Fields.decode(buf)
+                buf.int32() // value
+                buf.string() // emoticon
+                if (flags.has(0)) skipBoxedType(buf) // game_outcome
+            }
             0xddf10c3b.toInt() -> { // messageMediaWebPage
                 Fields.decode(buf) // flags
                 skipWebPage(buf)
@@ -219,6 +251,16 @@ object TlSkip {
                 buf.int64() // document_id
                 if (f.has(0)) buf.int32() // until
             }
+            0x7184603b.toInt() -> { // emojiStatusCollectible
+                val f = Fields.decode(buf)
+                buf.int64() // collectible_id
+                buf.int64() // document_id
+                buf.string() // title
+                buf.string() // slug
+                buf.int64() // pattern_document_id
+                buf.int32(); buf.int32(); buf.int32(); buf.int32() // center/edge/pattern/text color
+                if (f.has(0)) buf.int32() // until
+            }
 
             // ---- RestrictionReason ----
             0xd072acb4.toInt() -> { buf.string(); buf.string(); buf.string() } // restrictionReason: platform reason text
@@ -240,6 +282,62 @@ object TlSkip {
                 if (f.has(0)) buf.int32() // date
             }
             0x96eaa5eb.toInt() -> skipDraftMessage(buf) // draftMessage
+
+            // ---- SuggestedPost ----
+            0x0e8e37e5.toInt() -> { // suggestedPost
+                val f = Fields.decode(buf)
+                if (f.has(3)) skipBoxedType(buf) // price (StarsAmountClass)
+                if (f.has(0)) buf.int32() // schedule_date
+            }
+
+            // ---- StarsAmount ----
+            0xbbb6b4a3.toInt() -> { buf.int64(); buf.int32() } // starsAmount: amount nanos
+            0x74aee3e0.toInt() -> buf.int64() // starsTonAmount: amount
+
+            // ---- RequestPeerType ----
+            0x5f3b8a00.toInt() -> { // requestPeerTypeUser
+                val f = Fields.decode(buf)
+                if (f.has(0)) buf.int32() // bot (Bool)
+                if (f.has(1)) buf.int32() // premium (Bool)
+            }
+            0xc9f06e1b.toInt() -> { // requestPeerTypeChat
+                val f = Fields.decode(buf)
+                if (f.has(3)) buf.int32() // has_username (Bool)
+                if (f.has(4)) buf.int32() // forum (Bool)
+                if (f.has(1)) skipBoxedType(buf) // user_admin_rights
+                if (f.has(2)) skipBoxedType(buf) // bot_admin_rights
+            }
+            0x339bef6c.toInt() -> { // requestPeerTypeBroadcast
+                val f = Fields.decode(buf)
+                if (f.has(3)) buf.int32() // has_username (Bool)
+                if (f.has(1)) skipBoxedType(buf) // user_admin_rights
+                if (f.has(2)) skipBoxedType(buf) // bot_admin_rights
+            }
+
+            // ---- PasswordKdfAlgo ----
+            0xd45ab096.toInt() -> {} // passwordKdfAlgoUnknown
+            0x3a912d4a.toInt() -> { buf.bytes(); buf.bytes(); buf.int32(); buf.bytes() } // passwordKdfAlgoSHA256...: salt1 salt2 g p
+
+            // ---- SecurePasswordKdfAlgo ----
+            0x004a8537.toInt() -> {} // securePasswordKdfAlgoUnknown
+            0x86471d92.toInt() -> buf.bytes() // securePasswordKdfAlgoSHA512: salt
+            0xbbf2dda0.toInt() -> buf.bytes() // securePasswordKdfAlgoPBKDF2...: salt
+
+            // ---- SearchPostsFlood ----
+            0x3e0b5b6a.toInt() -> { // searchPostsFlood
+                val f = Fields.decode(buf)
+                buf.int32() // total_daily
+                buf.int32() // remains
+                if (f.has(1)) buf.int32() // wait_till
+                buf.int64() // stars_amount
+            }
+
+            // ---- MessageFwdHeader ----
+            0x4e4df4bb.toInt() -> skipMessageFwdHeader(buf) // messageFwdHeader
+
+            // ---- ForumTopic ----
+            0x023f109b.toInt() -> buf.int32() // forumTopicDeleted: id
+            0xfcdad815.toInt() -> skipForumTopic(buf) // forumTopic
 
             else -> {
                 Log.w(TAG, "skipByTypeId: unknown type 0x${typeId.toUInt().toString(16)}, buffer may be corrupted")
@@ -267,6 +365,24 @@ object TlSkip {
     fun skipVideoSizeBoxed(buf: TlBuffer) = skipVideoSize(buf)
     fun skipInputStickerSetBoxed(buf: TlBuffer) = skipInputStickerSet(buf)
 
+    // ---- ForumTopic ----
+
+    private fun skipForumTopic(buf: TlBuffer) {
+        val flags = Fields.decode(buf)
+        buf.int32() // id
+        buf.int32() // date
+        decodePeer(buf) // peer
+        buf.string() // title
+        buf.int32() // icon_color
+        if (flags.has(0)) buf.int64() // icon_emoji_id
+        buf.int32() // top_message
+        buf.int32(); buf.int32() // read_inbox_max_id, read_outbox_max_id
+        buf.int32(); buf.int32(); buf.int32(); buf.int32() // unread_count, mentions, reactions, poll_votes
+        decodePeer(buf) // from_id
+        skipPeerNotifySettings(buf) // notify_settings
+        if (flags.has(4)) skipBoxedType(buf) // draft
+    }
+
     // ---- DraftMessage ----
 
     private fun skipDraftMessage(buf: TlBuffer) {
@@ -277,6 +393,7 @@ object TlSkip {
         if (flags.has(5)) skipBoxedType(buf) // media
         buf.int32() // date
         if (flags.has(7)) buf.int64() // effect
+        if (flags.has(8)) skipBoxedType(buf) // suggested_post
     }
 
     private fun skipInputReplyTo(buf: TlBuffer) {
@@ -428,10 +545,7 @@ object TlSkip {
                 if (flags.has(7)) buf.int32() // duration
                 if (flags.has(8)) buf.string() // author
                 if (flags.has(9)) skipBoxedType(buf) // document
-                if (flags.has(10)) {
-                    Log.w(TAG, "Skipping cached_page in webPage — complex type, may corrupt buffer")
-                    skipBoxedType(buf)
-                }
+                if (flags.has(10)) skipPage(buf) // cached_page
                 if (flags.has(12)) skipVectorBoxed(buf) // attributes
             }
             0x7311ca11.toInt() -> { // webPageNotModified
@@ -505,39 +619,91 @@ object TlSkip {
         skipVector(buf) { skipKeyboardButton(it) }
     }
 
+    private fun skipKeyboardButtonStyle(buf: TlBuffer) {
+        buf.int32() // constructor 0x4fdd3430
+        val f = Fields.decode(buf)
+        if (f.has(3)) buf.int64() // icon
+    }
+
     private fun skipKeyboardButton(buf: TlBuffer) {
         val typeId = buf.int32()
         when (typeId) {
-            0xa2fa4880.toInt() -> buf.string() // keyboardButton: text
-            0x258aff05.toInt() -> { buf.string(); buf.string() } // keyboardButtonUrl: text url
-            0x35bbdb6b.toInt() -> { Fields.decode(buf); buf.string(); buf.bytes() } // callback: flags text data
-            0xb16a6c29.toInt() -> buf.string() // requestPhone: text
-            0xfc796b3f.toInt() -> buf.string() // requestGeoLocation: text
-            0x93b9fbb5.toInt() -> { // switchInline
+            0x7d170cff.toInt() -> { // keyboardButton
                 val flags = Fields.decode(buf)
+                if (flags.has(10)) skipKeyboardButtonStyle(buf) // style
+                buf.string() // text
+            }
+            0xd80c25ec.toInt() -> { // keyboardButtonUrl
+                val flags = Fields.decode(buf)
+                if (flags.has(10)) skipKeyboardButtonStyle(buf) // style
+                buf.string(); buf.string() // text url
+            }
+            0xe62bc960.toInt() -> { // callback
+                val flags = Fields.decode(buf)
+                if (flags.has(10)) skipKeyboardButtonStyle(buf) // style
+                buf.string(); buf.bytes() // text data
+            }
+            0x417efd8f.toInt() -> { // requestPhone
+                val flags = Fields.decode(buf)
+                if (flags.has(10)) skipKeyboardButtonStyle(buf) // style
+                buf.string() // text
+            }
+            0xaa40f94d.toInt() -> { // requestGeoLocation
+                val flags = Fields.decode(buf)
+                if (flags.has(10)) skipKeyboardButtonStyle(buf) // style
+                buf.string() // text
+            }
+            0x991399fc.toInt() -> { // switchInline
+                val flags = Fields.decode(buf)
+                if (flags.has(10)) skipKeyboardButtonStyle(buf) // style
                 buf.string(); buf.string() // text query
                 if (flags.has(1)) skipVectorBoxed(buf) // peer_types
             }
-            0x50f41ccf.toInt() -> buf.string() // game: text
-            0xafd93fbb.toInt() -> buf.string() // buy: text
-            0x10b78d29.toInt() -> { // urlAuth
+            0x89c590f9.toInt() -> { // game
                 val flags = Fields.decode(buf)
+                if (flags.has(10)) skipKeyboardButtonStyle(buf) // style
+                buf.string() // text
+            }
+            0x3fa53905.toInt() -> { // buy
+                val flags = Fields.decode(buf)
+                if (flags.has(10)) skipKeyboardButtonStyle(buf) // style
+                buf.string() // text
+            }
+            0xf51006f9.toInt() -> { // urlAuth
+                val flags = Fields.decode(buf)
+                if (flags.has(10)) skipKeyboardButtonStyle(buf) // style
                 buf.string() // text
                 if (flags.has(0)) buf.string() // fwd_text
                 buf.string() // url
                 buf.int32() // button_id
             }
-            0xbbc7515d.toInt() -> { // requestPoll
+            0x7a11d782.toInt() -> { // requestPoll
                 val flags = Fields.decode(buf)
+                if (flags.has(10)) skipKeyboardButtonStyle(buf) // style
                 if (flags.has(0)) buf.int32() // quiz Bool
                 buf.string() // text
             }
-            0x13767230.toInt() -> { buf.string(); buf.string() } // webView: text url
-            0xa0c0505c.toInt() -> { buf.string(); buf.string() } // simpleWebView: text url
-            0x53d7bfd8.toInt() -> { // requestPeer
+            0xe846b1a0.toInt() -> { // webView
+                val flags = Fields.decode(buf)
+                if (flags.has(10)) skipKeyboardButtonStyle(buf) // style
+                buf.string(); buf.string() // text url
+            }
+            0xe15c4370.toInt() -> { // simpleWebView
+                val flags = Fields.decode(buf)
+                if (flags.has(10)) skipKeyboardButtonStyle(buf) // style
+                buf.string(); buf.string() // text url
+            }
+            0x5b0f15f5.toInt() -> { // requestPeer
+                val flags = Fields.decode(buf)
+                if (flags.has(10)) skipKeyboardButtonStyle(buf) // style
                 buf.string(); buf.int32() // text button_id
                 skipBoxedType(buf) // peer_type
                 buf.int32() // max_quantity
+            }
+            0xbcc4af10.toInt() -> { // copy
+                val flags = Fields.decode(buf)
+                if (flags.has(10)) skipKeyboardButtonStyle(buf) // style
+                buf.string(); buf.string() // text copy_text
             }
             else -> Log.w(TAG, "Unknown KeyboardButton: 0x${typeId.toUInt().toString(16)}")
         }
@@ -560,10 +726,11 @@ object TlSkip {
 
     fun skipReactions(buf: TlBuffer) {
         val typeId = buf.int32()
-        if (typeId == 0x4f474992.toInt()) { // messageReactions
+        if (typeId == 0x0a339f0b.toInt()) { // messageReactions
             val flags = Fields.decode(buf)
             skipVector(buf) { skipReactionCount(it) } // results
             if (flags.has(1)) skipVector(buf) { skipMessagePeerReaction(it) } // recent_reactions
+            if (flags.has(4)) skipVector(buf) { skipMessageReactor(it) } // top_reactors
         }
     }
 
@@ -581,7 +748,7 @@ object TlSkip {
             0x1b2286b8.toInt() -> buf.string() // reactionEmoji: emoticon
             0x8935fc73.toInt() -> buf.int64() // reactionCustomEmoji: document_id
             0x79f5d419.toInt() -> {} // reactionEmpty
-            0x523f7fb5.toInt() -> {} // reactionPaid
+            0x523da4eb.toInt() -> {} // reactionPaid
             else -> Log.w(TAG, "Unknown Reaction: 0x${typeId.toUInt().toString(16)}")
         }
     }
@@ -589,9 +756,16 @@ object TlSkip {
     private fun skipMessagePeerReaction(buf: TlBuffer) {
         buf.int32() // constructor
         val flags = Fields.decode(buf)
-        skipReaction(buf) // reaction
-        buf.int32() // date
         decodePeer(buf) // peer_id
+        buf.int32() // date
+        skipReaction(buf) // reaction
+    }
+
+    private fun skipMessageReactor(buf: TlBuffer) {
+        buf.int32() // constructor 0x4ba3a95a
+        val flags = Fields.decode(buf)
+        if (flags.has(3)) decodePeer(buf) // peer_id
+        buf.int32() // count
     }
 
     // ---- RestrictionReason ----
@@ -613,6 +787,182 @@ object TlSkip {
             skipVector(buf) { skipMessageEntity(it) } // entities
         }
         buf.int64() // hash
+    }
+
+    // ---- Page (Instant View) ----
+
+    private fun skipPage(buf: TlBuffer) {
+        val typeId = buf.int32() // 0x98657f0d
+        val flags = Fields.decode(buf)
+        buf.string() // url
+        skipVector(buf) { skipPageBlock(it) } // blocks
+        skipVector(buf) { skipBoxedType(it) } // photos
+        skipVector(buf) { skipBoxedType(it) } // documents
+        if (flags.has(3)) buf.int32() // views
+    }
+
+    private fun skipPageBlock(buf: TlBuffer) {
+        val typeId = buf.int32()
+        when (typeId) {
+            0x13567e8a.toInt() -> {} // pageBlockUnsupported
+            0x70abc3fd.toInt() -> skipRichText(buf) // pageBlockTitle
+            0x8ffa9a1f.toInt() -> skipRichText(buf) // pageBlockSubtitle
+            0xbaafe5e0.toInt() -> { skipRichText(buf); buf.int32() } // pageBlockAuthorDate: author + published_date
+            0xbfd064ec.toInt() -> skipRichText(buf) // pageBlockHeader
+            0xf12bb6e1.toInt() -> skipRichText(buf) // pageBlockSubheader
+            0x467a0766.toInt() -> skipRichText(buf) // pageBlockParagraph
+            0xc070d93e.toInt() -> { skipRichText(buf); buf.string() } // pageBlockPreformatted: text + language
+            0x48870999.toInt() -> skipRichText(buf) // pageBlockFooter
+            0xdb20b188.toInt() -> {} // pageBlockDivider
+            0xce0d37b0.toInt() -> buf.string() // pageBlockAnchor: name
+            0xe4e88011.toInt() -> { // pageBlockList
+                skipVector(buf) { skipPageListItem(it) }
+            }
+            0x263d7c26.toInt() -> { skipRichText(buf); skipRichText(buf) } // pageBlockBlockquote: text + caption
+            0x4f4456d3.toInt() -> { skipRichText(buf); skipRichText(buf) } // pageBlockPullquote: text + caption
+            0x1759c560.toInt() -> { // pageBlockPhoto
+                val pf = Fields.decode(buf)
+                buf.int64() // photo_id
+                skipPageCaption(buf) // caption
+                if (pf.has(0)) buf.string() // url
+                if (pf.has(0)) buf.int64() // webpage_id
+            }
+            0x7c8fe7b6.toInt() -> { // pageBlockVideo
+                val vf = Fields.decode(buf)
+                buf.int64() // video_id
+                skipPageCaption(buf) // caption
+            }
+            0x39f23300.toInt() -> skipPageBlock(buf) // pageBlockCover: cover
+            0xa8718dc5.toInt() -> { // pageBlockEmbed
+                val ef = Fields.decode(buf)
+                if (ef.has(1)) buf.string() // url
+                if (ef.has(2)) buf.string() // html
+                if (ef.has(4)) buf.int64() // poster_photo_id
+                if (ef.has(5)) { buf.int32(); buf.int32() } // w h
+                skipPageCaption(buf)
+            }
+            0xf259a80b.toInt() -> { // pageBlockEmbedPost
+                buf.string() // url
+                buf.int64() // webpage_id
+                buf.int64() // author_photo_id
+                buf.string() // author
+                buf.int32() // date
+                skipVector(buf) { skipPageBlock(it) } // blocks
+                skipPageCaption(buf)
+            }
+            0x65a0fa4d.toInt() -> { // pageBlockCollage
+                skipVector(buf) { skipPageBlock(it) }
+                skipPageCaption(buf)
+            }
+            0x031f9590.toInt() -> { // pageBlockSlideshow
+                skipVector(buf) { skipPageBlock(it) }
+                skipPageCaption(buf)
+            }
+            0xef1751b5.toInt() -> skipBoxedType(buf) // pageBlockChannel: channel
+            0x804361ea.toInt() -> { // pageBlockAudio
+                buf.int64() // audio_id
+                skipPageCaption(buf)
+            }
+            0x1e148390.toInt() -> skipRichText(buf) // pageBlockKicker
+            0xbf4dea82.toInt() -> { // pageBlockTable
+                val tf = Fields.decode(buf)
+                skipRichText(buf) // title
+                skipVector(buf) { skipPageTableRow(it) } // rows
+            }
+            0x9a8ae1e1.toInt() -> { // pageBlockOrderedList
+                skipVector(buf) { skipPageListOrderedItem(it) }
+            }
+            0x76768bed.toInt() -> { // pageBlockDetails
+                val df = Fields.decode(buf)
+                skipVector(buf) { skipPageBlock(it) } // blocks
+                skipRichText(buf) // title
+            }
+            0x16115a96.toInt() -> { // pageBlockRelatedArticles
+                skipRichText(buf) // title
+                skipVector(buf) { skipRelatedArticle(it) } // articles
+            }
+            0xa44f3ef6.toInt() -> { // pageBlockMap
+                skipBoxedType(buf) // geo
+                buf.int32() // zoom
+                buf.int32(); buf.int32() // w h
+                skipPageCaption(buf)
+            }
+            else -> Log.w(TAG, "Unknown PageBlock: 0x${typeId.toUInt().toString(16)}")
+        }
+    }
+
+    private fun skipRichText(buf: TlBuffer) {
+        val typeId = buf.int32()
+        when (typeId) {
+            0xdc3d824f.toInt() -> {} // textEmpty
+            0x744694e0.toInt() -> buf.string() // textPlain
+            0x6724abc4.toInt() -> skipRichText(buf) // textBold
+            0xd912a59c.toInt() -> skipRichText(buf) // textItalic
+            0xc12622c4.toInt() -> skipRichText(buf) // textUnderline
+            0x9bf8bb95.toInt() -> skipRichText(buf) // textStrike
+            0x6c3f19b9.toInt() -> skipRichText(buf) // textFixed
+            0x3c2884c1.toInt() -> { skipRichText(buf); buf.string(); buf.int64() } // textUrl: text url webpage_id
+            0xde5a0dd6.toInt() -> { skipRichText(buf); buf.string() } // textEmail: text email
+            0x7e6260d7.toInt() -> { // textConcat
+                buf.int32() // vector constructor
+                val count = buf.int32()
+                repeat(count) { skipRichText(buf) }
+            }
+            0xed6a8504.toInt() -> skipRichText(buf) // textSubscript
+            0xc7fb5e01.toInt() -> skipRichText(buf) // textSuperscript
+            0x034b8621.toInt() -> skipRichText(buf) // textMarked
+            0x1ccb966a.toInt() -> { skipRichText(buf); buf.string() } // textPhone: text phone
+            0x081ccf4f.toInt() -> { buf.int64(); buf.int32(); buf.int32() } // textImage: document_id w h
+            0x35553762.toInt() -> { skipRichText(buf); buf.string() } // textAnchor: text name
+            else -> Log.w(TAG, "Unknown RichText: 0x${typeId.toUInt().toString(16)}")
+        }
+    }
+
+    private fun skipPageCaption(buf: TlBuffer) {
+        buf.int32() // constructor 0x6f747657
+        skipRichText(buf) // text
+        skipRichText(buf) // credit
+    }
+
+    private fun skipPageListItem(buf: TlBuffer) {
+        val typeId = buf.int32()
+        when (typeId) {
+            0xb92fb6cd.toInt() -> skipRichText(buf) // pageListItemText
+            0x25e073fc.toInt() -> skipVector(buf) { skipPageBlock(it) } // pageListItemBlocks
+        }
+    }
+
+    private fun skipPageListOrderedItem(buf: TlBuffer) {
+        val typeId = buf.int32()
+        when (typeId) {
+            0x5e068047.toInt() -> { buf.string(); skipRichText(buf) } // pageListOrderedItemText: num text
+            0x98dd8936.toInt() -> { buf.string(); skipVector(buf) { skipPageBlock(it) } } // pageListOrderedItemBlocks
+        }
+    }
+
+    private fun skipPageTableRow(buf: TlBuffer) {
+        buf.int32() // constructor 0xe0c0c5e5
+        skipVector(buf) { skipPageTableCell(it) }
+    }
+
+    private fun skipPageTableCell(buf: TlBuffer) {
+        buf.int32() // constructor 0x34566b6a
+        val f = Fields.decode(buf)
+        if (f.has(7)) skipRichText(buf) // text
+        if (f.has(1)) buf.int32() // colspan
+        if (f.has(2)) buf.int32() // rowspan
+    }
+
+    private fun skipRelatedArticle(buf: TlBuffer) {
+        buf.int32() // constructor 0xb68fbe2d
+        val f = Fields.decode(buf)
+        buf.string() // url
+        buf.int64() // webpage_id
+        if (f.has(0)) buf.string() // title
+        if (f.has(1)) buf.string() // description
+        if (f.has(2)) buf.int64() // photo_id
+        if (f.has(3)) buf.string() // author
+        if (f.has(4)) buf.int32() // published_date
     }
 
     // ---- MessageAction (for MessageService) ----

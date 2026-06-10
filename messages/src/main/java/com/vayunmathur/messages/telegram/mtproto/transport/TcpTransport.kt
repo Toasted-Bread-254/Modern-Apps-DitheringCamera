@@ -9,6 +9,14 @@ import java.net.Socket
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
+class ProtocolException(val code: Int) : Exception("Protocol error: $code") {
+    companion object {
+        const val AUTH_KEY_NOT_FOUND = 404
+        const val TRANSPORT_FLOOD = 429
+        const val WRONG_DC = 444
+    }
+}
+
 class TcpTransport {
     private var socket: Socket? = null
     private var input: DataInputStream? = null
@@ -20,7 +28,7 @@ class TcpTransport {
 
     suspend fun connect(address: String, port: Int) = withContext(Dispatchers.IO) {
         val sock = Socket()
-        sock.connect(InetSocketAddress(address, port), 10_000)
+        sock.connect(InetSocketAddress(address, port), 35_000)
         sock.tcpNoDelay = true
         socket = sock
         input = DataInputStream(sock.getInputStream())
@@ -48,6 +56,9 @@ class TcpTransport {
         val lenBuf = ByteArray(4)
         inp.readFully(lenBuf)
         val len = ByteBuffer.wrap(lenBuf).order(ByteOrder.LITTLE_ENDIAN).int
+        if (len < 0) {
+            throw ProtocolException(-len)
+        }
         require(len in 1..16 * 1024 * 1024) { "Invalid frame length: $len" }
         val payload = ByteArray(len)
         inp.readFully(payload)

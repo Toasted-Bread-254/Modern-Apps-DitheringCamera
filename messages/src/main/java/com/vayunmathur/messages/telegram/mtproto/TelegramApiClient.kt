@@ -39,7 +39,7 @@ class TelegramApiClient {
 
     companion object {
         val DC_ADDRESSES = mapOf(
-            1 to ("149.154.175.53" to 443),
+            1 to ("149.154.175.52" to 443),
             2 to ("149.154.167.41" to 443),
             3 to ("149.154.175.100" to 443),
             4 to ("149.154.167.91" to 443),
@@ -126,7 +126,7 @@ class TelegramApiClient {
         val keyId = authKeyId.copyOf()
         val s = salt
         disconnect()
-        var backoff = 1000L
+        var backoff = 100L
         for (attempt in 1..10) {
             try {
                 connect(currentDc, key, keyId, s)
@@ -135,7 +135,7 @@ class TelegramApiClient {
             } catch (e: Exception) {
                 Log.w(TAG, "Reconnect attempt $attempt failed: ${e.message}")
                 delay(backoff)
-                backoff = (backoff * 2).coerceAtMost(60_000)
+                backoff = (backoff * 3 / 2).coerceAtMost(5_000)
             }
         }
         throw IllegalStateException("Failed to reconnect after 10 attempts")

@@ -272,7 +272,7 @@ class LongPoll(
             unencryptedData = if (msg.unencryptedData.size() > 0) msg.unencryptedData.toByteArray() else null,
         )
         val reqId = msg.sessionID
-        if (reqId.isNotEmpty()) sessionHandler.deliverResponse(reqId, incoming)
+        if (reqId.isNotEmpty() && sessionHandler.deliverResponse(reqId, incoming)) return
         onEvent(LongPollEvent.Data(incoming))
     }
 
@@ -287,12 +287,6 @@ class LongPoll(
             TAG,
             "data event: action=${msg.action} sessionID=${msg.sessionID} encrypted=${msg.encryptedData.size()}B",
         )
-
-        // Track old messages via skipCount
-        val isOld = if (skipCount > 0) {
-            skipCount--
-            true
-        } else false
 
         var decrypted: ByteArray? = null
         if (msg.encryptedData.size() > 0) {
@@ -313,16 +307,36 @@ class LongPoll(
 
         val unencrypted = if (msg.unencryptedData.size() > 0) msg.unencryptedData.toByteArray() else null
 
+        // Try to deliver to a waiter first (port of Go's receiveResponse
+        // check in HandleRPCMsg). If consumed, return early — don't
+        // process as an update event and don't decrement skipCount.
+        val reqId = msg.sessionID
+        if (reqId.isNotEmpty()) {
+            val incoming = IncomingRpc(
+                responseId = data.responseID,
+                requestId = reqId,
+                action = msg.action,
+                decryptedData = decrypted,
+                unencryptedData = unencrypted,
+            )
+            if (sessionHandler.deliverResponse(reqId, incoming)) return
+        }
+
+        // Only track old messages via skipCount for non-waiter messages
+        // (matches Go where skipCount is checked after receiveResponse).
+        val isOld = if (skipCount > 0) {
+            skipCount--
+            true
+        } else false
+
         val incoming = IncomingRpc(
             responseId = data.responseID,
-            requestId = msg.sessionID.takeIf { it.isNotEmpty() },
+            requestId = reqId.takeIf { it.isNotEmpty() },
             action = msg.action,
             decryptedData = decrypted,
             unencryptedData = unencrypted,
             isOld = isOld,
         )
-        val reqId = msg.sessionID
-        if (reqId.isNotEmpty()) sessionHandler.deliverResponse(reqId, incoming)
         onEvent(LongPollEvent.Data(incoming))
     }
 

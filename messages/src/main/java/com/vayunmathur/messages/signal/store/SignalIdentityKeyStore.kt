@@ -23,7 +23,7 @@ class SignalIdentityKeyStore(
         val existing = runBlocking { db.identityKeyDao().get(address.name) }
         runBlocking {
             db.identityKeyDao().insert(
-                SignalIdentityKeyEntity(address.name, identityKey.serialize(), true)
+                SignalIdentityKeyEntity(address.name, identityKey.serialize(), TRUST_LEVEL_TRUSTED_UNVERIFIED)
             )
         }
         return if (existing != null && !existing.identityKey.contentEquals(identityKey.serialize())) {
@@ -39,14 +39,17 @@ class SignalIdentityKeyStore(
         direction: IdentityKeyStore.Direction,
     ): Boolean {
         val entity = runBlocking { db.identityKeyDao().get(address.name) } ?: return true
-        if (direction == IdentityKeyStore.Direction.SENDING) {
-            return entity.identityKey.contentEquals(identityKey.serialize())
-        }
-        return true
+        return entity.trustLevel == TRUST_LEVEL_TRUSTED_UNVERIFIED ||
+            entity.trustLevel == TRUST_LEVEL_TRUSTED_VERIFIED
     }
 
     override fun getIdentity(address: SignalProtocolAddress): IdentityKey? {
         val entity = runBlocking { db.identityKeyDao().get(address.name) } ?: return null
         return IdentityKey(entity.identityKey)
+    }
+
+    companion object {
+        const val TRUST_LEVEL_TRUSTED_UNVERIFIED = "TRUSTED_UNVERIFIED"
+        const val TRUST_LEVEL_TRUSTED_VERIFIED = "TRUSTED_VERIFIED"
     }
 }

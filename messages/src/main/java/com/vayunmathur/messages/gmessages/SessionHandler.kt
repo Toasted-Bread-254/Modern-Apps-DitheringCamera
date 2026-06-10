@@ -252,8 +252,10 @@ class SessionHandler(
         ))
     }
 
-    /** Called by the long-poll dispatcher when a response arrives. */
-    fun deliverResponse(requestId: String, msg: IncomingRpc) {
+    /** Called by the long-poll dispatcher when a response arrives.
+     *  Returns true if the response was consumed by a waiter (matching
+     *  Go's `receiveResponse` return semantics). */
+    fun deliverResponse(requestId: String, msg: IncomingRpc): Boolean {
         val auth = authProvider()
         if (auth.hasCookies()) {
             when (msg.action) {
@@ -261,7 +263,7 @@ class SessionHandler(
                 ActionType.CREATE_GAIA_PAIRING_CLIENT_FINISHED -> { /* allow */ }
                 else -> {
                     if (msg.unencryptedData != null && msg.decryptedData == null) {
-                        return
+                        return false
                     }
                 }
             }
@@ -269,10 +271,11 @@ class SessionHandler(
         val waiter = waiters.remove(requestId)
         if (waiter == null) {
             Log.d(TAG, "no waiter for requestID=$requestId (action=${msg.action})")
-            return
+            return false
         }
         Log.i(TAG, "delivering response for requestID=$requestId action=${msg.action}")
         waiter.complete(msg)
+        return true
     }
 
     /** Drop everything (called on stop / reset). */

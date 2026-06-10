@@ -73,25 +73,24 @@ data class Message(
         private fun parseReplyTo(buf: TlBuffer): Pair<Int, Boolean> {
             val typeId = buf.int32()
             when (typeId) {
-                0x9c98bfc1.toInt() -> { // messageReplyStoryHeader
+                0x0e5af939.toInt() -> { // messageReplyStoryHeader
                     decodePeer(buf)
                     buf.int32()
                     return Pair(0, false)
                 }
-                0xafbc09db.toInt() -> { // messageReplyHeader
+                0x1b97dd66.toInt() -> { // messageReplyHeader
                     val flags = Fields.decode(buf)
                     val forumTopic = flags.has(3)
                     val replyToMsgId = if (flags.has(4)) buf.int32() else 0
                     if (flags.has(0)) decodePeer(buf) // reply_to_peer_id
-                    if (flags.has(5)) {
-                        buf.int32()
-                        TlSkip.skipMessageFwdHeader(buf)
-                    }
+                    if (flags.has(5)) TlSkip.skipBoxedType(buf) // reply_from (MessageFwdHeader)
                     if (flags.has(8)) TlSkip.skipBoxedType(buf) // reply_media
                     val replyToTopId = if (flags.has(1)) buf.int32() else 0
                     if (flags.has(6)) buf.string() // quote_text
-                    if (flags.has(7)) TlSkip.skipVectorBoxed(buf) // quote_entities
+                    if (flags.has(7)) TlSkip.skipVector(buf) { TlSkip.skipMessageEntity(it) } // quote_entities
                     if (flags.has(10)) buf.int32() // quote_offset
+                    if (flags.has(11)) buf.int32() // todo_item_id
+                    if (flags.has(12)) buf.bytes() // poll_option
                     val topicId = if (forumTopic) {
                         if (replyToTopId != 0) replyToTopId else replyToMsgId
                     } else 0
@@ -105,13 +104,14 @@ data class Message(
             val typeId = buf.int32()
             return when (typeId) {
                 0x3ded6320.toInt() -> MessageMediaEmpty // messageMediaEmpty
-                0x695150d7.toInt() -> { // messageMediaPhoto
+                0xe216eb63.toInt() -> { // messageMediaPhoto
                     val flags = Fields.decode(buf)
                     if (flags.has(0)) TlSkip.skipBoxedType(buf)
                     if (flags.has(2)) buf.int32()
+                    if (flags.has(4)) TlSkip.skipBoxedType(buf) // video
                     MessageMediaPhoto()
                 }
-                0x4cf4d72d.toInt() -> decodeMediaDocument(buf)
+                0x52d8ccd9.toInt() -> decodeMediaDocument(buf)
                 0x56e0d474.toInt() -> decodeMediaGeo(buf) // messageMediaGeo
                 0xb940c666.toInt() -> decodeMediaGeoLive(buf)
                 0x70322949.toInt() -> { // messageMediaContact
@@ -125,9 +125,11 @@ data class Message(
                 0x9f84f49e.toInt() -> MessageMediaUnsupported
                 0x2ec0533f.toInt() -> decodeMediaVenue(buf)
                 0xfdb19008.toInt() -> { TlSkip.skipBoxedType(buf); MessageMediaUnsupported } // game
-                0x3f7ee58b.toInt() -> { // messageMediaDice
+                0x08cbec07.toInt() -> { // messageMediaDice
+                    val flags = Fields.decode(buf)
                     val value = buf.int32()
                     val emoticon = buf.string()
+                    if (flags.has(0)) TlSkip.skipBoxedType(buf) // game_outcome
                     MessageMediaDice(value, emoticon)
                 }
                 0xddf10c3b.toInt() -> { // messageMediaWebPage
@@ -135,7 +137,7 @@ data class Message(
                     TlSkip.skipWebPageBoxed(buf)
                     MessageMediaUnsupported
                 }
-                0x4bd6e798.toInt() -> decodeMediaPoll(buf)
+                0x773f4e66.toInt() -> decodeMediaPoll(buf)
                 else -> {
                     MessageMediaUnsupported
                 }
@@ -218,7 +220,7 @@ data class Message(
                     buf.int64() // documentEmpty: id
                 }
             }
-            if (flags.has(5)) TlSkip.skipBoxedType(buf) // alt_document
+            if (flags.has(5)) TlSkip.skipVectorBoxed(buf) // alt_documents (vector)
             if (flags.has(9)) TlSkip.skipBoxedType(buf) // video_cover
             if (flags.has(10)) buf.int32() // video_timestamp
             if (flags.has(2)) buf.int32() // ttl_seconds
@@ -285,6 +287,7 @@ data class Message(
         }
 
         private fun decodeMediaPoll(buf: TlBuffer): MessageMediaPoll {
+            val flags = Fields.decode(buf)
             val pollTypeId = buf.int32() // poll constructor
             val pollId = buf.int64()
             val pollFlags = Fields.decode(buf)
@@ -308,6 +311,8 @@ data class Message(
             } catch (_: Exception) {}
             // Skip poll results
             try { TlSkip.skipBoxedType(buf) } catch (_: Exception) {}
+            // Skip attached_media (new in layer 225)
+            try { if (flags.has(0)) TlSkip.skipBoxedType(buf) } catch (_: Exception) {}
             return MessageMediaPoll(question)
         }
     }

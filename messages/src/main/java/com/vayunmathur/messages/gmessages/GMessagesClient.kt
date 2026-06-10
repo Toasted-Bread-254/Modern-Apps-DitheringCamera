@@ -544,7 +544,7 @@ object GMessagesClient {
             }
             updates.hasBrowserPresenceCheckEvent() -> {
                 Log.d(TAG, "GET_UPDATES: browser presence check, sending ack")
-                ackBrowserPresence()
+                scope.launch { ackBrowserPresence() }
             }
             updates.hasAccountChange() -> {
                 Log.d(TAG, "GET_UPDATES: account change event")
@@ -566,12 +566,11 @@ object GMessagesClient {
             for (i in recentUpdatesPtr + recentUpdates.size - 1 downTo recentUpdatesPtr) {
                 val item = recentUpdates[i % recentUpdates.size] ?: continue
                 if (item.id == id) {
-                    return if (item.hash.contentEquals(hash)) {
+                    if (item.hash.contentEquals(hash)) {
                         Log.d(TAG, "dedup: ignoring duplicate update id=$id")
-                        true
-                    } else {
-                        false
+                        return true
                     }
+                    break
                 }
             }
             recentUpdates[recentUpdatesPtr] = UpdateDedupItem(id, hash)
@@ -609,6 +608,18 @@ object GMessagesClient {
      */
     private suspend fun postConnect() {
         kotlinx.coroutines.delay(2_000)
+        // If old messages haven't drained yet, wait up to 3 more seconds
+        // (port of Go's skipCount check in postConnect)
+        if (longPoll.skipCount > 0) {
+            Log.w(TAG, "skipCount is non-zero (${longPoll.skipCount}) in postConnect, waiting longer")
+            repeat(3) {
+                if (longPoll.skipCount <= 0) return@repeat
+                kotlinx.coroutines.delay(1_000)
+            }
+            if (longPoll.skipCount > 0) {
+                Log.w(TAG, "skipCount is still non-zero (${longPoll.skipCount})")
+            }
+        }
         // Send acks before set active session (matches Go's postConnect)
         sessionHandler.sendAckRequest()
         kotlinx.coroutines.delay(1_000)

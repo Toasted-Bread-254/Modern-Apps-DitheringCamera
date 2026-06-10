@@ -7,8 +7,10 @@ import com.vayunmathur.messages.signal.web.SignalWebSocket
 import org.json.JSONObject
 import java.io.IOException
 import org.signal.libsignal.protocol.IdentityKey
+import org.signal.libsignal.protocol.IdentityKeyPair
 import org.signal.libsignal.protocol.SessionBuilder
 import org.signal.libsignal.protocol.SignalProtocolAddress
+import org.signal.libsignal.protocol.ecc.Curve
 import org.signal.libsignal.protocol.ecc.ECKeyPair
 import org.signal.libsignal.protocol.ecc.ECPublicKey
 import org.signal.libsignal.protocol.ecc.ECPrivateKey
@@ -19,6 +21,10 @@ import org.signal.libsignal.protocol.groups.state.SenderKeyStore
 import org.signal.libsignal.protocol.state.PreKeyStore
 import org.signal.libsignal.protocol.state.SessionStore
 import org.signal.libsignal.protocol.state.SignedPreKeyStore
+import javax.crypto.Cipher
+import javax.crypto.Mac
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class DeviceManager(
     private val ws: SignalWebSocket,
@@ -49,8 +55,6 @@ class DeviceManager(
         val response = ws.sendRequest(
             "GET",
             "/v2/keys/$recipientAci/*?pq=true",
-            null,
-            mapOf("Content-Type" to "application/json")
         )
         if (response.status == 404) {
             Log.w(TAG, "Recipient $recipientAci not found (404)")
@@ -80,8 +84,6 @@ class DeviceManager(
         val response = ws.sendRequest(
             "GET",
             "/v2/keys/$recipientAci/$deviceId?pq=true",
-            null,
-            mapOf("Content-Type" to "application/json")
         )
         val json = JSONObject(String(response.body.toByteArray()))
         val device = json.getJSONArray("devices").getJSONObject(0)
@@ -96,6 +98,22 @@ class DeviceManager(
         val bundle = fetchPreKeyBundle(recipientAci, deviceId)
         val builder = SessionBuilder(protocolStore, address)
         builder.process(bundle)
+    }
+
+    suspend fun updateDeviceName(name: String, identityPublicKey: ECPublicKey) {
+        val encryptedName = encryptDeviceName(name, identityPublicKey)
+        val encodedName = Base64.encodeToString(encryptedName, Base64.NO_WRAP)
+        val payload = JSONObject().apply {
+            put("deviceName", encodedName)
+        }
+        val response = ws.sendRequest(
+            "PUT",
+            "/v1/accounts/name",
+            payload.toString().toByteArray(),
+        )
+        if (response.status < 200 || response.status >= 300) {
+            throw IOException("Device name update failed with status ${response.status}")
+        }
     }
 
     private fun processPreKeyResponse(
@@ -206,6 +224,55 @@ class DeviceManager(
                 else -> data
             }
             return Base64.decode(padded, Base64.NO_WRAP)
+        }
+
+        private fun hmacSHA256(key: ByteArray, input: ByteArray): ByteArray {
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(SecretKeySpec(key, "HmacSHA256"))
+            return mac.doFinal(input)
+        }
+
+        private fun aes256CTR(key: ByteArray, iv: ByteArray, source: ByteArray): ByteArray {
+            val cipher = Cipher.getInstance("AES/CTR/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
+            return cipher.doFinal(source)
+        }
+
+        fun encryptDeviceName(name: String, identityPublicKey: ECPublicKey): ByteArray {
+            val ephemeralKeyPair = Curve.generateKeyPair()
+            val ephemeralPubKeyBytes = ephemeralKeyPair.publicKey.serialize()
+            val masterSecret = Curve.calculateAgreement(identityPublicKey, ephemeralKeyPair.privateKey)
+
+            val nameBytes = name.toByteArray(Charsets.UTF_8)
+            val key1 = hmacSHA256(masterSecret, "auth".toByteArray())
+            val syntheticIV = hmacSHA256(key1, nameBytes).copyOfRange(0, 16)
+            val key2 = hmacSHA256(masterSecret, "cipher".toByteArray())
+            val cipherKey = hmacSHA256(key2, syntheticIV)
+            val ciphertext = aes256CTR(cipherKey, ByteArray(16), nameBytes)
+
+            val deviceName = com.vayunmathur.messages.signal.proto.SignalServiceProtos.DeviceName.newBuilder()
+                .setEphemeralPublic(com.google.protobuf.ByteString.copyFrom(ephemeralPubKeyBytes))
+                .setSyntheticIv(com.google.protobuf.ByteString.copyFrom(syntheticIV))
+                .setCiphertext(com.google.protobuf.ByteString.copyFrom(ciphertext))
+                .build()
+            return deviceName.toByteArray()
+        }
+
+        fun decryptDeviceName(wrappedData: ByteArray, identityPrivateKey: ECPrivateKey): String {
+            val deviceName = com.vayunmathur.messages.signal.proto.SignalServiceProtos.DeviceName.parseFrom(wrappedData)
+            val ephemeralPubKey = Curve.decodePoint(deviceName.ephemeralPublic.toByteArray(), 0)
+            val masterSecret = Curve.calculateAgreement(ephemeralPubKey, identityPrivateKey)
+
+            val key2 = hmacSHA256(masterSecret, "cipher".toByteArray())
+            val cipherKey = hmacSHA256(key2, deviceName.syntheticIv.toByteArray())
+            val decryptedName = aes256CTR(cipherKey, ByteArray(16), deviceName.ciphertext.toByteArray())
+
+            val key1 = hmacSHA256(masterSecret, "auth".toByteArray())
+            val expectedIV = hmacSHA256(key1, decryptedName).copyOfRange(0, 16)
+            if (!MessageDigest.isEqual(expectedIV, deviceName.syntheticIv.toByteArray())) {
+                throw IllegalArgumentException("Mismatching synthetic IV")
+            }
+            return String(decryptedName, Charsets.UTF_8)
         }
     }
 }
