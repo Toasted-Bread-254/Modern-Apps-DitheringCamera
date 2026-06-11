@@ -1,0 +1,304 @@
+package com.vayunmathur.health.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.vayunmathur.health.R
+import com.vayunmathur.health.Route
+import com.vayunmathur.health.data.ExerciseData
+import com.vayunmathur.health.data.ExerciseLapData
+import com.vayunmathur.health.data.ExerciseSegmentData
+import com.vayunmathur.health.data.Record
+import com.vayunmathur.health.data.RecordType
+import com.vayunmathur.health.ui.components.GroupedSection
+import com.vayunmathur.health.ui.components.GroupedSectionDivider
+import com.vayunmathur.health.util.HealthViewModel
+import com.vayunmathur.health.util.exerciseSegmentTypeName
+import com.vayunmathur.health.util.exerciseTypeName
+import com.vayunmathur.library.ui.IconNavigation
+import com.vayunmathur.library.util.NavBackStack
+import kotlinx.serialization.json.Json
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
+private val dateFormatter = DateTimeFormatter.ofPattern("EEEE, MMM d, yyyy")
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ExerciseDetailsPage(backStack: NavBackStack<Route>, viewModel: HealthViewModel) {
+    val records by viewModel.getAllRecordsOfType(RecordType.Exercise).collectAsState(emptyList())
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.label_exercise)) },
+                navigationIcon = { IconNavigation(backStack) })
+        }) { padding ->
+        if (records.isEmpty()) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    stringResource(R.string.no_workouts),
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = padding.calculateTopPadding()),
+                contentPadding = PaddingValues(
+                    start = 16.dp, end = 16.dp,
+                    bottom = padding.calculateBottomPadding() + 24.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                items(records, key = { it.primaryKey }) { record ->
+                    ExerciseSessionCard(record)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExerciseSessionCard(record: Record) {
+    val exercise = record.exerciseData
+    val exerciseName = exercise?.title
+        ?: exercise?.let { exerciseTypeName(it.exerciseType) }
+        ?: record.metadata
+        ?: "Workout"
+    val typeName = exercise?.let { exerciseTypeName(it.exerciseType) } ?: "Workout"
+
+    val startZdt = record.startTime.atZone(ZoneId.systemDefault())
+    val endZdt = record.endTime.atZone(ZoneId.systemDefault())
+    val durationMinutes = record.value.toLong()
+
+    val segments = remember(exercise?.segmentsJson) {
+        exercise?.segmentsJson?.let {
+            try { Json.decodeFromString<List<ExerciseSegmentData>>(it) } catch (_: Exception) { null }
+        }
+    }
+    val laps = remember(exercise?.lapsJson) {
+        exercise?.lapsJson?.let {
+            try { Json.decodeFromString<List<ExerciseLapData>>(it) } catch (_: Exception) { null }
+        }
+    }
+
+    GroupedSection(accentColor = HealthColors.Activity) {
+        Column(Modifier.padding(16.dp)) {
+            // Header: icon + name + duration
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(HealthColors.Activity.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.outline_directions_walk_24),
+                        contentDescription = null,
+                        tint = HealthColors.Activity,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        exerciseName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (exerciseName != typeName) {
+                        Text(
+                            typeName,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
+                Text(
+                    formatDuration(durationMinutes),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = HealthColors.Activity
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // Date + time range
+            Text(
+                startZdt.format(dateFormatter),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "${formatTime(startZdt)} – ${formatTime(endZdt)}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.outline
+            )
+
+            // Notes
+            exercise?.notes?.let { notes ->
+                if (notes.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ) {
+                        Text(
+                            notes,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                }
+            }
+
+            // Route indicator
+            if (exercise?.hasRoute == true) {
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        painterResource(R.drawable.baseline_location_pin_24),
+                        contentDescription = null,
+                        tint = HealthColors.Activity,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "Route recorded",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = HealthColors.Activity
+                    )
+                }
+            }
+
+            // Segments
+            if (!segments.isNullOrEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Segments",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(4.dp))
+                segments.forEach { segment ->
+                    val segDuration = (segment.endTimeMillis - segment.startTimeMillis) / 60000
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                exerciseSegmentTypeName(segment.segmentType),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (segment.repetitions > 0) {
+                                Text(
+                                    "${segment.repetitions} reps",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+                        Text(
+                            formatDuration(segDuration),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // Laps
+            if (!laps.isNullOrEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Laps",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(4.dp))
+                laps.forEachIndexed { idx, lap ->
+                    val lapDuration = (lap.endTimeMillis - lap.startTimeMillis) / 60000
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Lap ${idx + 1}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            lap.lengthMeters?.let { meters ->
+                                val display = if (meters >= 1000) {
+                                    "%.2f km".format(meters / 1000.0)
+                                } else {
+                                    "%.0f m".format(meters)
+                                }
+                                Text(
+                                    display,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(
+                                formatDuration(lapDuration),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatTime(zdt: java.time.ZonedDateTime): String {
+    val hour = zdt.hour
+    val minute = zdt.minute.toString().padStart(2, '0')
+    val h = if (hour % 12 == 0) 12 else hour % 12
+    val amPm = if (hour < 12) "AM" else "PM"
+    return "$h:$minute $amPm"
+}
+
+private fun formatDuration(minutes: Long): String {
+    val h = minutes / 60
+    val m = minutes % 60
+    return if (h > 0) "${h}h ${m}m" else "${m}m"
+}

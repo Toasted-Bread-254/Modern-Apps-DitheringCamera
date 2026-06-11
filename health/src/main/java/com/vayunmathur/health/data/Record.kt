@@ -22,7 +22,7 @@ enum class RecordType {
     HeartRate, RestingHeartRate, HeartRateVariabilityRmssd, RespiratoryRate, OxygenSaturation,
     BloodPressure, BloodGlucose, Vo2Max, SkinTemperature,
     Weight, Height, BodyFat, LeanBodyMass, BoneMass, BodyWaterMass,
-    Sleep, Mindfulness, Hydration, Nutrition
+    Sleep, Mindfulness, Hydration, Nutrition, Exercise
 }
 
 @Serializable
@@ -87,6 +87,31 @@ data class SleepData(
     val stagesJson: String? = null
 )
 
+@Serializable
+data class ExerciseSegmentData(
+    val startTimeMillis: Long,
+    val endTimeMillis: Long,
+    val segmentType: Int,
+    val repetitions: Int,
+)
+
+@Serializable
+data class ExerciseLapData(
+    val startTimeMillis: Long,
+    val endTimeMillis: Long,
+    val lengthMeters: Double?,
+)
+
+@Serializable
+data class ExerciseData(
+    val exerciseType: Int = 0,
+    val title: String? = null,
+    val notes: String? = null,
+    val segmentsJson: String? = null,
+    val lapsJson: String? = null,
+    val hasRoute: Boolean = false,
+)
+
 @Entity(indices = [Index(value = ["type", "startTime", "endTime"])])
 data class Record(
     val id: String,
@@ -98,6 +123,7 @@ data class Record(
     val secondaryValue: Double = 0.0,
     @Embedded(prefix = "nutrition_") val nutritionData: NutritionData? = null,
     @Embedded(prefix = "sleep_") val sleepData: SleepData? = null,
+    @Embedded(prefix = "exercise_") val exerciseData: ExerciseData? = null,
     val metadata: String? = null,
     @PrimaryKey val primaryKey: String = "$id-$index",
 )
@@ -112,6 +138,9 @@ interface HealthDao {
 
     @Query("SELECT * FROM Record WHERE type = :type ORDER BY startTime DESC")
     suspend fun getRecords(type: RecordType): List<Record>
+
+    @Query("SELECT * FROM Record WHERE type = :type ORDER BY startTime DESC")
+    fun getRecordsFlow(type: RecordType): Flow<List<Record>>
 
     @Query("SELECT * FROM Record WHERE primaryKey = :id")
     suspend fun getRecord(id: String): Record?
@@ -408,12 +437,27 @@ interface HealthDao {
 
 @Database(
     entities = [Record::class, Ingredient::class, Recipe::class, ServingUnit::class, RecipeIngredient::class],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class HealthDatabase : RoomDatabase() {
     abstract fun healthDao(): HealthDao
+
+    companion object : com.vayunmathur.library.util.DatabaseMigrations {
+        override val migrations = listOf(
+            object : androidx.room.migration.Migration(4, 5) {
+                override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    db.execSQL("ALTER TABLE Record ADD COLUMN exercise_exerciseType INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("ALTER TABLE Record ADD COLUMN exercise_title TEXT")
+                    db.execSQL("ALTER TABLE Record ADD COLUMN exercise_notes TEXT")
+                    db.execSQL("ALTER TABLE Record ADD COLUMN exercise_segmentsJson TEXT")
+                    db.execSQL("ALTER TABLE Record ADD COLUMN exercise_lapsJson TEXT")
+                    db.execSQL("ALTER TABLE Record ADD COLUMN exercise_hasRoute INTEGER NOT NULL DEFAULT 0")
+                }
+            }
+        )
+    }
 }
 
 class Converters {

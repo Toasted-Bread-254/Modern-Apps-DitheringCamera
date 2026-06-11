@@ -12,6 +12,7 @@ import androidx.health.connect.client.records.BodyWaterMassRecord
 import androidx.health.connect.client.records.BoneMassRecord
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ElevationGainedRecord
+import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.FloorsClimbedRecord
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
@@ -193,6 +194,37 @@ fun androidx.health.connect.client.records.Record.toRecord(): List<Record> =
             ))
         }
         is MindfulnessSessionRecord -> listOf(Record(this.metadata.id, 0, RecordType.Mindfulness, this.startTime, this.endTime, Duration.between(this.startTime, this.endTime).toMillis().toDouble() / 1000.0 / 60.0, metadata = "Mindfulness"))
+        is ExerciseSessionRecord -> {
+            val durationMinutes = Duration.between(this.startTime, this.endTime).toMinutes().toDouble()
+            val segments = this.segments.map { seg ->
+                com.vayunmathur.health.data.ExerciseSegmentData(
+                    seg.startTime.toEpochMilli(), seg.endTime.toEpochMilli(),
+                    seg.segmentType, seg.repetitions
+                )
+            }
+            val laps = this.laps.map { lap ->
+                com.vayunmathur.health.data.ExerciseLapData(
+                    lap.startTime.toEpochMilli(), lap.endTime.toEpochMilli(),
+                    lap.length?.inMeters
+                )
+            }
+            val hasRoute = this.exerciseRouteResult is androidx.health.connect.client.records.ExerciseRouteResult.Data
+            listOf(Record(
+                this.metadata.id, 0, RecordType.Exercise,
+                this.startTime, this.endTime,
+                durationMinutes,
+                secondaryValue = this.exerciseType.toDouble(),
+                exerciseData = com.vayunmathur.health.data.ExerciseData(
+                    exerciseType = this.exerciseType,
+                    title = this.title,
+                    notes = this.notes,
+                    segmentsJson = if (segments.isNotEmpty()) Json.encodeToString(segments) else null,
+                    lapsJson = if (laps.isNotEmpty()) Json.encodeToString(laps) else null,
+                    hasRoute = hasRoute,
+                ),
+                metadata = this.title ?: exerciseTypeName(this.exerciseType)
+            ))
+        }
         is HydrationRecord -> listOf(Record(this.metadata.id, 0, RecordType.Hydration, this.startTime, this.endTime, this.volume.inMilliliters, metadata = "Hydration"))
         is NutritionRecord -> {
             val kcal = this.energy?.inKilocalories ?: 0.0
@@ -248,3 +280,135 @@ fun androidx.health.connect.client.records.Record.toRecord(): List<Record> =
 
         else -> throw IllegalArgumentException("Unsupported record type")
     }
+
+fun exerciseTypeName(type: Int): String = when (type) {
+    ExerciseSessionRecord.EXERCISE_TYPE_BADMINTON -> "Badminton"
+    ExerciseSessionRecord.EXERCISE_TYPE_BASEBALL -> "Baseball"
+    ExerciseSessionRecord.EXERCISE_TYPE_BASKETBALL -> "Basketball"
+    ExerciseSessionRecord.EXERCISE_TYPE_BIKING -> "Cycling"
+    ExerciseSessionRecord.EXERCISE_TYPE_BIKING_STATIONARY -> "Stationary Bike"
+    ExerciseSessionRecord.EXERCISE_TYPE_BOOT_CAMP -> "Boot Camp"
+    ExerciseSessionRecord.EXERCISE_TYPE_BOXING -> "Boxing"
+    ExerciseSessionRecord.EXERCISE_TYPE_CALISTHENICS -> "Calisthenics"
+    ExerciseSessionRecord.EXERCISE_TYPE_CRICKET -> "Cricket"
+    ExerciseSessionRecord.EXERCISE_TYPE_DANCING -> "Dancing"
+    ExerciseSessionRecord.EXERCISE_TYPE_ELLIPTICAL -> "Elliptical"
+    ExerciseSessionRecord.EXERCISE_TYPE_EXERCISE_CLASS -> "Exercise Class"
+    ExerciseSessionRecord.EXERCISE_TYPE_FENCING -> "Fencing"
+    ExerciseSessionRecord.EXERCISE_TYPE_FOOTBALL_AMERICAN -> "Football"
+    ExerciseSessionRecord.EXERCISE_TYPE_FOOTBALL_AUSTRALIAN -> "Australian Football"
+    ExerciseSessionRecord.EXERCISE_TYPE_GOLF -> "Golf"
+    ExerciseSessionRecord.EXERCISE_TYPE_GUIDED_BREATHING -> "Guided Breathing"
+    ExerciseSessionRecord.EXERCISE_TYPE_GYMNASTICS -> "Gymnastics"
+    ExerciseSessionRecord.EXERCISE_TYPE_HANDBALL -> "Handball"
+    ExerciseSessionRecord.EXERCISE_TYPE_HIGH_INTENSITY_INTERVAL_TRAINING -> "HIIT"
+    ExerciseSessionRecord.EXERCISE_TYPE_HIKING -> "Hiking"
+    ExerciseSessionRecord.EXERCISE_TYPE_ICE_HOCKEY -> "Ice Hockey"
+    ExerciseSessionRecord.EXERCISE_TYPE_ICE_SKATING -> "Ice Skating"
+    ExerciseSessionRecord.EXERCISE_TYPE_MARTIAL_ARTS -> "Martial Arts"
+    ExerciseSessionRecord.EXERCISE_TYPE_PADDLING -> "Paddling"
+    ExerciseSessionRecord.EXERCISE_TYPE_PARAGLIDING -> "Paragliding"
+    ExerciseSessionRecord.EXERCISE_TYPE_PILATES -> "Pilates"
+    ExerciseSessionRecord.EXERCISE_TYPE_RACQUETBALL -> "Racquetball"
+    ExerciseSessionRecord.EXERCISE_TYPE_ROCK_CLIMBING -> "Rock Climbing"
+    ExerciseSessionRecord.EXERCISE_TYPE_ROWING -> "Rowing"
+    ExerciseSessionRecord.EXERCISE_TYPE_ROWING_MACHINE -> "Rowing Machine"
+    ExerciseSessionRecord.EXERCISE_TYPE_RUGBY -> "Rugby"
+    ExerciseSessionRecord.EXERCISE_TYPE_RUNNING -> "Running"
+    ExerciseSessionRecord.EXERCISE_TYPE_RUNNING_TREADMILL -> "Treadmill"
+    ExerciseSessionRecord.EXERCISE_TYPE_SAILING -> "Sailing"
+    ExerciseSessionRecord.EXERCISE_TYPE_SCUBA_DIVING -> "Scuba Diving"
+    ExerciseSessionRecord.EXERCISE_TYPE_SKATING -> "Skating"
+    ExerciseSessionRecord.EXERCISE_TYPE_SKIING -> "Skiing"
+    ExerciseSessionRecord.EXERCISE_TYPE_SNOWBOARDING -> "Snowboarding"
+    ExerciseSessionRecord.EXERCISE_TYPE_SNOWSHOEING -> "Snowshoeing"
+    ExerciseSessionRecord.EXERCISE_TYPE_SOCCER -> "Soccer"
+    ExerciseSessionRecord.EXERCISE_TYPE_SOFTBALL -> "Softball"
+    ExerciseSessionRecord.EXERCISE_TYPE_SQUASH -> "Squash"
+    ExerciseSessionRecord.EXERCISE_TYPE_STAIR_CLIMBING -> "Stair Climbing"
+    ExerciseSessionRecord.EXERCISE_TYPE_STAIR_CLIMBING_MACHINE -> "Stair Machine"
+    ExerciseSessionRecord.EXERCISE_TYPE_STRENGTH_TRAINING -> "Strength Training"
+    ExerciseSessionRecord.EXERCISE_TYPE_STRETCHING -> "Stretching"
+    ExerciseSessionRecord.EXERCISE_TYPE_SURFING -> "Surfing"
+    ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_OPEN_WATER -> "Open Water Swimming"
+    ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_POOL -> "Pool Swimming"
+    ExerciseSessionRecord.EXERCISE_TYPE_TABLE_TENNIS -> "Table Tennis"
+    ExerciseSessionRecord.EXERCISE_TYPE_TENNIS -> "Tennis"
+    ExerciseSessionRecord.EXERCISE_TYPE_VOLLEYBALL -> "Volleyball"
+    ExerciseSessionRecord.EXERCISE_TYPE_WALKING -> "Walking"
+    ExerciseSessionRecord.EXERCISE_TYPE_WATER_POLO -> "Water Polo"
+    ExerciseSessionRecord.EXERCISE_TYPE_WEIGHTLIFTING -> "Weightlifting"
+    ExerciseSessionRecord.EXERCISE_TYPE_WHEELCHAIR -> "Wheelchair"
+    ExerciseSessionRecord.EXERCISE_TYPE_YOGA -> "Yoga"
+    else -> "Workout"
+}
+
+fun exerciseSegmentTypeName(type: Int): String = when (type) {
+    1 -> "Arm Curl"
+    2 -> "Back Extension"
+    3 -> "Ball Throw"
+    4 -> "Barbell Shoulder Press"
+    5 -> "Bench Press"
+    6 -> "Bench Sit-Up"
+    7 -> "Biking"
+    8 -> "Biking (Stationary)"
+    9 -> "Burpee"
+    10 -> "Crunch"
+    11 -> "Deadlift"
+    12 -> "Double Arm Triceps Extension"
+    13 -> "Dumbbell Curl (Left)"
+    14 -> "Dumbbell Curl (Right)"
+    15 -> "Dumbbell Front Raise"
+    16 -> "Dumbbell Lateral Raise"
+    17 -> "Dumbbell Row"
+    18 -> "Dumbbell Triceps Extension (Left)"
+    19 -> "Dumbbell Triceps Extension (Right)"
+    20 -> "Elliptical"
+    21 -> "Forward Twist"
+    22 -> "Front Raise"
+    23 -> "High Intensity Interval Training"
+    24 -> "Hip Thrust"
+    25 -> "Hula Hoop"
+    26 -> "Jumping Jack"
+    27 -> "Jump Rope"
+    28 -> "Kettlebell Swing"
+    29 -> "Lat Pull-Down"
+    30 -> "Lateral Raise"
+    31 -> "Leg Curl"
+    32 -> "Leg Extension"
+    33 -> "Leg Press"
+    34 -> "Leg Raise"
+    35 -> "Lunge"
+    36 -> "Mountain Climber"
+    37 -> "Other"
+    38 -> "Pause"
+    39 -> "Pilates"
+    40 -> "Plank"
+    41 -> "Pull-Up"
+    42 -> "Punch"
+    43 -> "Rest"
+    44 -> "Rowing Machine"
+    45 -> "Running"
+    46 -> "Running (Treadmill)"
+    47 -> "Shoulder Press"
+    48 -> "Single Arm Triceps Extension"
+    49 -> "Sit-Up"
+    50 -> "Squat"
+    51 -> "Stair Climbing"
+    52 -> "Stair Climbing Machine"
+    53 -> "Stretching"
+    54 -> "Swimming (Backstroke)"
+    55 -> "Swimming (Breaststroke)"
+    56 -> "Swimming (Butterfly)"
+    57 -> "Swimming (Freestyle)"
+    58 -> "Swimming (Mixed)"
+    59 -> "Swimming (Other)"
+    60 -> "Swimming (Open Water)"
+    61 -> "Swimming (Pool)"
+    62 -> "Upper Twist"
+    63 -> "Walking"
+    64 -> "Weightlifting"
+    65 -> "Wheelchair"
+    66 -> "Yoga"
+    else -> "Activity"
+}

@@ -271,6 +271,9 @@ enum class HealthMetricConfig(
     ),
     SLEEP(
         R.string.metric_sleep, RecordType.Sleep, "hr", 8.0, isLineChart = false, useDecimals = true
+    ),
+    EXERCISE_DURATION(
+        R.string.metric_exercise_duration, RecordType.Exercise, "min", 30.0, isLineChart = false, useDecimals = false
     )
 }
 
@@ -589,7 +592,7 @@ private fun ChartHeader(
 
 private fun iconResFor(config: HealthMetricConfig): Int = when (config.recordType) {
     RecordType.Steps, RecordType.Distance, RecordType.Floors, RecordType.Elevation,
-    RecordType.Wheelchair -> R.drawable.outline_directions_walk_24
+    RecordType.Wheelchair, RecordType.Exercise -> R.drawable.outline_directions_walk_24
     RecordType.CaloriesActive, RecordType.CaloriesTotal, RecordType.CaloriesBasal -> R.drawable.baseline_local_fire_department_24
     RecordType.HeartRate, RecordType.RestingHeartRate, RecordType.HeartRateVariabilityRmssd,
     RecordType.RespiratoryRate, RecordType.OxygenSaturation, RecordType.BloodPressure,

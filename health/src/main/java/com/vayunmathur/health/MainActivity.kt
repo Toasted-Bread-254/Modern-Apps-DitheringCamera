@@ -31,6 +31,7 @@ import androidx.health.connect.client.records.BodyWaterMassRecord
 import androidx.health.connect.client.records.BoneMassRecord
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ElevationGainedRecord
+import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.FloorsClimbedRecord
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
@@ -54,6 +55,7 @@ import com.vayunmathur.health.data.HealthDatabase
 import com.vayunmathur.health.ui.ActivityPage
 import com.vayunmathur.health.ui.BarChartDetails
 import com.vayunmathur.health.ui.BodyPage
+import com.vayunmathur.health.ui.ExerciseDetailsPage
 import com.vayunmathur.health.ui.HealthMetricConfig
 
 import com.vayunmathur.health.ui.NutritionDetailsPage
@@ -81,6 +83,9 @@ val CLASSES = setOf(
 
     // Body Composition
     WeightRecord::class, HeightRecord::class, BodyFatRecord::class, LeanBodyMassRecord::class, BoneMassRecord::class, BodyWaterMassRecord::class,
+
+    // Exercise
+    ExerciseSessionRecord::class,
 
     // Lifestyle & Nutrition
     MindfulnessSessionRecord::class, HydrationRecord::class, NutritionRecord::class, SleepSessionRecord::class
@@ -166,6 +171,9 @@ sealed interface Route: NavKey {
 
     @Serializable
     data object SleepDetails: Route
+
+    @Serializable
+    data object ExerciseDetails: Route
 }
 
 @Composable
@@ -228,6 +236,9 @@ fun Navigation(viewModel: HealthViewModel) {
         }
         entry<Route.SleepDetails> {
             com.vayunmathur.health.ui.SleepDetailsPage(backStack, viewModel)
+        }
+        entry<Route.ExerciseDetails> {
+            ExerciseDetailsPage(backStack, viewModel)
         }
     }
 }

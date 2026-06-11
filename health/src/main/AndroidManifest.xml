@@ -32,6 +32,9 @@
     <uses-permission android:name="android.permission.health.READ_BONE_MASS" />
     <uses-permission android:name="android.permission.health.READ_BODY_WATER_MASS" />
 
+    <!-- Exercise -->
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+
     <!-- Lifestyle & Nutrition -->
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_MINDFULNESS" />

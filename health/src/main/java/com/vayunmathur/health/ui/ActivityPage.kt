@@ -63,6 +63,9 @@ fun ActivityPage(backStack: NavBackStack<Route>, viewModel: HealthViewModel) {
     val wheelchairToday by remember(dayStart, dayEnd) {
         viewModel.sumInRange(RecordType.Wheelchair, dayStart, dayEnd).map { it.toLong() }
     }.collectAsState(0L)
+    val exerciseToday by remember(dayStart, dayEnd) {
+        viewModel.sumInRange(RecordType.Exercise, dayStart, dayEnd).map { it.toLong() }
+    }.collectAsState(0L)
 
     Scaffold(
         topBar = {
@@ -135,6 +138,15 @@ fun ActivityPage(backStack: NavBackStack<Route>, viewModel: HealthViewModel) {
                         leadingIconRes = R.drawable.outline_directions_walk_24,
                         leadingTint = colorFor(RecordType.Wheelchair),
                         onClick = { backStack.add(Route.BarChartDetails(HealthMetricConfig.WHEELCHAIR_PUSHES)) },
+                    )
+                    GroupedSectionDivider()
+                    MetricRow(
+                        label = stringResource(R.string.label_exercise),
+                        value = exerciseToday.toString(),
+                        unit = stringResource(R.string.unit_min),
+                        leadingIconRes = R.drawable.outline_directions_walk_24,
+                        leadingTint = colorFor(RecordType.Exercise),
+                        onClick = { backStack.add(Route.ExerciseDetails) },
                     )
                 }
             }

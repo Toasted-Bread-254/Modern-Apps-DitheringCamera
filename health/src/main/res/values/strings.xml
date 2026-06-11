@@ -57,6 +57,7 @@
     <string name="metric_bone_mass">Bone Mass</string>
     <string name="metric_body_water_mass">Body Water Mass</string>
     <string name="metric_sleep">Sleep</string>
+    <string name="metric_exercise_duration">Exercise</string>
 
     <!-- Sleep Stages -->
     <string name="label_awake">Awake</string>
@@ -159,7 +160,6 @@
     <string name="rename_ingredient">Rename Ingredient</string>
     <string name="custom_name">Custom Name</string>
     <string name="save">Save</string>
-    <string name="cancel">Cancel</string>
     <string name="recipe_name">Recipe Name</string>
     <string name="add">Add</string>
     <string name="save_recipe">Save Recipe</string>
@@ -186,4 +186,11 @@
     <string name="section_quick_stats">Quick stats</string>
     <string name="section_today_activity">Today</string>
     <string name="section_this_week">This week</string>
+
+    <!-- Exercise -->
+    <string name="label_exercise">Exercise</string>
+    <string name="label_workouts">Workouts</string>
+    <string name="section_workouts">Workouts</string>
+    <string name="label_total_exercise">Total exercise</string>
+    <string name="no_workouts">No workouts recorded</string>
 </resources>

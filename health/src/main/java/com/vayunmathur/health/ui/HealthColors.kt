@@ -25,7 +25,7 @@ val hydrationColor = HealthColors.Hydration
 @Composable @ReadOnlyComposable
 fun colorFor(metric: RecordType): Color = when (metric) {
     Steps, Distance, Floors, Elevation, Wheelchair,
-    CaloriesActive, CaloriesTotal, CaloriesBasal -> HealthColors.Activity
+    CaloriesActive, CaloriesTotal, CaloriesBasal, Exercise -> HealthColors.Activity
     HeartRate, RestingHeartRate, HeartRateVariabilityRmssd, RespiratoryRate,
     OxygenSaturation, BloodPressure, BloodGlucose, Vo2Max, SkinTemperature -> HealthColors.Vitals
     Weight, Height, BodyFat, LeanBodyMass, BoneMass, BodyWaterMass -> HealthColors.Body

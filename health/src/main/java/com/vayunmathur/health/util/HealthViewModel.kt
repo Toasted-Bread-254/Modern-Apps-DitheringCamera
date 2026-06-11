@@ -189,6 +189,9 @@ class HealthViewModel(application: Application) : AndroidViewModel(application) 
     fun getAllRecordsInRange(type: RecordType, start: kotlin.time.Instant, end: kotlin.time.Instant): Flow<List<Record>> =
         db.healthDao().getAllInRange(type, start, end)
 
+    fun getAllRecordsOfType(type: RecordType): Flow<List<Record>> =
+        db.healthDao().getRecordsFlow(type)
+
     // ============================================================================================
     //  Recipe / Ingredient flows.
     // ============================================================================================
