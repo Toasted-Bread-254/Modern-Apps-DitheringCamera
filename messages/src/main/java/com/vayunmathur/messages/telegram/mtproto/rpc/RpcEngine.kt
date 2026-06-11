@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class RpcException(val errorCode: Int, override val message: String) : Exception("RPC error $errorCode: $message")
 
@@ -25,6 +26,8 @@ class RpcEngine(
     private val acks = ConcurrentHashMap<Long, CompletableDeferred<Unit>>()
     private val payloads = ConcurrentHashMap<Long, ByteArray>()
     private val closed = AtomicBoolean(false)
+    private val activeCount = AtomicInteger(0)
+    private val idleLock = Object()
     private val TAG = "RpcEngine"
 
     suspend fun <R : TlObject> execute(
@@ -33,6 +36,7 @@ class RpcEngine(
         decoder: (TlBuffer) -> R,
     ): R = coroutineScope {
         check(!closed.get()) { "Engine is closed" }
+        activeCount.incrementAndGet()
 
         val buf = TlBuffer()
         method.encode(buf)
@@ -51,16 +55,16 @@ class RpcEngine(
                     withTimeout(retryInterval) { ackDeferred.await() }
                     return@launch
                 } catch (_: TimeoutCancellationException) {
+                    Log.w(TAG, "Ack timeout for msgId=$msgId, retry ${retries + 1}/$maxRetries")
+                    try { sendFn(encoded, msgId) } catch (e: Exception) {
+                        Log.e(TAG, "Retry send failed for msgId=$msgId", e)
+                        deferred.completeExceptionally(e)
+                        return@launch
+                    }
                     retries++
                     if (retries >= maxRetries) {
                         Log.e(TAG, "Retry limit reached for msgId=$msgId")
                         deferred.completeExceptionally(RetryLimitReachedException(retries))
-                        return@launch
-                    }
-                    Log.w(TAG, "Ack timeout for msgId=$msgId, retry $retries/$maxRetries")
-                    try { sendFn(encoded, msgId) } catch (e: Exception) {
-                        Log.e(TAG, "Retry send failed for msgId=$msgId", e)
-                        deferred.completeExceptionally(e)
                         return@launch
                     }
                 }
@@ -77,6 +81,9 @@ class RpcEngine(
         } finally {
             retryJob.cancel()
             acks.remove(msgId)
+            if (activeCount.decrementAndGet() == 0) {
+                synchronized(idleLock) { idleLock.notifyAll() }
+            }
         }
     }
 
@@ -111,6 +118,11 @@ class RpcEngine(
 
     fun close() {
         closed.set(true)
+        synchronized(idleLock) {
+            while (activeCount.get() > 0) {
+                idleLock.wait()
+            }
+        }
     }
 
     fun forceClose() {
@@ -136,4 +148,10 @@ class RpcEngine(
     }
 
     fun getPendingPayload(msgId: Long): ByteArray? = payloads.remove(msgId)
+
+    fun migratePending(oldMsgId: Long, newMsgId: Long) {
+        pending.remove(oldMsgId)?.let { pending[newMsgId] = it }
+        acks.remove(oldMsgId)?.let { acks[newMsgId] = it }
+        payloads.remove(oldMsgId)?.let { payloads[newMsgId] = it }
+    }
 }

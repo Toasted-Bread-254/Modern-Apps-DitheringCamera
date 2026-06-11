@@ -290,6 +290,69 @@ interface SignalGroupDao {
     suspend fun getAll(): List<SignalGroupEntity>
 }
 
+@Entity(tableName = "signal_backup_recipients")
+data class SignalBackupRecipientEntity(
+    @PrimaryKey val id: Long,
+    val data: ByteArray,
+)
+
+@Entity(tableName = "signal_backup_chats")
+data class SignalBackupChatEntity(
+    @PrimaryKey val id: Long,
+    val recipientId: Long,
+    val data: ByteArray,
+)
+
+@Entity(
+    tableName = "signal_backup_chat_items",
+    primaryKeys = ["chatId", "messageId"],
+)
+data class SignalBackupChatItemEntity(
+    val chatId: Long,
+    val authorId: Long,
+    val messageId: Long,
+    val data: ByteArray,
+)
+
+@Dao
+interface SignalBackupRecipientDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(entity: SignalBackupRecipientEntity)
+
+    @Query("SELECT * FROM signal_backup_recipients WHERE id = :id LIMIT 1")
+    suspend fun get(id: Long): SignalBackupRecipientEntity?
+
+    @Query("DELETE FROM signal_backup_recipients")
+    suspend fun deleteAll()
+}
+
+@Dao
+interface SignalBackupChatDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(entity: SignalBackupChatEntity)
+
+    @Query("SELECT * FROM signal_backup_chats WHERE id = :id LIMIT 1")
+    suspend fun get(id: Long): SignalBackupChatEntity?
+
+    @Query("SELECT * FROM signal_backup_chats")
+    suspend fun getAll(): List<SignalBackupChatEntity>
+
+    @Query("DELETE FROM signal_backup_chats")
+    suspend fun deleteAll()
+}
+
+@Dao
+interface SignalBackupChatItemDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(entity: SignalBackupChatItemEntity)
+
+    @Query("SELECT * FROM signal_backup_chat_items WHERE chatId = :chatId ORDER BY messageId DESC LIMIT :limit")
+    suspend fun getByChatId(chatId: Long, limit: Int = 100): List<SignalBackupChatItemEntity>
+
+    @Query("DELETE FROM signal_backup_chat_items")
+    suspend fun deleteAll()
+}
+
 @Dao
 interface SignalEventBufferDao {
     @Query("SELECT * FROM signal_event_buffer WHERE ciphertextHash = :hash LIMIT 1")
@@ -317,8 +380,11 @@ interface SignalEventBufferDao {
         SignalRecipientEntity::class,
         SignalGroupEntity::class,
         SignalEventBufferEntity::class,
+        SignalBackupRecipientEntity::class,
+        SignalBackupChatEntity::class,
+        SignalBackupChatItemEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class SignalDatabase : RoomDatabase() {
@@ -332,6 +398,9 @@ abstract class SignalDatabase : RoomDatabase() {
     abstract fun recipientDao(): SignalRecipientDao
     abstract fun groupDao(): SignalGroupDao
     abstract fun eventBufferDao(): SignalEventBufferDao
+    abstract fun backupRecipientDao(): SignalBackupRecipientDao
+    abstract fun backupChatDao(): SignalBackupChatDao
+    abstract fun backupChatItemDao(): SignalBackupChatItemDao
 
     companion object {
         @Volatile

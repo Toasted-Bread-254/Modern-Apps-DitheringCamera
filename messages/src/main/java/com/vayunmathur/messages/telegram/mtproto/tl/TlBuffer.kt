@@ -135,6 +135,7 @@ class TlBuffer {
             headerLen = 4
         } else {
             strLen = first
+            if (strLen > 253) throw IllegalStateException("Invalid short string length: $strLen")
             headerLen = 1
         }
         val totalLen = nearestPadded(headerLen + strLen)

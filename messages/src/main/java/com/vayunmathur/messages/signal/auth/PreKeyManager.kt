@@ -128,7 +128,7 @@ object PreKeyManager {
                 windowStartMinutes = 36 * 60
                 windowSizeMinutes = 24 * 60
             } catch (e: IOException) {
-                if (e.message?.contains("422") == true) {
+                if (e.message?.contains("PNI prekey upload rejected (422)") == true) {
                     Log.e(TAG, "Got 422 on PNI prekey upload, session invalid")
                     throw e
                 }
@@ -158,31 +158,53 @@ object PreKeyManager {
         identity: String,
         identityKeyPair: IdentityKeyPair,
     ) {
-        val random = SecureRandom()
-        val preKeyBase = random.nextInt(Int.MAX_VALUE - BATCH_SIZE)
-        val pqKeyBase = random.nextInt(Int.MAX_VALUE - BATCH_SIZE)
+        val (ecStoreCount, nextPreKeyId) = preKeyStore.getNextPreKeyId()
+        val (kyberStoreCount, nextKyberPreKeyId) = preKeyStore.getNextKyberPreKeyId()
 
-        val preKeys = JSONArray().apply {
-            for (i in 0 until BATCH_SIZE) {
+        val preKeys = JSONArray()
+
+        val existingPreKeys = preKeyStore.getAllPreKeys()
+        for (record in existingPreKeys) {
+            preKeys.put(JSONObject().apply {
+                put("keyId", record.id)
+                put("publicKey", Base64.encodeToString(record.keyPair.publicKey.serialize(), Base64.NO_WRAP))
+            })
+        }
+
+        if (ecStoreCount < BATCH_SIZE) {
+            val ecToGenerate = BATCH_SIZE - ecStoreCount
+            for (i in 0 until ecToGenerate) {
                 val kp = ECKeyPair.generate()
-                val id = preKeyBase + i
+                val id = nextPreKeyId + i
                 val record = PreKeyRecord(id, kp)
                 preKeyStore.storePreKey(id, record)
-                put(JSONObject().apply {
+                preKeys.put(JSONObject().apply {
                     put("keyId", id)
                     put("publicKey", Base64.encodeToString(kp.publicKey.serialize(), Base64.NO_WRAP))
                 })
             }
         }
 
-        val pqPreKeys = JSONArray().apply {
-            for (i in 0 until BATCH_SIZE) {
+        val pqPreKeys = JSONArray()
+
+        val existingKyberKeys = preKeyStore.getAllNormalKyberPreKeys()
+        for (record in existingKyberKeys) {
+            pqPreKeys.put(JSONObject().apply {
+                put("keyId", record.id)
+                put("publicKey", Base64.encodeToString(record.keyPair.publicKey.serialize(), Base64.NO_WRAP))
+                put("signature", Base64.encodeToString(record.signature, Base64.NO_WRAP))
+            })
+        }
+
+        if (kyberStoreCount < BATCH_SIZE) {
+            val kyberToGenerate = BATCH_SIZE - kyberStoreCount
+            for (i in 0 until kyberToGenerate) {
                 val kemKp = KEMKeyPair.generate(KEMKeyType.KYBER_1024)
                 val sig = identityKeyPair.privateKey.calculateSignature(kemKp.publicKey.serialize())
-                val id = pqKeyBase + i
+                val id = nextKyberPreKeyId + i
                 val record = KyberPreKeyRecord(id, System.currentTimeMillis(), kemKp, sig)
                 preKeyStore.storeKyberPreKey(id, record)
-                put(JSONObject().apply {
+                pqPreKeys.put(JSONObject().apply {
                     put("keyId", id)
                     put("publicKey", Base64.encodeToString(kemKp.publicKey.serialize(), Base64.NO_WRAP))
                     put("signature", Base64.encodeToString(sig, Base64.NO_WRAP))

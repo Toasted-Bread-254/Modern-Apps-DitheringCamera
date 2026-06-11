@@ -1,6 +1,14 @@
 package com.vayunmathur.messages.signal.media
 
 import android.util.Log
+import com.google.protobuf.CodedInputStream
+import com.vayunmathur.messages.signal.proto.backup.Backup.BackupInfo
+import com.vayunmathur.messages.signal.proto.backup.Backup.ChatItem
+import com.vayunmathur.messages.signal.proto.backup.Backup.Frame
+import com.vayunmathur.messages.signal.store.SignalBackupChatEntity
+import com.vayunmathur.messages.signal.store.SignalBackupChatItemEntity
+import com.vayunmathur.messages.signal.store.SignalBackupRecipientEntity
+import com.vayunmathur.messages.signal.store.SignalDatabase
 import com.vayunmathur.messages.signal.web.SignalHttpClient
 import com.vayunmathur.messages.signal.web.SignalWebSocket
 import org.json.JSONObject
@@ -16,6 +24,7 @@ import javax.crypto.spec.SecretKeySpec
 class BackupManager(
     private val ws: SignalWebSocket,
     private val selfAci: String,
+    private val db: SignalDatabase,
 ) {
     companion object {
         private const val TAG = "BackupManager"
@@ -157,7 +166,95 @@ class BackupManager(
         return baos.toByteArray()
     }
 
-    private fun processBackupFrames(data: ByteArray) {
+    private suspend fun processBackupFrames(data: ByteArray) {
         Log.d(TAG, "Processing ${data.size} bytes of backup data")
+        val input = CodedInputStream.newInstance(data)
+        var seenInfo = false
+        val recipientDao = db.backupRecipientDao()
+        val chatDao = db.backupChatDao()
+        val chatItemDao = db.backupChatItemDao()
+
+        // Clear existing backup data before importing
+        chatItemDao.deleteAll()
+        chatDao.deleteAll()
+        recipientDao.deleteAll()
+
+        while (!input.isAtEnd) {
+            val length = input.readRawVarint32()
+            if (length == 0) continue
+            val limit = input.pushLimit(length)
+            val chunk = input.readRawBytes(length)
+            input.popLimit(limit)
+
+            if (!seenInfo) {
+                val info = BackupInfo.parseFrom(chunk)
+                if (info.version != BACKUP_VERSION.toLong()) {
+                    throw Exception("Unsupported backup version: ${info.version}")
+                }
+                Log.i(TAG, "Backup info: version=${info.version}")
+                seenInfo = true
+                continue
+            }
+
+            val frame = Frame.parseFrom(chunk)
+            processFrame(frame, recipientDao, chatDao, chatItemDao)
+        }
+        Log.d(TAG, "Finished processing backup frames")
+    }
+
+    private suspend fun processFrame(
+        frame: Frame,
+        recipientDao: com.vayunmathur.messages.signal.store.SignalBackupRecipientDao,
+        chatDao: com.vayunmathur.messages.signal.store.SignalBackupChatDao,
+        chatItemDao: com.vayunmathur.messages.signal.store.SignalBackupChatItemDao,
+    ) {
+        when (frame.itemCase) {
+            Frame.ItemCase.RECIPIENT -> {
+                val recipient = frame.recipient
+                if (recipient.destinationCase == com.vayunmathur.messages.signal.proto.backup.Backup.Recipient.DestinationCase.DESTINATION_NOT_SET) {
+                    Log.d(TAG, "Ignoring recipient frame with no destination")
+                    return
+                }
+                recipientDao.insert(
+                    SignalBackupRecipientEntity(
+                        id = recipient.id,
+                        data = recipient.toByteArray(),
+                    )
+                )
+            }
+            Frame.ItemCase.CHAT -> {
+                val chat = frame.chat
+                chatDao.insert(
+                    SignalBackupChatEntity(
+                        id = chat.id,
+                        recipientId = chat.recipientId,
+                        data = chat.toByteArray(),
+                    )
+                )
+            }
+            Frame.ItemCase.CHATITEM -> {
+                val chatItem = frame.chatItem
+                when (chatItem.itemCase) {
+                    ChatItem.ItemCase.DIRECTSTORYREPLYMESSAGE,
+                    ChatItem.ItemCase.UPDATEMESSAGE,
+                    ChatItem.ItemCase.ITEM_NOT_SET -> {
+                        Log.d(TAG, "Not saving unsupported chat item type: ${chatItem.itemCase}")
+                        return
+                    }
+                    else -> {}
+                }
+                chatItemDao.insert(
+                    SignalBackupChatItemEntity(
+                        chatId = chatItem.chatId,
+                        authorId = chatItem.authorId,
+                        messageId = chatItem.dateSent,
+                        data = chatItem.toByteArray(),
+                    )
+                )
+            }
+            else -> {
+                Log.d(TAG, "Ignoring backup frame: ${frame.itemCase}")
+            }
+        }
     }
 }

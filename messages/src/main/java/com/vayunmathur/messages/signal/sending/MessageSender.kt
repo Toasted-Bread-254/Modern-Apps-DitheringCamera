@@ -3,10 +3,14 @@ package com.vayunmathur.messages.signal.sending
 import android.util.Base64
 import android.util.Log
 import com.vayunmathur.messages.signal.proto.SignalServiceProtos
+import com.vayunmathur.messages.signal.store.SignalGroupStore
 import com.vayunmathur.messages.signal.store.SignalProtocolStoreImpl
 import com.vayunmathur.messages.signal.web.SignalWebSocket
 import org.json.JSONArray
 import org.json.JSONObject
+import org.signal.libsignal.metadata.SealedSessionCipher
+import org.signal.libsignal.metadata.certificate.SenderCertificate
+import org.signal.libsignal.protocol.IdentityKeyPair
 import org.signal.libsignal.protocol.SessionCipher
 import org.signal.libsignal.protocol.SignalProtocolAddress
 import org.signal.libsignal.protocol.message.CiphertextMessage
@@ -16,6 +20,7 @@ import org.signal.libsignal.protocol.state.PreKeyStore
 import org.signal.libsignal.protocol.state.SessionStore
 import org.signal.libsignal.protocol.state.SignedPreKeyStore
 import org.signal.libsignal.protocol.groups.state.SenderKeyStore
+import java.util.UUID
 
 class MessageSender(
     private val ws: SignalWebSocket,
@@ -30,14 +35,54 @@ class MessageSender(
     private val deviceManager: DeviceManager,
     private val recipientStore: com.vayunmathur.messages.signal.store.SignalRecipientStore? = null,
     private var unauthedWs: SignalWebSocket? = null,
+    private val groupStore: SignalGroupStore? = null,
+    private val selfPni: String? = null,
+    private val aciIdentityKeyPair: IdentityKeyPair? = null,
+    private val pniIdentityKeyPair: IdentityKeyPair? = null,
+    private val accountRecord: com.vayunmathur.messages.signal.proto.AccountRecord? = null,
 ) {
     private val protocolStore = SignalProtocolStoreImpl(
         sessionStore, identityKeyStore, preKeyStore, signedPreKeyStore, kyberPreKeyStore, senderKeyStore
     )
 
     @Volatile
-    private var cachedSenderCertificate: org.signal.libsignal.metadata.certificate.SenderCertificate? = null
+    private var cachedSenderCertificate: SenderCertificate? = null
     private var senderCertExpiry: Long = 0
+
+    private val sendCache = LinkedHashMap<SendCacheKey, SignalServiceProtos.Content>(64, 0.75f, true)
+    private val sendCacheLock = Any()
+
+    private data class SendCacheKey(val recipientAci: String, val groupId: String?, val timestamp: Long)
+
+    private fun addSendCache(recipientAci: String, groupId: String?, timestamp: Long, content: SignalServiceProtos.Content) {
+        synchronized(sendCacheLock) {
+            if (sendCache.size >= 128) {
+                val iter = sendCache.entries.iterator()
+                if (iter.hasNext()) { iter.next(); iter.remove() }
+            }
+            sendCache[SendCacheKey(recipientAci, groupId, timestamp)] = content
+        }
+    }
+
+    fun getCachedContent(recipientAci: String, groupId: String?, timestamp: Long): SignalServiceProtos.Content? {
+        synchronized(sendCacheLock) {
+            return sendCache[SendCacheKey(recipientAci, groupId, timestamp)]
+        }
+    }
+
+    private suspend fun fetchSenderCertificate(): SenderCertificate {
+        val now = System.currentTimeMillis()
+        cachedSenderCertificate?.let { cached ->
+            if (senderCertExpiry - now > 24 * 60 * 60 * 1000L) return cached
+        }
+        val resp = ws.sendRequest("GET", "/v1/certificate/delivery?includeE164=false", null, emptyMap())
+        val json = JSONObject(String(resp.body.toByteArray()))
+        val certBytes = Base64.decode(json.getString("certificate"), Base64.DEFAULT)
+        val cert = SenderCertificate(certBytes)
+        cachedSenderCertificate = cert
+        senderCertExpiry = cert.expiration
+        return cert
+    }
 
     class RecipientUnregisteredException(aci: String) : Exception("Recipient not registered (404): $aci")
 
@@ -56,26 +101,78 @@ class MessageSender(
             } else content
         } else content
 
-        val isDeliveryReceipt = contentWithProfileKey.hasReceiptMessage() &&
-            contentWithProfileKey.receiptMessage.type == SignalServiceProtos.ReceiptMessage.Type.DELIVERY
-        if (recipientAci == selfAci && !isDeliveryReceipt) {
-            if (contentWithProfileKey.hasDataMessage() || contentWithProfileKey.hasEditMessage()) {
-                sendSyncMessage(null, contentWithProfileKey, timestamp)
+        val isTypingOrReceipt = contentWithProfileKey.hasTypingMessage() ||
+            contentWithProfileKey.hasReceiptMessage()
+
+        // Gate typing indicators on account settings
+        if (contentWithProfileKey.hasTypingMessage() && accountRecord != null && !accountRecord.typingIndicators) {
+            Log.d(TAG, "Not sending typing message as typing indicators are disabled")
+            return SendResult(success = true)
+        }
+
+        // Gate read receipts on account settings
+        if (contentWithProfileKey.hasReceiptMessage() &&
+            contentWithProfileKey.receiptMessage.type == SignalServiceProtos.ReceiptMessage.Type.READ &&
+            accountRecord != null && !accountRecord.readReceipts) {
+            Log.d(TAG, "Not sending read receipt as read receipts are disabled")
+            if (contentWithProfileKey.hasReceiptMessage()) {
+                sendSyncMessage(recipientAci, contentWithProfileKey, timestamp)
             }
             return SendResult(success = true)
         }
 
-        val paddedContent = padContent(contentWithProfileKey.toByteArray())
+        // Attach PNI signature when needed
+        val contentToSend = maybeAttachPniSignature(recipientAci, contentWithProfileKey, isTypingOrReceipt)
+
+        val isDeliveryReceipt = contentToSend.hasReceiptMessage() &&
+            contentToSend.receiptMessage.type == SignalServiceProtos.ReceiptMessage.Type.DELIVERY
+        if (recipientAci == selfAci && !isDeliveryReceipt) {
+            if (contentToSend.hasDataMessage() || contentToSend.hasEditMessage()) {
+                sendSyncMessage(null, contentToSend, timestamp)
+            }
+            return SendResult(success = true)
+        }
+
+        addSendCache(recipientAci, null, timestamp, contentToSend)
+
+        val paddedContent = padContent(contentToSend.toByteArray())
         return try {
-            val sentUnidentified = sendToRecipient(recipientAci, paddedContent, timestamp, isUrgent(contentWithProfileKey))
-            if (contentWithProfileKey.hasDataMessage() || contentWithProfileKey.hasEditMessage()) {
-                sendSyncMessage(recipientAci, contentWithProfileKey, timestamp, unidentified = sentUnidentified)
+            val sentUnidentified = sendToRecipient(recipientAci, paddedContent, timestamp, isUrgent(contentToSend))
+            if (contentToSend.hasDataMessage() || contentToSend.hasEditMessage()) {
+                sendSyncMessage(recipientAci, contentToSend, timestamp, unidentified = sentUnidentified)
             }
             SendResult(success = true, unidentified = sentUnidentified)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send message to $recipientAci", e)
             SendResult(success = false, error = e.message)
         }
+    }
+
+    private suspend fun maybeAttachPniSignature(
+        recipientAci: String,
+        content: SignalServiceProtos.Content,
+        isTypingOrReceipt: Boolean,
+    ): SignalServiceProtos.Content {
+        if (pniIdentityKeyPair == null || aciIdentityKeyPair == null || selfPni == null) return content
+        if (isTypingOrReceipt) return content
+        if (content.hasPniSignatureMessage()) return content
+
+        val recipient = recipientStore?.getRecipient(recipientAci) ?: return content
+        if (!recipient.needsPniSignature) return content
+
+        Log.d(TAG, "Including PNI signature in message to $recipientAci")
+        val sig = pniIdentityKeyPair.signAlternateIdentity(aciIdentityKeyPair.publicKey)
+        val pniBytes = uuidToBytes(selfPni)
+
+        recipientStore.storeRecipient(recipient.copy(needsPniSignature = false))
+
+        return content.toBuilder()
+            .setPniSignatureMessage(
+                SignalServiceProtos.PniSignatureMessage.newBuilder()
+                    .setPni(com.google.protobuf.ByteString.copyFrom(pniBytes))
+                    .setSignature(com.google.protobuf.ByteString.copyFrom(sig))
+                    .build()
+            ).build()
     }
 
     suspend fun sendReadReceipt(recipientAci: String, timestamps: List<Long>) {
@@ -124,25 +221,59 @@ class MessageSender(
         content: SignalServiceProtos.Content,
         timestamp: Long,
     ): List<SendResult> {
-        val paddedContent = padContent(content.toByteArray())
+        // Decorate with GroupV2 context
+        val decoratedContent = decorateWithGroupContext(groupId, content)
+
+        val paddedContent = padContent(decoratedContent.toByteArray())
         val results = memberAcis.map { aci ->
             if (aci == selfAci) return@map SendResult(success = true)
+            addSendCache(aci, groupId, timestamp, decoratedContent)
             try {
-                sendToRecipient(aci, paddedContent, timestamp, isUrgent(content))
+                sendToRecipient(aci, paddedContent, timestamp, isUrgent(decoratedContent))
                 SendResult(success = true)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send group message to $aci", e)
                 SendResult(success = false, error = e.message)
             }
         }
-        if (content.hasDataMessage() || content.hasEditMessage()) {
+        if (decoratedContent.hasDataMessage() || decoratedContent.hasEditMessage()) {
             try {
-                sendSyncMessage(null, content, timestamp, groupId, memberAcis)
+                sendSyncMessage(null, decoratedContent, timestamp, groupId, memberAcis)
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to send group sync message", e)
             }
         }
         return results
+    }
+
+    private suspend fun decorateWithGroupContext(
+        groupId: String,
+        content: SignalServiceProtos.Content,
+    ): SignalServiceProtos.Content {
+        val group = groupStore?.getGroup(groupId) ?: return content
+        val groupContext = SignalServiceProtos.GroupContextV2.newBuilder()
+            .setMasterKey(com.google.protobuf.ByteString.copyFrom(group.masterKey))
+            .setRevision(group.revision)
+            .build()
+
+        val builder = content.toBuilder()
+        when {
+            content.hasDataMessage() -> {
+                builder.setDataMessage(content.dataMessage.toBuilder().setGroupV2(groupContext))
+            }
+            content.hasEditMessage() && content.editMessage.hasDataMessage() -> {
+                val editDm = content.editMessage.dataMessage.toBuilder().setGroupV2(groupContext)
+                builder.setEditMessage(content.editMessage.toBuilder().setDataMessage(editDm))
+            }
+            content.hasTypingMessage() -> {
+                val groupIdBytes = Base64.decode(groupId, Base64.DEFAULT)
+                builder.setTypingMessage(
+                    content.typingMessage.toBuilder()
+                        .setGroupId(com.google.protobuf.ByteString.copyFrom(groupIdBytes))
+                )
+            }
+        }
+        return builder.build()
     }
 
     private suspend fun sendToRecipient(
@@ -161,7 +292,7 @@ class MessageSender(
         for (deviceId in deviceIds) {
             deviceManager.ensureSession(recipientAci, deviceId)
             val address = SignalProtocolAddress(recipientAci, deviceId)
-            val encrypted = encryptFor(address, paddedContent)
+            val encrypted = encryptFor(address, paddedContent, sealedSender = useSealedSender && unauthedWs != null && recipientAci != selfAci)
             messages.put(JSONObject().apply {
                 put("type", encrypted.first)
                 put("destinationDeviceId", deviceId)
@@ -251,19 +382,30 @@ class MessageSender(
         }
     }
 
-    private fun encryptFor(
+    private suspend fun encryptFor(
         address: SignalProtocolAddress,
         paddedContent: ByteArray,
+        sealedSender: Boolean = false,
     ): Triple<Int, Int, String> {
         val cipher = SessionCipher(protocolStore, address)
         val ciphertext = cipher.encrypt(paddedContent)
+        val regId = protocolStore.loadSession(address).remoteRegistrationId
+
+        if (sealedSender) {
+            val cert = fetchSenderCertificate()
+            val sealedCipher = SealedSessionCipher(
+                protocolStore, UUID.fromString(selfAci), selfAci, selfDeviceId
+            )
+            val sealedPayload = sealedCipher.encrypt(address, cert, ciphertext.serialize())
+            return Triple(6, regId, Base64.encodeToString(sealedPayload, Base64.NO_WRAP))
+        }
+
         val type = when (ciphertext.type) {
             CiphertextMessage.PREKEY_TYPE -> 3
             CiphertextMessage.WHISPER_TYPE -> 1
             CiphertextMessage.PLAINTEXT_CONTENT_TYPE -> 8
             else -> 0
         }
-        val regId = protocolStore.loadSession(address).remoteRegistrationId
         return Triple(type, regId, Base64.encodeToString(ciphertext.serialize(), Base64.NO_WRAP))
     }
 
@@ -289,9 +431,15 @@ class MessageSender(
 
         if (recipientAci != null) {
             sentBuilder.setDestinationServiceId(recipientAci)
+            sentBuilder.setDestinationServiceIdBinary(
+                com.google.protobuf.ByteString.copyFrom(uuidToBytes(recipientAci))
+            )
             sentBuilder.addUnidentifiedStatus(
                 SignalServiceProtos.SyncMessage.Sent.UnidentifiedDeliveryStatus.newBuilder()
                     .setDestinationServiceId(recipientAci)
+                    .setDestinationServiceIdBinary(
+                        com.google.protobuf.ByteString.copyFrom(uuidToBytes(recipientAci))
+                    )
                     .setUnidentified(unidentified)
                     .build()
             )
@@ -421,6 +569,14 @@ class MessageSender(
             if (!content.hasSyncMessage()) return false
             val sync = content.syncMessage
             return sync.hasSent() || sync.hasRequest()
+        }
+
+        fun uuidToBytes(uuid: String): ByteArray {
+            val parsed = UUID.fromString(uuid)
+            val buf = java.nio.ByteBuffer.allocate(16)
+            buf.putLong(parsed.mostSignificantBits)
+            buf.putLong(parsed.leastSignificantBits)
+            return buf.array()
         }
     }
 }

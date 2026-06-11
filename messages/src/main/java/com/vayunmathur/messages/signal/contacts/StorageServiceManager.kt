@@ -22,6 +22,7 @@ class StorageServiceManager(
     private val recipientStore: SignalRecipientStore,
     private val groupStore: SignalGroupStore,
     private val ws: com.vayunmathur.messages.signal.web.SignalWebSocket,
+    private val onAccountRecord: (suspend (com.vayunmathur.messages.signal.proto.AccountRecord) -> Unit)? = null,
 ) {
     companion object {
         private const val TAG = "StorageService"
@@ -117,7 +118,14 @@ class StorageServiceManager(
             try {
                 if (r.hasContact()) processContact(r.contact)
                 else if (r.hasGroupV2()) processGroup(r.groupV2)
-                else if (r.hasAccount()) Log.d(TAG, "Found account record")
+                else if (r.hasAccount()) {
+                    Log.d(TAG, "Found account record, saving")
+                    try {
+                        onAccountRecord?.invoke(r.account)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to save account record", e)
+                    }
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to process record", e)
             }
@@ -125,8 +133,14 @@ class StorageServiceManager(
     }
 
     private suspend fun processContact(c: ContactRecord) {
-        val aci = c.aci.takeIf { it.isNotBlank() }
-        val pni = c.pni.takeIf { it.isNotBlank() }
+        val aci = ContactManager.parseStringOrBinaryAci(
+            c.aci.takeIf { it.isNotBlank() },
+            c.aciBinary?.takeIf { !it.isEmpty }?.toByteArray(),
+        )
+        val pni = ContactManager.parseStringOrBinaryAci(
+            c.pni.takeIf { it.isNotBlank() },
+            c.pniBinary?.takeIf { !it.isEmpty }?.toByteArray(),
+        )
         if (aci == null && pni == null) {
             Log.w(TAG, "Storage service has contact record with no ACI or PNI")
             return

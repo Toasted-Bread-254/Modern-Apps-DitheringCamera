@@ -52,9 +52,9 @@ object RsaKey {
 
         val dataWithPadding = ByteArray(192)
         System.arraycopy(data, 0, dataWithPadding, 0, data.size)
-        random.nextBytes(ByteArray(192 - data.size).also {
-            System.arraycopy(it, 0, dataWithPadding, data.size, it.size)
-        })
+        val padding = ByteArray(192 - data.size)
+        random.nextBytes(padding)
+        System.arraycopy(padding, 0, dataWithPadding, data.size, padding.size)
 
         val dataPadReversed = dataWithPadding.copyOf()
         dataPadReversed.reverse()

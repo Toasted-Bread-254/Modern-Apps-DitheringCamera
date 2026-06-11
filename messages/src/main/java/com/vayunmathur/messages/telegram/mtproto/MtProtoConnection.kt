@@ -49,7 +49,7 @@ class MtProtoConnection(
     private var serverTimeOffset: Long = 0L
     private var serverTimeOffsetSet = false
     private val futureSalts = mutableListOf<MessageFraming.FutureSalt>()
-    private var pongDeferred: CompletableDeferred<Unit>? = null
+    private val pongDeferreds = mutableMapOf<Long, CompletableDeferred<Unit>>()
 
     private companion object {
         const val ACK_BATCH_SIZE = 20
@@ -137,12 +137,7 @@ class MtProtoConnection(
         }
     }
 
-    private suspend fun handleDecrypted(data: ByteArray, msgId: Long, seqNo: Int) {
-        if (MessageFraming.needsAck(seqNo)) {
-            synchronized(pendingAcks) { pendingAcks.add(msgId) }
-            checkAckBatchFlush()
-        }
-
+    private suspend fun handleDecrypted(data: ByteArray, msgId: Long, seqNo: Int, fromContainer: Boolean = false) {
         val buf = TlBuffer(data)
         if (buf.remaining < 4) return
         val typeId = buf.peekId()
@@ -152,26 +147,33 @@ class MtProtoConnection(
                 buf.int32() // consume type id
                 val messages = MessageFraming.parseContainer(buf)
                 for (msg in messages) {
-                    handleDecrypted(msg.data, msg.msgId, msg.seqNo)
+                    handleDecrypted(msg.data, msg.msgId, msg.seqNo, fromContainer = true)
                 }
             }
             MessageFraming.TYPE_RPC_RESULT -> {
                 buf.int32() // consume type id
                 val (reqMsgId, resultBuf) = MessageFraming.parseRpcResult(buf)
                 if (resultBuf.remaining >= 4) {
-                    val innerType = resultBuf.peekId()
-                    if (innerType == MessageFraming.TYPE_GZIP_PACKED) {
+                    var innerType = resultBuf.peekId()
+                    val effectiveBuf = if (innerType == MessageFraming.TYPE_GZIP_PACKED) {
                         resultBuf.int32()
                         val decompressed = MessageFraming.gunzipPacked(resultBuf)
-                        rpcEngine.notifyResult(reqMsgId, TlBuffer(decompressed))
-                    } else if (innerType == MessageFraming.TYPE_RPC_ERROR) {
-                        resultBuf.int32()
-                        val err = MessageFraming.parseRpcError(resultBuf)
+                        val decompBuf = TlBuffer(decompressed)
+                        if (decompBuf.remaining >= 4) {
+                            innerType = decompBuf.peekId()
+                        }
+                        decompBuf
+                    } else {
+                        resultBuf
+                    }
+                    if (innerType == MessageFraming.TYPE_RPC_ERROR) {
+                        effectiveBuf.int32()
+                        val err = MessageFraming.parseRpcError(effectiveBuf)
                         rpcEngine.notifyError(reqMsgId, err.errorCode, err.errorMessage)
                     } else if (innerType == MessageFraming.TYPE_PONG) {
-                        handlePong(resultBuf)
+                        handlePong(effectiveBuf)
                     } else {
-                        rpcEngine.notifyResult(reqMsgId, resultBuf)
+                        rpcEngine.notifyResult(reqMsgId, effectiveBuf)
                     }
                 }
             }
@@ -195,7 +197,8 @@ class MtProtoConnection(
                 Log.d(TAG, "Updated server salt, re-sending msgId=${bss.badMsgId}")
                 rpcEngine.getPendingPayload(bss.badMsgId)?.let { payload ->
                     try {
-                        send(payload, true)
+                        val newMsgId = send(payload, true)
+                        rpcEngine.migratePending(bss.badMsgId, newMsgId)
                     } catch (e: Exception) {
                         Log.w(TAG, "Re-send after salt update failed: ${e.message}")
                     }
@@ -204,12 +207,13 @@ class MtProtoConnection(
             MessageFraming.TYPE_BAD_MSG_NOTIFICATION -> {
                 buf.int32()
                 val notification = MessageFraming.parseBadMsgNotification(buf)
-                if (notification.errorCode == 16 || notification.errorCode == 17) {
+                if (!serverTimeOffsetSet && (notification.errorCode == 16 || notification.errorCode == 17)) {
                     val serverTime = MessageId.timeSeconds(msgId)
                     val localTime = System.currentTimeMillis() / 1000
                     serverTimeOffset = serverTime - localTime
                     serverTimeOffsetSet = true
                     MessageId.reset()
+                    updateSalt()
                     Log.d(TAG, "Time resynced: offset=${serverTimeOffset}s (error code ${notification.errorCode})")
                 }
                 rpcEngine.notifyError(notification.badMsgId, notification.errorCode,
@@ -250,12 +254,19 @@ class MtProtoConnection(
                 }
             }
         }
+
+        if (!fromContainer && MessageFraming.needsAck(seqNo)) {
+            synchronized(pendingAcks) { pendingAcks.add(msgId) }
+            checkAckBatchFlush()
+        }
     }
 
     private fun handlePong(buf: TlBuffer) {
         buf.int32()
-        MessageFraming.parsePong(buf)
-        pongDeferred?.complete(Unit)
+        val pong = MessageFraming.parsePong(buf)
+        synchronized(pongDeferreds) {
+            pongDeferreds.remove(pong.pingId)?.complete(Unit)
+        }
     }
 
     private suspend fun pingLoop() {
@@ -263,16 +274,20 @@ class MtProtoConnection(
             delay(60_000)
             if (!connected) break
             try {
+                val pingId = secureRandom.nextLong()
                 val deferred = CompletableDeferred<Unit>()
-                pongDeferred = deferred
-                val ping = MessageFraming.writePingDelayDisconnect(secureRandom.nextLong(), 75)
+                synchronized(pongDeferreds) { pongDeferreds[pingId] = deferred }
+                val ping = MessageFraming.writePingDelayDisconnect(pingId, 75)
                 send(ping, false)
                 try {
                     withTimeout(15_000) { deferred.await() }
                 } catch (_: TimeoutCancellationException) {
-                    Log.w(TAG, "Pong timeout, connection may be dead")
+                    Log.w(TAG, "Pong timeout, disconnecting")
+                    disconnect()
+                    onDisconnected?.invoke()
+                    return
                 } finally {
-                    pongDeferred = null
+                    synchronized(pongDeferreds) { pongDeferreds.remove(pingId) }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Ping failed: ${e.message}")
@@ -314,6 +329,17 @@ class MtProtoConnection(
             s * 2 + 1
         } else {
             seqNo.get() * 2
+        }
+    }
+
+    private fun updateSalt() {
+        val now = (System.currentTimeMillis() / 1000) + serverTimeOffset
+        synchronized(futureSalts) {
+            val valid = futureSalts.firstOrNull { it.validSince <= now && now < it.validUntil }
+            if (valid != null) {
+                salt = valid.salt
+                Log.d(TAG, "Salt updated from future salts")
+            }
         }
     }
 

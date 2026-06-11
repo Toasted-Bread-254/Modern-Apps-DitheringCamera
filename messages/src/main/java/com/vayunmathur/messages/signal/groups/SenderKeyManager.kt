@@ -1,15 +1,15 @@
 package com.vayunmathur.messages.signal.groups
 
 import android.util.Log
+import com.vayunmathur.messages.signal.store.SignalSenderKeyStore
 import org.signal.libsignal.protocol.SignalProtocolAddress
 import org.signal.libsignal.protocol.groups.GroupCipher
 import org.signal.libsignal.protocol.groups.GroupSessionBuilder
 import org.signal.libsignal.protocol.message.SenderKeyDistributionMessage
-import org.signal.libsignal.protocol.groups.state.SenderKeyStore
 import java.util.UUID
 
 class SenderKeyManager(
-    private val senderKeyStore: SenderKeyStore,
+    private val senderKeyStore: SignalSenderKeyStore,
     private val selfAci: String,
     private val selfDeviceId: Int,
 ) {
@@ -18,7 +18,8 @@ class SenderKeyManager(
         private const val SENDER_KEY_MAX_AGE_MS = 14L * 24 * 60 * 60 * 1000 // 14 days
     }
 
-    private val distributedTo = mutableMapOf<String, MutableSet<String>>()
+    // groupId -> (aci -> list of device IDs)
+    private val distributedTo = mutableMapOf<String, MutableMap<String, List<Int>>>()
     private val distributionIds = mutableMapOf<String, UUID>()
     private val distributionCreatedAt = mutableMapOf<String, Long>()
 
@@ -37,16 +38,28 @@ class SenderKeyManager(
         return builder.create(selfAddress, distributionId)
     }
 
-    fun needsDistribution(groupId: String, memberAci: String): Boolean {
+    fun needsDistribution(groupId: String, memberAci: String, deviceIds: List<Int>? = null): Boolean {
         val distributed = distributedTo[groupId] ?: return true
-        return memberAci !in distributed
+        val knownDevices = distributed[memberAci] ?: return true
+        if (deviceIds != null) {
+            return !knownDevices.containsAll(deviceIds)
+        }
+        return false
     }
 
-    fun markDistributed(groupId: String, memberAci: String) {
-        distributedTo.getOrPut(groupId) { mutableSetOf() }.add(memberAci)
+    fun markDistributed(groupId: String, memberAci: String, deviceIds: List<Int>) {
+        distributedTo.getOrPut(groupId) { mutableMapOf() }[memberAci] = deviceIds
     }
 
     fun resetForGroup(groupId: String) {
+        val distributionId = distributionIds[groupId]
+        if (distributionId != null) {
+            val selfAddress = SignalProtocolAddress(selfAci, selfDeviceId)
+            senderKeyStore.deleteSenderKey(selfAddress, distributionId)
+            kotlinx.coroutines.runBlocking {
+                senderKeyStore.deleteSenderKeyInfo(groupId)
+            }
+        }
         distributedTo.remove(groupId)
         distributionIds.remove(groupId)
         distributionCreatedAt.remove(groupId)

@@ -134,6 +134,7 @@ class SignalPreKeyStore(private val db: SignalDatabase) : PreKeyStore, SignedPre
     fun deleteAllPreKeys() {
         runBlocking {
             db.preKeyDao().deleteAll()
+            db.signedPreKeyDao().deleteAll()
             db.kyberPreKeyDao().deleteAll()
         }
     }

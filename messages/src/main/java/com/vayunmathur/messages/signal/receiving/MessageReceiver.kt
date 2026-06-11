@@ -12,8 +12,12 @@ import org.signal.libsignal.protocol.state.KyberPreKeyStore
 import org.signal.libsignal.protocol.groups.state.SenderKeyStore
 import org.signal.libsignal.protocol.groups.GroupSessionBuilder
 import org.signal.libsignal.protocol.message.SenderKeyDistributionMessage
+import org.signal.libsignal.protocol.message.DecryptionErrorMessage
+import org.signal.libsignal.protocol.message.CiphertextMessage
 import kotlinx.coroutines.runBlocking
 import org.signal.libsignal.protocol.SignalProtocolAddress
+import java.util.concurrent.ConcurrentHashMap
+import java.util.UUID
 
 class MessageReceiver(
     private val sessionStore: SessionStore,
@@ -29,6 +33,17 @@ class MessageReceiver(
     private val messageSender: MessageSender? = null,
     private val sendWsResponse: ((Long, Int, String?) -> Unit)? = null,
 ) {
+    private data class SendCacheKey(
+        val recipientAci: String,
+        val timestamp: Long,
+    )
+
+    private val sendCache = ConcurrentHashMap<SendCacheKey, SignalServiceProtos.Content>()
+    private val maxCacheAge = 30L * 24 * 60 * 60 * 1000L // 30 days
+
+    fun cacheSentMessage(recipientAci: String, timestamp: Long, content: SignalServiceProtos.Content) {
+        sendCache[SendCacheKey(recipientAci, timestamp)] = content
+    }
     fun handleRequest(request: WebSocketProtos.WebSocketRequestMessage) {
         if (request.verb == "PUT" && request.path == "/api/v1/queue/empty") {
             Log.d(TAG, "Received queue empty notice")
@@ -63,8 +78,9 @@ class MessageReceiver(
 
         if (result.error != null) {
             Log.e(TAG, "Decryption failed from ${result.senderAci}:${result.senderDeviceId}", result.error)
-            if (result.retriable && envelope.urgent) {
-                Log.d(TAG, "Decryption error is retriable for ${result.senderAci}")
+            if (result.retriable && messageSender != null) {
+                Log.d(TAG, "Decryption error is retriable for ${result.senderAci}, sending retry request")
+                sendRetryRequest(result, envelope.clientTimestamp)
             }
             sendWsResponse?.invoke(request.id, 200, "OK")
             return
@@ -72,8 +88,16 @@ class MessageReceiver(
 
         val content = result.content
 
+        // Validate sender ACI type: drop messages from non-ACI senders
+        if (result.senderAci.isEmpty() || !isValidAciUuid(result.senderAci)) {
+            Log.w(TAG, "Dropping message from non-ACI sender: ${result.senderAci}")
+            sendWsResponse?.invoke(request.id, 200, "OK")
+            return
+        }
+
         if (content != null && content.hasDecryptionErrorMessage()) {
             Log.d(TAG, "Received decryption error message from ${result.senderAci}:${result.senderDeviceId}")
+            handleRetryRequest(result, content.decryptionErrorMessage.toByteArray())
             sendWsResponse?.invoke(request.id, 200, "OK")
             return
         }
@@ -85,16 +109,12 @@ class MessageReceiver(
         }
 
         if (content != null && content.hasSenderKeyDistributionMessage()) {
-            try {
-                val skdmBytes = content.senderKeyDistributionMessage.toByteArray()
-                val skdm = SenderKeyDistributionMessage(skdmBytes)
-                val senderAddress = SignalProtocolAddress(result.senderAci, result.senderDeviceId)
-                val groupBuilder = GroupSessionBuilder(senderKeyStore)
-                groupBuilder.process(senderAddress, skdm)
-                Log.d(TAG, "Processed SKDM from ${result.senderAci}:${result.senderDeviceId}")
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to process SKDM from ${result.senderAci}", e)
-            }
+            val skdmBytes = content.senderKeyDistributionMessage.toByteArray()
+            val skdm = SenderKeyDistributionMessage(skdmBytes)
+            val senderAddress = SignalProtocolAddress(result.senderAci, result.senderDeviceId)
+            val groupBuilder = GroupSessionBuilder(senderKeyStore)
+            groupBuilder.process(senderAddress, skdm)
+            Log.d(TAG, "Processed SKDM from ${result.senderAci}:${result.senderDeviceId}")
         }
 
         if (content != null && content.hasDataMessage() && content.dataMessage.profileKey.size() == 32) {
@@ -181,7 +201,7 @@ class MessageReceiver(
         onDecrypted(message)
         sendWsResponse?.invoke(request.id, 200, "OK")
 
-        val shouldSendDeliveryReceipt = envelope.urgent && when (message.content) {
+        val shouldSendDeliveryReceipt = when (message.content) {
             is MessageContent.TextMessage,
             is MessageContent.Reaction,
             is MessageContent.Delete,
@@ -209,5 +229,88 @@ class MessageReceiver(
 
     companion object {
         private const val TAG = "SignalReceiver"
+    }
+
+    private fun isValidAciUuid(aci: String): Boolean {
+        return try {
+            UUID.fromString(aci)
+            !aci.startsWith("PNI:")
+        } catch (_: IllegalArgumentException) {
+            false
+        }
+    }
+
+    private fun sendRetryRequest(result: EnvelopeDecryptor.DecryptionResult, originalTimestamp: Long) {
+        try {
+            val ciphertext = result.ciphertext ?: return
+            val dem = DecryptionErrorMessage.forOriginalMessage(
+                ciphertext, result.ciphertextType, originalTimestamp, result.senderDeviceId
+            )
+            val demBytes = dem.serialize()
+            val content = SignalServiceProtos.Content.newBuilder()
+                .setDecryptionErrorMessage(com.google.protobuf.ByteString.copyFrom(demBytes))
+                .build()
+            runBlocking {
+                messageSender?.sendMessage(result.senderAci, content, System.currentTimeMillis())
+            }
+            Log.d(TAG, "Sent retry receipt to ${result.senderAci}:${result.senderDeviceId}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send retry request to ${result.senderAci}", e)
+        }
+    }
+
+    private fun handleRetryRequest(
+        result: EnvelopeDecryptor.DecryptionResult,
+        demBytes: ByteArray,
+    ) {
+        try {
+            val dem = SignalServiceProtos.DecryptionErrorMessage.parseFrom(demBytes)
+            val destDeviceId = dem.deviceId
+            if (destDeviceId.toInt() != deviceId) {
+                Log.d(TAG, "Ignoring decryption error message for another device: $destDeviceId")
+                return
+            }
+            val requestedTimestamp = dem.timestamp
+            val age = System.currentTimeMillis() - requestedTimestamp.toLong()
+            var cachedContent: SignalServiceProtos.Content? = null
+            if (age < maxCacheAge) {
+                cachedContent = sendCache[SendCacheKey(result.senderAci, requestedTimestamp)]
+            }
+
+            if (dem.hasRatchetKey()) {
+                val senderAddress = SignalProtocolAddress(result.senderAci, result.senderDeviceId)
+                val session = sessionStore.loadSession(senderAddress)
+                if (session != null) {
+                    session.archiveCurrentState()
+                    sessionStore.storeSession(senderAddress, session)
+                    Log.d(TAG, "Archived session state for ${result.senderAci}:${result.senderDeviceId}")
+                }
+            }
+
+            val retryContent = cachedContent ?: run {
+                if (!dem.hasRatchetKey()) {
+                    Log.d(TAG, "No cached message and no ratchet key, not responding to retry")
+                    return
+                }
+                val rng = java.security.SecureRandom()
+                val padding = ByteArray(rng.nextInt(511) + 1)
+                rng.nextBytes(padding)
+                SignalServiceProtos.Content.newBuilder()
+                    .setNullMessage(
+                        SignalServiceProtos.NullMessage.newBuilder()
+                            .setPadding(com.google.protobuf.ByteString.copyFrom(padding))
+                            .build()
+                    ).build()
+            }
+
+            val responseTimestamp = if (cachedContent != null) requestedTimestamp else System.currentTimeMillis().toULong().toLong()
+            Log.d(TAG, "Responding to decryption error message from ${result.senderAci}:${result.senderDeviceId}, " +
+                "cached=${cachedContent != null}, ts=$requestedTimestamp")
+            runBlocking {
+                messageSender?.sendMessage(result.senderAci, retryContent, responseTimestamp)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to handle retry request from ${result.senderAci}", e)
+        }
     }
 }

@@ -1,10 +1,13 @@
 package com.vayunmathur.messages.signal.receiving
 
+import android.util.Base64
 import android.util.Log
 import com.vayunmathur.messages.signal.proto.SignalServiceProtos
 import com.vayunmathur.messages.signal.store.SignalProtocolStoreImpl
 import org.signal.libsignal.protocol.SignalProtocolAddress
 import org.signal.libsignal.protocol.SessionCipher
+import org.signal.libsignal.protocol.ecc.Curve
+import org.signal.libsignal.protocol.message.CiphertextMessage
 import org.signal.libsignal.protocol.message.SignalMessage
 import org.signal.libsignal.protocol.message.PreKeySignalMessage
 import org.signal.libsignal.protocol.state.IdentityKeyStore
@@ -20,6 +23,10 @@ import java.util.UUID
 object EnvelopeDecryptor {
 
     private const val TAG = "SignalReceiver"
+    private const val CONTENT_HINT_RESENDABLE = 1
+    private val SIGNAL_SERVER_TRUST_ROOT = Base64.decode(
+        "BXu4Sr3OzuDoeeFab3yc3LaWGPsyVDKzp12qlMQDa2B1hQ==", Base64.DEFAULT
+    )
 
     data class DecryptionResult(
         val senderAci: String,
@@ -34,6 +41,8 @@ object EnvelopeDecryptor {
         val unencrypted: Boolean = false,
         val contentHint: Int = 0,
         val groupId: ByteArray? = null,
+        val ciphertext: ByteArray? = null,
+        val ciphertextType: Int = 0,
     )
 
     fun decrypt(
@@ -52,6 +61,12 @@ object EnvelopeDecryptor {
         val senderDeviceId = envelope.sourceDeviceId
         val timestamp = envelope.clientTimestamp
         val serverTimestamp = envelope.serverTimestamp
+        val destinationServiceId = envelope.destinationServiceId ?: ""
+
+        if (destinationServiceId.isEmpty()) {
+            return DecryptionResult(senderAci, senderDeviceId, null, timestamp, serverTimestamp,
+                error = IllegalArgumentException("Envelope missing destination service ID"))
+        }
 
         val protocolStore = SignalProtocolStoreImpl(
             sessionStore, identityKeyStore, preKeyStore, signedPreKeyStore, kyberPreKeyStore, senderKeyStore
@@ -68,7 +83,9 @@ object EnvelopeDecryptor {
                         DecryptionResult(senderAci, senderDeviceId, content, timestamp, serverTimestamp)
                     } catch (e: Exception) {
                         DecryptionResult(senderAci, senderDeviceId, null, timestamp, serverTimestamp,
-                            error = e, retriable = true)
+                            error = e, retriable = true,
+                            ciphertext = envelope.content.toByteArray(),
+                            ciphertextType = CiphertextMessage.WHISPER_TYPE)
                     }
                 }
 
@@ -81,16 +98,24 @@ object EnvelopeDecryptor {
                         DecryptionResult(senderAci, senderDeviceId, content, timestamp, serverTimestamp)
                     } catch (e: Exception) {
                         DecryptionResult(senderAci, senderDeviceId, null, timestamp, serverTimestamp,
-                            error = e, retriable = true)
+                            error = e, retriable = true,
+                            ciphertext = envelope.content.toByteArray(),
+                            ciphertextType = CiphertextMessage.PREKEY_TYPE)
                     }
                 }
 
                 SignalServiceProtos.Envelope.Type.UNIDENTIFIED_SENDER -> {
+                    if (destinationServiceId != selfAci) {
+                        Log.w(TAG, "Received UNIDENTIFIED_SENDER envelope for non-ACI destination: $destinationServiceId")
+                        return DecryptionResult(senderAci, senderDeviceId, null, timestamp, serverTimestamp,
+                            error = IllegalArgumentException("Received unidentified sender envelope for non-ACI destination"))
+                    }
                     val sealedCipher = SealedSessionCipher(
                         protocolStore, UUID.fromString(selfAci), selfAci, selfDeviceId
                     )
+                    val trustRoot = Curve.decodePoint(SIGNAL_SERVER_TRUST_ROOT, 0)
                     val validator = certificateValidator
-                        ?: CertificateValidator(emptyList())
+                        ?: CertificateValidator(listOf(trustRoot))
                     val result = sealedCipher.decrypt(validator, envelope.content.toByteArray(), serverTimestamp)
                     val content = SignalServiceProtos.Content.parseFrom(stripPadding(result.paddedMessage))
                     DecryptionResult(
@@ -128,7 +153,25 @@ object EnvelopeDecryptor {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Decryption error for type ${envelope.type}", e)
-            DecryptionResult(senderAci, senderDeviceId, null, timestamp, serverTimestamp, error = e)
+            val resolvedSender = senderAci
+            val resolvedDeviceId = senderDeviceId
+            if (envelope.type == SignalServiceProtos.Envelope.Type.UNIDENTIFIED_SENDER) {
+                try {
+                    val header = org.signal.libsignal.metadata.SealedSessionCipher.parseMessageHeader(
+                        envelope.content.toByteArray()
+                    )
+                    return DecryptionResult(
+                        senderAci = header?.senderUuid ?: resolvedSender,
+                        senderDeviceId = header?.deviceId ?: resolvedDeviceId,
+                        content = null, timestamp = timestamp, serverTimestamp = serverTimestamp,
+                        error = e,
+                        retriable = (header?.contentHint ?: 0) == CONTENT_HINT_RESENDABLE,
+                        ciphertext = envelope.content.toByteArray(),
+                        ciphertextType = CiphertextMessage.SENDERKEY_TYPE,
+                    )
+                } catch (_: Exception) { }
+            }
+            DecryptionResult(resolvedSender, resolvedDeviceId, null, timestamp, serverTimestamp, error = e)
         }
     }
 

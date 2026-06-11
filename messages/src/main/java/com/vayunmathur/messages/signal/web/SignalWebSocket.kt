@@ -211,7 +211,7 @@ class SignalWebSocket(
         val isSelfDelete = method == "DELETE" && path.startsWith("/v1/devices/")
 
         var lastException: Exception? = null
-        for (attempt in 0..MAX_REQUEST_RETRIES) {
+        for (attempt in 0 until MAX_REQUEST_RETRIES) {
             try {
                 return sendRequestOnce(method, path, body, headers)
             } catch (e: IOException) {

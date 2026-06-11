@@ -117,6 +117,7 @@ object Provisioning {
             val pniPqLastResort = generateKyberPreKey(1, pniIdentityKeyPair)
 
             // Store generated keys in the local protocol stores
+            // Use different IDs for ACI vs PNI to avoid overwrites (Go uses separate stores)
             val database = SignalDatabase.getInstance(context)
             database.sessionDao().deleteAllSessions()
             database.preKeyDao().deleteAll()
@@ -124,9 +125,9 @@ object Provisioning {
             database.kyberPreKeyDao().deleteAll()
             val preKeyStore = SignalPreKeyStore(database)
             preKeyStore.storeSignedPreKey(aciSignedPreKey.id, aciSignedPreKey)
-            preKeyStore.storeSignedPreKey(pniSignedPreKey.id, pniSignedPreKey)
+            preKeyStore.storeSignedPreKey(pniSignedPreKey.id + 1000000, pniSignedPreKey)
             preKeyStore.storeLastResortKyberPreKey(aciPqLastResort.id, aciPqLastResort)
-            preKeyStore.storeLastResortKyberPreKey(pniPqLastResort.id, pniPqLastResort)
+            preKeyStore.storeLastResortKyberPreKey(pniPqLastResort.id + 1000000, pniPqLastResort)
 
             // Step 8: Encrypt device name
             val encryptedName = encryptDeviceName(deviceName, aciIdentityKeyPair.publicKey.publicKey)

@@ -103,8 +103,6 @@ object SignalHttpClient {
         }
     }
 
-    suspend fun getAttachment
-
     suspend fun getAttachment(path: String, cdnNumber: Int): Response {
         val host = if (cdnNumber == 0) {
             CDN_HOSTS[0]

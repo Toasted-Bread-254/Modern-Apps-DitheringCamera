@@ -4,8 +4,10 @@ import android.util.Base64
 import android.util.Log
 import com.vayunmathur.messages.signal.proto.Group
 import com.vayunmathur.messages.signal.proto.GroupAttributeBlob
+import com.vayunmathur.messages.signal.proto.GroupResponse
 import com.vayunmathur.messages.signal.store.SignalGroupEntity
 import com.vayunmathur.messages.signal.store.SignalGroupStore
+import com.vayunmathur.messages.signal.store.SignalRecipientStore
 import com.vayunmathur.messages.signal.web.SignalHttpClient
 import com.vayunmathur.messages.signal.web.SignalWebSocket
 import java.nio.ByteBuffer
@@ -23,10 +25,11 @@ import org.signal.libsignal.protocol.ServiceId
 class GroupManager(
     private val ws: SignalWebSocket,
     private val groupStore: SignalGroupStore,
+    private val recipientStore: SignalRecipientStore,
     private val aci: String,
     private val pni: String,
     private val password: String,
-) {
+)
     enum class AccessControl(val value: Int) {
         UNKNOWN(0), ANY(1), MEMBER(2), ADMINISTRATOR(3), UNSATISFIABLE(4)
     }
@@ -195,25 +198,89 @@ class GroupManager(
             )
             if (response.code != 200) return null
 
-            val groupProto = Group.parseFrom(response.body?.bytes())
+            val groupResponse = GroupResponse.parseFrom(response.body?.bytes())
+            val groupProto = groupResponse.group
+
+            val groupMasterKey = GroupMasterKey(masterKey)
+            val groupSecretParams = GroupSecretParams.deriveFromMasterKey(groupMasterKey)
+
             val members = groupProto.membersList.map { member ->
-                val bb = ByteBuffer.wrap(member.userId.toByteArray())
+                val decryptedServiceId = groupSecretParams.decryptServiceId(member.userId.toByteArray())
+                val decryptedProfileKey = groupSecretParams.decryptProfileKey(member.profileKey.toByteArray(), decryptedServiceId)
+                val bb = ByteBuffer.wrap(decryptedServiceId.toByteArray())
                 GroupMember(
                     aci = UUID(bb.getLong(), bb.getLong()),
                     role = MemberRole.entries.find { it.value == member.role.number } ?: MemberRole.UNKNOWN,
-                    profileKey = member.profileKey.toByteArray(),
+                    profileKey = decryptedProfileKey.serialize(),
                     joinedAtRevision = member.joinedAtVersion,
                 )
             }
+
+            val titleBlob = GroupAttributeBlob.parseFrom(
+                groupSecretParams.decryptBlobWithPadding(groupProto.title.toByteArray())
+            )
+            val decryptedTitle = cleanupStringProperty(titleBlob.title)
+
+            val decryptedDescription = runCatching {
+                val descBlob = GroupAttributeBlob.parseFrom(
+                    groupSecretParams.decryptBlobWithPadding(groupProto.description.toByteArray())
+                )
+                cleanupStringProperty(descBlob.description)
+            }.getOrNull()
+
+            val disappearingMessagesDuration = if (groupProto.disappearingMessagesTimer != null && !groupProto.disappearingMessagesTimer.isEmpty) {
+                val timerBlob = GroupAttributeBlob.parseFrom(
+                    groupSecretParams.decryptBlobWithPadding(groupProto.disappearingMessagesTimer.toByteArray())
+                )
+                timerBlob.disappearingMessagesDuration
+            } else 0
+
+            val pendingMembers = groupProto.membersPendingProfileKeyList.mapNotNull { pendingMember ->
+                runCatching {
+                    val memberProto = pendingMember.member ?: return@runCatching null
+                    val decryptedServiceId = groupSecretParams.decryptServiceId(memberProto.userId.toByteArray())
+                    val addedByServiceId = groupSecretParams.decryptServiceId(pendingMember.addedByUserId.toByteArray())
+                    val addedByBb = ByteBuffer.wrap(addedByServiceId.toByteArray())
+                    PendingMember(
+                        serviceId = decryptedServiceId.toString(),
+                        role = MemberRole.entries.find { it.value == memberProto.role.number } ?: MemberRole.UNKNOWN,
+                        addedByUserId = UUID(addedByBb.getLong(), addedByBb.getLong()),
+                        timestamp = pendingMember.timestamp,
+                    )
+                }.getOrNull()
+            }
+
+            val requestingMembers = groupProto.membersPendingAdminApprovalList.mapNotNull { reqMember ->
+                runCatching {
+                    val decryptedServiceId = groupSecretParams.decryptServiceId(reqMember.userId.toByteArray())
+                    val decryptedProfileKey = groupSecretParams.decryptProfileKey(reqMember.profileKey.toByteArray(), decryptedServiceId)
+                    val bb = ByteBuffer.wrap(decryptedServiceId.toByteArray())
+                    RequestingMember(
+                        aci = UUID(bb.getLong(), bb.getLong()),
+                        profileKey = decryptedProfileKey.serialize(),
+                        timestamp = reqMember.timestamp,
+                    )
+                }.getOrNull()
+            }
+
+            val bannedMembers = groupProto.membersBannedList.mapNotNull { banned ->
+                runCatching {
+                    val decryptedServiceId = groupSecretParams.decryptServiceId(banned.userId.toByteArray())
+                    BannedMember(
+                        serviceId = decryptedServiceId.toString(),
+                        timestamp = banned.timestamp,
+                    )
+                }.getOrNull()
+            }
+
             val group = SignalGroup(
                 groupId = groupId,
-                title = cleanupStringProperty(groupProto.title.toStringUtf8()),
+                title = decryptedTitle,
                 members = members,
                 avatarPath = groupProto.avatarUrl.ifEmpty { null },
                 revision = groupProto.version,
-                description = runCatching {
-                    cleanupStringProperty(groupProto.description.toStringUtf8())
-                }.getOrNull(),
+                description = decryptedDescription,
+                disappearingMessagesDuration = disappearingMessagesDuration.toInt(),
                 announcementsOnly = groupProto.announcementsOnly,
                 accessControl = groupProto.accessControl?.let {
                     GroupAccessControl(
@@ -222,10 +289,20 @@ class GroupManager(
                         attributes = AccessControl.entries.find { ac -> ac.value == it.attributes.number } ?: AccessControl.UNKNOWN,
                     )
                 },
+                pendingMembers = pendingMembers,
+                requestingMembers = requestingMembers,
+                bannedMembers = bannedMembers,
                 inviteLinkPassword = groupProto.inviteLinkPassword?.let {
                     if (it.isEmpty) null else Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP)
                 },
             )
+
+            for (member in group.members) {
+                recipientStore.storeProfileKey(member.aci.toString(), member.profileKey)
+            }
+            for (reqMember in group.requestingMembers) {
+                recipientStore.storeProfileKey(reqMember.aci.toString(), reqMember.profileKey)
+            }
 
             cache[groupId] = group
             groupStore.storeGroup(
@@ -288,6 +365,8 @@ class GroupManager(
                 host = SignalHttpClient.CDN1_HOST,
                 method = "GET",
                 path = avatarPath,
+                username = aci,
+                password = password,
             )
             if (response.code !in 200..299) return null
             val encryptedAvatar = response.body?.bytes() ?: return null

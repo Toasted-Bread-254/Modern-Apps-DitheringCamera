@@ -39,6 +39,9 @@ class SignalRecipientStore(private val db: SignalDatabase) {
     }
 
     suspend fun storeProfileKey(aci: String, profileKey: ByteArray) {
+        if (profileKey.size != 32) {
+            return
+        }
         val existing = getRecipient(aci)
         if (existing != null) {
             storeRecipient(existing.copy(profileKey = profileKey))

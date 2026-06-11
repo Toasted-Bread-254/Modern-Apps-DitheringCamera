@@ -39,10 +39,13 @@ object AttachmentManager {
                 path = path,
             )
             if (response.code == 404) throw AttachmentNotFoundException()
-            if (response.code !in 200..299) return null
+            if (response.code > 400) return null
             val body = response.body?.bytes() ?: return null
 
-            if (digest != null && !plaintextDigest) {
+            if (!plaintextDigest) {
+                if (digest == null) {
+                    throw InvalidDigestException("Missing digest for attachment")
+                }
                 val hash = MessageDigest.getInstance("SHA-256").digest(body)
                 if (!MessageDigest.isEqual(hash, digest)) {
                     throw InvalidDigestException()
@@ -61,6 +64,12 @@ object AttachmentManager {
                 }
             }
             result
+        } catch (e: InvalidMACException) {
+            Log.e(TAG, "MAC validation failed for attachment", e)
+            throw e
+        } catch (e: InvalidDigestException) {
+            Log.e(TAG, "Digest validation failed for attachment", e)
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed to download attachment", e)
             null

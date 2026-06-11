@@ -8,6 +8,7 @@ import com.vayunmathur.messages.signal.store.SignalRecipientStore
 import com.vayunmathur.messages.util.ContactSuggestion
 import java.nio.ByteBuffer
 import java.security.MessageDigest
+import java.util.UUID
 
 class ContactManager(
     private val recipientStore: SignalRecipientStore,
@@ -17,7 +18,10 @@ class ContactManager(
         contactDetails: SignalServiceProtos.ContactDetails,
         avatar: ByteArray? = null,
     ) {
-        val aci = contactDetails.aci.takeIf { it.isNotBlank() } ?: return
+        val aci = parseStringOrBinaryAci(
+            contactDetails.aci,
+            if (contactDetails.hasAciBinary()) contactDetails.aciBinary.toByteArray() else null,
+        ) ?: return
         val existing = recipientStore.getRecipient(aci)
         val e164 = contactDetails.number.takeIf { it.isNotBlank() } ?: existing?.e164
         val contactName = contactDetails.name
@@ -103,6 +107,16 @@ class ContactManager(
 
     companion object {
         private const val TAG = "ContactManager"
+
+        fun parseStringOrBinaryAci(str: String?, bytes: ByteArray?): String? {
+            if (!str.isNullOrBlank()) return str
+            if (bytes != null && bytes.size == 16) {
+                val buf = ByteBuffer.wrap(bytes)
+                val uuid = UUID(buf.long, buf.long)
+                return uuid.toString()
+            }
+            return null
+        }
 
         fun unmarshalContactDetailsMessages(
             byteStream: ByteArray,

@@ -17,6 +17,7 @@ class ProfileInternalErrorException(status: Int) : Exception("profile get return
 class ProfileManager(
     private val ws: SignalWebSocket,
     private val recipientStore: SignalRecipientStore,
+    private val unauthedWs: SignalWebSocket? = null,
 ) {
     data class Profile(
         val name: String?,
@@ -81,7 +82,9 @@ class ProfileManager(
                 path += "?credentialType=expiringProfileKey"
             }
 
-            val response = ws.sendRequest("GET", path,
+            val useUnidentified = profileKeyHex != null && headers.containsKey("Unidentified-Access-Key")
+            val profileWs = if (useUnidentified && unauthedWs != null) unauthedWs else ws
+            val response = profileWs.sendRequest("GET", path,
                 headers = headers)
 
             val status = response.status
@@ -90,7 +93,6 @@ class ProfileManager(
                 return null
             }
             if (status == 404) {
-                cacheError(aci, ProfileNotFoundException())
                 throw ProfileNotFoundException()
             }
             if (status in 500..599) {

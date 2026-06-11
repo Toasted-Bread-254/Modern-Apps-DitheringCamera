@@ -245,7 +245,8 @@ object SignalClient {
     ): Boolean {
         if (_state.value !is State.Connected) return false
         return try {
-            val pointer = AttachmentManager.upload(bytes, mime, fileName) ?: return false
+            val ws = webSocket ?: return false
+            val pointer = AttachmentManager.upload(ws, bytes, mime, fileName) ?: return false
             val sender = messageSender ?: return false
             val recipientAci = resolveRecipient(extractAci(conversationId) ?: return false) ?: return false
             val timestamp = System.currentTimeMillis()
@@ -381,12 +382,18 @@ object SignalClient {
 
             val devManager = DeviceManager(ws, sessStore, idStore, pkStore, pkStore, pkStore, skStore)
             val recipientStore = SignalRecipientStore(database)
-            val sender = MessageSender(ws, sessStore, idStore, pkStore, pkStore, pkStore, skStore, auth.aci, auth.deviceId, devManager, recipientStore, unauthedWs)
+            val groupStore = SignalGroupStore(database)
+            val aciKeyPair = try { IdentityKeyPair(Base64.decode(auth.aciIdentityKeyPair, Base64.NO_WRAP)) } catch (_: Exception) { null }
+            val pniKeyPair = try { IdentityKeyPair(Base64.decode(auth.pniIdentityKeyPair, Base64.NO_WRAP)) } catch (_: Exception) { null }
+            val acctRecord = try {
+                auth.accountRecord?.let { com.vayunmathur.messages.signal.proto.AccountRecord.parseFrom(it) }
+            } catch (_: Exception) { null }
+            val sender = MessageSender(ws, sessStore, idStore, pkStore, pkStore, pkStore, skStore, auth.aci, auth.deviceId, devManager, recipientStore, unauthedWs, groupStore, auth.pni, aciKeyPair, pniKeyPair, acctRecord)
             messageSender = sender
             contactManager = ContactManager(recipientStore)
             contactDiscovery = ContactDiscovery(recipientStore, auth.aci, auth.deviceId, auth.password, appContext)
             profileManager = ProfileManager(unauthedWs, recipientStore)
-            groupManager = GroupManager(ws, SignalGroupStore(database), auth.aci, auth.pni, auth.password)
+            groupManager = GroupManager(ws, groupStore, recipientStore, auth.aci, auth.pni, auth.password)
 
             ws.incomingRequestHandler = { request ->
                 handleIncomingRequest(request, auth, sessStore, idStore, pkStore, skStore)
