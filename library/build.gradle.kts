@@ -24,4 +24,11 @@ dependencies {
     implementation(libs.androidx.webkit)
 
     api(libs.material)
+
+    // Ink
+    api(libs.androidx.ink.authoring)
+    api(libs.androidx.ink.brush)
+    api(libs.androidx.ink.strokes)
+    api(libs.androidx.ink.rendering)
+    api(libs.androidx.ink.geometry)
 }

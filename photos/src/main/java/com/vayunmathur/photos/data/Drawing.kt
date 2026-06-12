@@ -1,20 +1,28 @@
 package com.vayunmathur.photos.data
 
 import androidx.compose.ui.geometry.Offset
+import androidx.ink.brush.Brush
+import androidx.ink.brush.StockBrushes
 import kotlinx.serialization.Serializable
 
 @Serializable
 enum class DrawingTool { Pointer, Pen, Highlighter, Eraser, Text }
 
-@Serializable
-data class Drawing(
-    val id: String,
-    val points: List<SerializableOffset>,
-    val tool: DrawingTool,
-    val color: Int,
-    val strokeWidth: Float,
-    val opacity: Float,
-)
+fun DrawingTool.toBrush(color: Int, size: Float): Brush? = when (this) {
+    DrawingTool.Pen -> Brush.createWithColorIntArgb(
+        family = StockBrushes.pressurePen(),
+        colorIntArgb = color,
+        size = size,
+        epsilon = 0.1f,
+    )
+    DrawingTool.Highlighter -> Brush.createWithColorIntArgb(
+        family = StockBrushes.highlighter(),
+        colorIntArgb = color,
+        size = size,
+        epsilon = 0.1f,
+    )
+    else -> null
+}
 
 @Serializable
 data class TextElement(

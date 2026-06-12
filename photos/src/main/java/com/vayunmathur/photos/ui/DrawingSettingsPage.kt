@@ -90,7 +90,7 @@ fun DrawingSettingsPage(
                 Slider(
                     value = thickness,
                     onValueChange = { thickness = it },
-                    valueRange = 1f..100f,
+                    valueRange = if (tool == DrawingTool.Highlighter) 5f..80f else 1f..50f,
                     modifier = Modifier.weight(1f)
                 )
                 Text(thickness.roundToInt().toString(), color = Color.White, modifier = Modifier.padding(start = 8.dp))

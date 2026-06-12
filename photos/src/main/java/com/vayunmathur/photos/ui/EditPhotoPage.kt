@@ -1,7 +1,6 @@
 package com.vayunmathur.photos.ui
 
 import androidx.activity.compose.LocalActivity
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -23,6 +22,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,36 +32,34 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
-import com.vayunmathur.photos.data.Drawing
 import com.vayunmathur.photos.data.DrawingTool
 import com.vayunmathur.photos.data.TextElement
-import com.vayunmathur.photos.data.toSerializable
+import com.vayunmathur.photos.data.toBrush
 import com.vayunmathur.library.util.ResultEffect
+import com.vayunmathur.library.util.SerializedStroke
+import com.vayunmathur.library.util.deserialize
+import com.vayunmathur.library.util.serialize
+import com.vayunmathur.library.ui.CanvasTextElement
+import com.vayunmathur.library.ui.InkCanvasView
+import com.vayunmathur.library.util.translate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -73,6 +71,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.net.toUri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.ink.brush.Brush
+import androidx.ink.brush.StockBrushes
+import androidx.ink.strokes.Stroke as InkStroke
 import com.vayunmathur.library.ui.IconBrush
 import com.vayunmathur.library.ui.IconCheck
 import com.vayunmathur.library.ui.IconClose
@@ -93,27 +94,6 @@ import com.vayunmathur.photos.data.PhotoDao
 import com.vayunmathur.photos.util.PhotoEditViewModel
 import java.util.UUID
 import kotlin.math.roundToInt
-
-fun Drawing.computeBoundingBox(width: Float, height: Float): Rect {
-    if (points.isEmpty()) return Rect.Zero
-    var minX = points[0].x
-    var maxX = points[0].x
-    var minY = points[0].y
-    var maxY = points[0].y
-    points.forEach { p ->
-        minX = minOf(minX, p.x)
-        maxX = maxOf(maxX, p.x)
-        minY = minOf(minY, p.y)
-        maxY = maxOf(maxY, p.y)
-    }
-    val padding = 0.02f
-    return Rect(
-        (minX - padding) * width,
-        (minY - padding) * height,
-        (maxX + padding) * width,
-        (maxY + padding) * height
-    )
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -143,7 +123,6 @@ fun EditPhotoPage(
             )
         }
     }
-    val scope = rememberCoroutineScope()
 
     var isCropping by remember { mutableStateOf(false) }
     var rotation by remember { mutableFloatStateOf(0f) }
@@ -152,19 +131,18 @@ fun EditPhotoPage(
     var showSaveMenu by remember { mutableStateOf(false) }
 
     var isDrawing by remember { mutableStateOf(false) }
-    val currentDrawingPoints = remember { mutableStateListOf<Offset>() }
-    val drawings = remember { mutableStateListOf<Drawing>() }
+    val inkStrokes = remember { mutableStateListOf<InkStroke>() }
 
     var activeTool by remember { mutableStateOf(DrawingTool.Pointer) }
 
     var penColor by remember { mutableStateOf(Color.Red) }
-    var penWidth by remember { mutableFloatStateOf(10f) }
+    var penSize by remember { mutableFloatStateOf(10f) }
 
     var highlighterColor by remember { mutableStateOf(Color.Yellow) }
-    var highlighterWidth by remember { mutableFloatStateOf(40f) }
+    var highlighterSize by remember { mutableFloatStateOf(40f) }
     var highlighterOpacity by remember { mutableFloatStateOf(0.5f) }
 
-    var eraserWidth by remember { mutableFloatStateOf(30f) }
+    var textFontSize by remember { mutableFloatStateOf(40f) }
 
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -176,24 +154,52 @@ fun EditPhotoPage(
     }
 
     val texts = remember { mutableStateListOf<TextElement>() }
-    var selectedDrawingId by remember { mutableStateOf<String?>(null) }
     var selectedTextId by remember { mutableStateOf<String?>(null) }
+    var selectedStrokeIndex by remember { mutableStateOf<Int?>(null) }
+    var selectedTextIndex by remember { mutableStateOf<Int?>(null) }
     var textToEdit by remember { mutableStateOf<TextElement?>(null) }
-    var textFontSize by remember { mutableFloatStateOf(40f) }
     var currentViewportWidth by remember { mutableFloatStateOf(1f) }
     var currentViewportHeight by remember { mutableFloatStateOf(1f) }
+
+    val currentBrush: Brush = remember(activeTool, penColor, penSize, highlighterColor, highlighterSize, highlighterOpacity) {
+        when (activeTool) {
+            DrawingTool.Pen -> Brush.createWithColorIntArgb(
+family = StockBrushes.pressurePen(),
+                colorIntArgb = penColor.toArgb(),
+                size = penSize,
+                epsilon = 0.1f,
+            )
+            DrawingTool.Highlighter -> {
+                val argb = highlighterColor.toArgb()
+                val alpha = (highlighterOpacity * 255).roundToInt()
+                val colorWithAlpha = (alpha shl 24) or (argb and 0x00FFFFFF)
+                Brush.createWithColorIntArgb(
+                    family = StockBrushes.highlighter(),
+                    colorIntArgb = colorWithAlpha,
+                    size = highlighterSize,
+                    epsilon = 0.1f,
+                )
+            }
+            else -> Brush.createWithColorIntArgb(
+family = StockBrushes.pressurePen(),
+                colorIntArgb = penColor.toArgb(),
+                size = penSize,
+                epsilon = 0.1f,
+            )
+        }
+    }
 
     data class EditState(
         val rotation: Float,
         val cropRect: Rect,
-        val drawings: List<Drawing>,
+        val strokes: List<SerializedStroke>,
         val texts: List<TextElement>
     )
 
     val history = remember { mutableStateListOf<EditState>() }
 
     fun pushState() {
-        history.add(EditState(rotation, cropRect, drawings.toList(), texts.toList()))
+        history.add(EditState(rotation, cropRect, inkStrokes.map { it.serialize() }, texts.toList()))
     }
 
     fun undo() {
@@ -201,46 +207,15 @@ fun EditPhotoPage(
             val lastState = history.removeAt(history.size - 1)
             rotation = lastState.rotation
             cropRect = lastState.cropRect
-            drawings.clear()
-            drawings.addAll(lastState.drawings)
+            inkStrokes.clear()
+            inkStrokes.addAll(lastState.strokes.mapNotNull { try { it.deserialize() } catch (_: Exception) { null } })
             texts.clear()
             texts.addAll(lastState.texts)
         }
     }
 
-    val currentStrokeColor = when (activeTool) {
-        DrawingTool.Pen -> penColor
-        DrawingTool.Highlighter -> highlighterColor
-        DrawingTool.Eraser -> Color.Transparent
-        DrawingTool.Text -> penColor
-        DrawingTool.Pointer -> Color.Transparent
-    }
-
-    val currentStrokeWidth = when (activeTool) {
-        DrawingTool.Pen -> penWidth
-        DrawingTool.Highlighter -> highlighterWidth
-        DrawingTool.Eraser -> eraserWidth
-        DrawingTool.Text -> 0f
-        DrawingTool.Pointer -> 0f
-    }
-
-    val currentStrokeOpacity = if (activeTool == DrawingTool.Highlighter) highlighterOpacity else 1f
-
     ResultEffect<DrawingSettingsResult>("drawing_settings") { result ->
         var changed = false
-        selectedDrawingId?.let { id ->
-            val index = drawings.indexOfFirst { it.id == id }
-            if (index != -1) {
-                pushState()
-                drawings[index] = drawings[index].copy(
-                    tool = result.tool,
-                    color = result.color,
-                    strokeWidth = result.thickness,
-                    opacity = result.opacity
-                )
-                changed = true
-            }
-        }
 
         selectedTextId?.let { id ->
             val index = texts.indexOfFirst { it.id == id }
@@ -259,24 +234,18 @@ fun EditPhotoPage(
             when (result.tool) {
                 DrawingTool.Pen -> {
                     penColor = Color(result.color)
-                    penWidth = result.thickness
+                    penSize = result.thickness
                 }
-
                 DrawingTool.Highlighter -> {
                     highlighterColor = Color(result.color)
-                    highlighterWidth = result.thickness
+                    highlighterSize = result.thickness
                     highlighterOpacity = result.opacity
                 }
-
-                DrawingTool.Eraser -> {
-                    eraserWidth = result.thickness
-                }
-
+                DrawingTool.Eraser -> {}
                 DrawingTool.Text -> {
                     penColor = Color(result.color)
                     textFontSize = result.thickness
                 }
-
                 DrawingTool.Pointer -> {}
             }
         }
@@ -311,7 +280,7 @@ fun EditPhotoPage(
                                     EditState(
                                         rotation,
                                         startCropRect,
-                                        drawings.toList(),
+                                        inkStrokes.map { it.serialize() },
                                         texts.toList()
                                     )
                                 )
@@ -333,20 +302,8 @@ fun EditPhotoPage(
                         ) {
                             IconUndo()
                         }
-                        if (selectedDrawingId != null || selectedTextId != null) {
+                        if (selectedTextId != null) {
                             IconButton(onClick = {
-                                selectedDrawingId?.let { id ->
-                                    drawings.find { it.id == id }?.let { drawing ->
-                                        backStack.add(
-                                            EditRoute.DrawingSettings(
-                                                drawing.tool,
-                                                drawing.color,
-                                                drawing.strokeWidth,
-                                                drawing.opacity
-                                            )
-                                        )
-                                    }
-                                }
                                 selectedTextId?.let { id ->
                                     texts.find { it.id == id }?.let { textElement ->
                                         backStack.add(
@@ -407,7 +364,7 @@ fun EditPhotoPage(
                                                 it,
                                                 rotation,
                                                 cropRect,
-                                                drawings.toList(),
+                                                inkStrokes.map { s -> s.serialize() },
                                                 texts.toList(),
                                                 currentViewportWidth,
                                                 false,
@@ -424,7 +381,7 @@ fun EditPhotoPage(
                                                 it,
                                                 rotation,
                                                 cropRect,
-                                                drawings.toList(),
+                                                inkStrokes.map { s -> s.serialize() },
                                                 texts.toList(),
                                                 currentViewportWidth,
                                                 true,
@@ -449,7 +406,7 @@ fun EditPhotoPage(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(32.dp),
+                    .padding(8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 val maxWidth = constraints.maxWidth.toFloat()
@@ -479,9 +436,11 @@ fun EditPhotoPage(
                     currentViewportHeight = viewportHeight
 
                     val density = LocalDensity.current
+                    val densityFloat = density.density
                     val viewportWidthDp = with(density) { viewportWidth.toDp() }
                     val viewportHeightDp = with(density) { viewportHeight.toDp() }
 
+                    val isInkDrawing = isDrawing && activeTool != DrawingTool.Pointer && activeTool != DrawingTool.Text
                     Box(
                         modifier = Modifier
                             .size(viewportWidthDp, viewportHeightDp)
@@ -492,32 +451,32 @@ fun EditPhotoPage(
                                 translationY = offset.y
                                 clip = false
                             }
-                            .transformable(state = transformState)
-                            .pointerInput(activeTool) {
-                                detectTapGestures { tapOffset ->
-                                    if (activeTool == DrawingTool.Pointer) {
-                                        selectedTextId = null
-                                        selectedDrawingId = null
-                                    } else if (activeTool == DrawingTool.Text) {
-                                        pushState()
-                                        val id = UUID.randomUUID().toString()
-                                        texts.add(
-                                            TextElement(
-                                                id = id,
-                                                text = "New Text",
-                                                x = tapOffset.x / size.width,
-                                                y = tapOffset.y / size.height,
-                                                rotation = 0f,
-                                                color = penColor.toArgb(),
-                                                fontSize = textFontSize
+                            .then(
+                                if (activeTool == DrawingTool.Text) Modifier
+                                    .pointerInput(activeTool) {
+                                        detectTapGestures { tapOffset ->
+                                            pushState()
+                                            val newId = UUID.randomUUID().toString()
+                                            texts.add(
+                                                TextElement(
+                                                    id = newId,
+                                                    text = "New Text",
+                                                    x = tapOffset.x / size.width,
+                                                    y = tapOffset.y / size.height,
+                                                    rotation = 0f,
+                                                    color = penColor.toArgb(),
+                                                    fontSize = textFontSize
+                                                )
                                             )
-                                        )
-                                        selectedTextId = id
-                                        selectedDrawingId = null
-                                        textToEdit = texts.last()
+                                            selectedTextId = newId
+                                            selectedTextIndex = texts.size - 1
+                                            textToEdit = texts.last()
+                                        }
                                     }
-                                }
-                            },
+                                else if (!isInkDrawing && activeTool != DrawingTool.Pointer) Modifier
+                                    .transformable(state = transformState)
+                                else Modifier
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         transformedBitmap?.let { bitmap ->
@@ -528,287 +487,132 @@ fun EditPhotoPage(
                             )
                         }
 
-                        if (isDrawing) {
-                            Canvas(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .pointerInput(activeTool) {
-                                        if (activeTool == DrawingTool.Pointer) {
-                                            detectTapGestures { tapOffset ->
-                                                val hitDrawing = drawings.findLast { drawing ->
-                                                    val bounds = drawing.computeBoundingBox(
-                                                        size.width.toFloat(),
-                                                        size.height.toFloat()
-                                                    )
-                                                    bounds.contains(tapOffset)
-                                                }
-                                                if (hitDrawing != null) {
-                                                    selectedDrawingId = hitDrawing.id
-                                                    selectedTextId = null
-                                                }
-                                            }
-                                        }
-                                    }
-                                    .then(
-                                        if (activeTool == DrawingTool.Pen || activeTool == DrawingTool.Highlighter || activeTool == DrawingTool.Eraser) {
-                                            Modifier.pointerInput(
-                                                activeTool,
-                                                currentStrokeColor,
-                                                currentStrokeWidth,
-                                                currentStrokeOpacity
-                                            ) {
-                                                detectDragGestures(
-                                                    onDragStart = { offset ->
-                                                        currentDrawingPoints.add(
-                                                            Offset(
-                                                                offset.x / size.width,
-                                                                offset.y / size.height
-                                                            )
-                                                        )
-                                                    },
-                                                    onDragEnd = {
-                                                        if (currentDrawingPoints.isNotEmpty()) {
-                                                            pushState()
-                                                            val id = UUID.randomUUID().toString()
-                                                            drawings.add(
-                                                                Drawing(
-                                                                    id = id,
-                                                                    points = currentDrawingPoints.map { it.toSerializable() },
-                                                                    tool = activeTool,
-                                                                    color = currentStrokeColor.toArgb(),
-                                                                    strokeWidth = currentStrokeWidth,
-                                                                    opacity = currentStrokeOpacity
-                                                                )
-                                                            )
-                                                            selectedDrawingId = id
-                                                            selectedTextId = null
-                                                            currentDrawingPoints.clear()
-                                                        }
-                                                    },
-                                                    onDragCancel = {
-                                                        currentDrawingPoints.clear()
-                                                    },
-                                                    onDrag = { change, dragAmount ->
-                                                        change.consume()
-                                                        val last = currentDrawingPoints.lastOrNull()
-                                                            ?: Offset.Zero
-                                                        currentDrawingPoints.add(
-                                                            last + Offset(
-                                                                dragAmount.x / size.width,
-                                                                dragAmount.y / size.height
-                                                            )
-                                                        )
-                                                    }
-                                                )
-                                            }
-                                        } else if (activeTool == DrawingTool.Pointer) {
-                                            Modifier.pointerInput(selectedDrawingId) {
-                                                detectDragGestures(
-                                                    onDragStart = { if (selectedDrawingId != null) pushState() },
-                                                    onDrag = { change, dragAmount ->
-                                                        selectedDrawingId?.let { id ->
-                                                            val index =
-                                                                drawings.indexOfFirst { it.id == id }
-                                                            if (index != -1) {
-                                                                change.consume()
-                                                                val d = drawings[index]
-                                                                drawings[index] = d.copy(
-                                                                    points = d.points.map {
-                                                                        it.copy(
-                                                                            x = it.x + dragAmount.x / size.width,
-                                                                            y = it.y + dragAmount.y / size.height
-                                                                        )
-                                                                    }
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                )
-                                            }
-                                        } else Modifier
-                                    )
-                                    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-                            ) {
-                                drawIntoCanvas {
-                                    drawings.forEach { drawing ->
-                                        val path = Path().apply {
-                                            drawing.points.firstOrNull()?.let { first ->
-                                                moveTo(first.x * size.width, first.y * size.height)
-                                                drawing.points.drop(1).forEach { next ->
-                                                    lineTo(
-                                                        next.x * size.width,
-                                                        next.y * size.height
-                                                    )
-                                                }
-                                            }
-                                        }
-
-                                        drawPath(
-                                            path = path,
-                                            color = Color(drawing.color),
-                                            alpha = drawing.opacity,
-                                            style = Stroke(
-                                                width = drawing.strokeWidth,
-                                                cap = StrokeCap.Round,
-                                                join = StrokeJoin.Round
-                                            ),
-                                            blendMode = if (drawing.tool == DrawingTool.Eraser) BlendMode.Clear else BlendMode.SrcOver
-                                        )
-
-                                        if (selectedDrawingId == drawing.id && activeTool == DrawingTool.Pointer) {
-                                            val bounds =
-                                                drawing.computeBoundingBox(size.width, size.height)
-                                            drawRect(
-                                                color = Color.White,
-                                                topLeft = Offset(
-                                                    bounds.left - 1.dp.toPx(),
-                                                    bounds.top - 1.dp.toPx()
-                                                ),
-                                                size = androidx.compose.ui.geometry.Size(
-                                                    bounds.width + 2.dp.toPx(),
-                                                    bounds.height + 2.dp.toPx()
-                                                ),
-                                                style = Stroke(width = 1.dp.toPx())
-                                            )
-                                            drawRect(
-                                                color = Color.Black,
-                                                topLeft = Offset(bounds.left, bounds.top),
-                                                size = androidx.compose.ui.geometry.Size(
-                                                    bounds.width,
-                                                    bounds.height
-                                                ),
-                                                style = Stroke(width = 1.dp.toPx())
-                                            )
-                                        }
-                                    }
-
-                                    if (currentDrawingPoints.isNotEmpty()) {
-                                        val path = Path().apply {
-                                            moveTo(
-                                                currentDrawingPoints.first().x * size.width,
-                                                currentDrawingPoints.first().y * size.height
-                                            )
-                                            currentDrawingPoints.drop(1).forEach { next ->
-                                                lineTo(next.x * size.width, next.y * size.height)
-                                            }
-                                        }
-                                        drawPath(
-                                            path = path,
-                                            color = currentStrokeColor,
-                                            alpha = currentStrokeOpacity,
-                                            style = Stroke(
-                                                width = currentStrokeWidth,
-                                                cap = StrokeCap.Round,
-                                                join = StrokeJoin.Round
-                                            ),
-                                            blendMode = if (activeTool == DrawingTool.Eraser) BlendMode.Clear else BlendMode.SrcOver
-                                        )
-                                    }
-                                }
+                        val canvasTextElements = remember(texts.toList(), currentViewportWidth, currentViewportHeight) {
+                            texts.map { te ->
+                                CanvasTextElement(
+                                    text = te.text,
+                                    x = te.x * currentViewportWidth,
+                                    y = te.y * currentViewportHeight,
+                                    rotation = te.rotation,
+                                    color = te.color,
+                                    fontSize = te.fontSize,
+                                )
                             }
                         }
 
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            texts.forEach { textElement ->
-                                key(textElement.id) {
-                                    val isSelected = selectedTextId == textElement.id
-                                    Box(
-                                        modifier = Modifier
-                                            .offset {
-                                                IntOffset(
-                                                    (textElement.x * currentViewportWidth).roundToInt(),
-                                                    (textElement.y * currentViewportHeight).roundToInt()
-                                                )
-                                            }
-                                            .rotate(textElement.rotation)
-                                            .then(
-                                                if (isSelected && activeTool == DrawingTool.Pointer) {
-                                                    Modifier
-                                                        .border(1.dp, Color.White)
-                                                        .padding(1.dp)
-                                                        .border(1.dp, Color.Black)
-                                                } else Modifier
-                                            )
-                                            .pointerInput(activeTool) {
-                                                if (activeTool == DrawingTool.Pointer) {
-                                                    detectTapGestures(
-                                                        onTap = {
-                                                            if (selectedTextId == textElement.id) {
-                                                                pushState()
-                                                                textToEdit =
-                                                                    texts.find { it.id == textElement.id }
-                                                            } else {
-                                                                selectedTextId = textElement.id
-                                                                selectedDrawingId = null
-                                                            }
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                            .pointerInput(activeTool) {
-                                                if (activeTool == DrawingTool.Pointer) {
-                                                    detectDragGestures(
-                                                        onDragStart = {
-                                                            if (selectedTextId == textElement.id) {
-                                                                pushState()
-                                                            }
-                                                        },
-                                                        onDrag = { change, dragAmount ->
-                                                            if (selectedTextId == textElement.id) {
-                                                                change.consume()
-                                                                val idx =
-                                                                    texts.indexOfFirst { it.id == textElement.id }
-                                                                if (idx != -1) {
-                                                                    val current = texts[idx]
-                                                                    texts[idx] = current.copy(
-                                                                        x = current.x + dragAmount.x / currentViewportWidth,
-                                                                        y = current.y + dragAmount.y / currentViewportHeight
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                            .padding(4.dp)
-                                    ) {
-                                        Text(
-                                            text = textElement.text,
-                                            color = Color(textElement.color),
-                                            fontSize = textElement.fontSize.sp
-                                        )
+                        InkCanvasView(
+                            currentBrush = currentBrush,
+                            finishedStrokes = inkStrokes.toList(),
+                            onStrokeFinished = { stroke ->
+                                pushState()
+                                inkStrokes.add(stroke)
+                            },
+                            onStrokeErased = { stroke ->
+                                pushState()
+                                inkStrokes.remove(stroke)
+                            },
+                            eraserMode = activeTool == DrawingTool.Eraser,
+                            enabled = isDrawing && activeTool != DrawingTool.Pointer && activeTool != DrawingTool.Text,
+                            textElements = canvasTextElements,
+                            selectedStrokeIndex = selectedStrokeIndex,
+                            selectedTextIndex = selectedTextIndex,
+                            modifier = Modifier.fillMaxSize(),
+                        )
 
-                                        if (isSelected && activeTool == DrawingTool.Pointer) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .align(Alignment.TopCenter)
-                                                    .offset(y = (-30).dp)
-                                                    .size(20.dp)
-                                                    .background(Color.White, CircleShape)
-                                                    .border(1.dp, Color.Black, CircleShape)
-                                                    .pointerInput(activeTool) {
-                                                        detectDragGestures(
-                                                            onDragStart = { pushState() },
-                                                            onDrag = { change, dragAmount ->
-                                                                if (selectedTextId == textElement.id) {
-                                                                    change.consume()
-                                                                    val idx =
-                                                                        texts.indexOfFirst { it.id == textElement.id }
-                                                                    if (idx != -1) {
-                                                                        val current = texts[idx]
-                                                                        texts[idx] = current.copy(
-                                                                            rotation = current.rotation + dragAmount.x
-                                                                        )
-                                                                    }
-                                                                }
-                                                            }
+                        if (isDrawing && activeTool == DrawingTool.Pointer) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .pointerInput(
+                                        inkStrokes.toList(),
+                                        texts.toList(),
+                                        selectedStrokeIndex,
+                                        selectedTextIndex,
+                                        currentViewportWidth,
+                                        currentViewportHeight
+                                    ) {
+                                        detectTapGestures(
+                                            onDoubleTap = { tapOffset ->
+                                                val textIdx = hitTestText(
+                                                    tapOffset.x,
+                                                    tapOffset.y,
+                                                    texts,
+                                                    currentViewportWidth,
+                                                    currentViewportHeight,
+                                                    densityFloat
+                                                )
+                                                if (textIdx != null) {
+                                                    pushState()
+                                                    textToEdit = texts.getOrNull(textIdx)
+                                                }
+                                            },
+                                            onTap = { tapOffset ->
+                                                val textIdx = hitTestText(
+                                                    tapOffset.x,
+                                                    tapOffset.y,
+                                                    texts,
+                                                    currentViewportWidth,
+                                                    currentViewportHeight,
+                                                    densityFloat
+                                                )
+                                                if (textIdx != null) {
+                                                    selectedTextIndex = textIdx
+                                                    selectedStrokeIndex = null
+                                                    selectedTextId = texts.getOrNull(textIdx)?.id
+                                                } else {
+                                                    val strokeIdx = hitTestStroke(
+                                                        tapOffset.x,
+                                                        tapOffset.y,
+                                                        inkStrokes
+                                                    )
+                                                    if (strokeIdx != null) {
+                                                        selectedStrokeIndex = strokeIdx
+                                                        selectedTextIndex = null
+                                                        selectedTextId = null
+                                                    } else {
+                                                        selectedStrokeIndex = null
+                                                        selectedTextIndex = null
+                                                        selectedTextId = null
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                                    .pointerInput(
+                                        selectedStrokeIndex,
+                                        selectedTextIndex,
+                                        currentViewportWidth,
+                                        currentViewportHeight
+                                    ) {
+                                        detectDragGestures(
+                                            onDragStart = {
+                                                if (selectedStrokeIndex != null || selectedTextIndex != null) {
+                                                    pushState()
+                                                }
+                                            },
+                                            onDrag = { change, dragAmount ->
+                                                change.consume()
+                                                selectedStrokeIndex?.let { idx ->
+                                                    if (idx in inkStrokes.indices) {
+                                                        inkStrokes[idx] = inkStrokes[idx].translate(
+                                                            dragAmount.x,
+                                                            dragAmount.y
                                                         )
                                                     }
-                                            )
-                                        }
+                                                }
+                                                selectedTextIndex?.let { idx ->
+                                                    if (idx in texts.indices) {
+                                                        val current = texts[idx]
+                                                        texts[idx] = current.copy(
+                                                            x = current.x + dragAmount.x / currentViewportWidth,
+                                                            y = current.y + dragAmount.y / currentViewportHeight
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        )
                                     }
-                                }
-                            }
+                            )
                         }
 
                         if (isCropping) {
@@ -831,76 +635,105 @@ fun EditPhotoPage(
                 ) {
                     IconButton(onClick = {
                         activeTool = DrawingTool.Pointer
-                        selectedDrawingId = null
                         selectedTextId = null
+                        selectedStrokeIndex = null
+                        selectedTextIndex = null
                     }) {
-                        IconVisible(tint = if (activeTool == DrawingTool.Pointer) Color.Yellow else Color.White)
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .then(
+                                    if (activeTool == DrawingTool.Pointer) Modifier.background(
+                                        MaterialTheme.colorScheme.secondaryContainer,
+                                        CircleShape
+                                    ) else Modifier
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            IconVisible()
+                        }
                     }
                     IconButton(onClick = {
-                        val isSelectedMatch =
-                            selectedDrawingId?.let { id -> drawings.find { it.id == id }?.tool == DrawingTool.Pen }
-                                ?: false
-                        if (isSelectedMatch || activeTool == DrawingTool.Pen) {
-                            val drawing = drawings.find { it.id == selectedDrawingId }
+                        if (activeTool == DrawingTool.Pen) {
                             backStack.add(
                                 EditRoute.DrawingSettings(
                                     DrawingTool.Pen,
-                                    drawing?.color ?: penColor.toArgb(),
-                                    drawing?.strokeWidth ?: penWidth,
+                                    penColor.toArgb(),
+                                    penSize,
                                     1f
                                 )
                             )
                         } else {
-                            activeTool = DrawingTool.Pen
-                            selectedDrawingId = null
+                        activeTool = DrawingTool.Pen
                             selectedTextId = null
+                            selectedStrokeIndex = null
+                            selectedTextIndex = null
                         }
                     }) {
-                        IconDraw(tint = if (activeTool == DrawingTool.Pen) penColor else Color.White)
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .then(
+                                    if (activeTool == DrawingTool.Pen) Modifier.background(
+                                        MaterialTheme.colorScheme.secondaryContainer,
+                                        CircleShape
+                                    ) else Modifier
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            IconDraw()
+                        }
                     }
                     IconButton(onClick = {
-                        val isSelectedMatch =
-                            selectedDrawingId?.let { id -> drawings.find { it.id == id }?.tool == DrawingTool.Highlighter }
-                                ?: false
-                        if (isSelectedMatch || activeTool == DrawingTool.Highlighter) {
-                            val drawing = drawings.find { it.id == selectedDrawingId }
+                        if (activeTool == DrawingTool.Highlighter) {
                             backStack.add(
                                 EditRoute.DrawingSettings(
                                     DrawingTool.Highlighter,
-                                    drawing?.color ?: highlighterColor.toArgb(),
-                                    drawing?.strokeWidth ?: highlighterWidth,
-                                    drawing?.opacity ?: highlighterOpacity
+                                    highlighterColor.toArgb(),
+                                    highlighterSize,
+                                    highlighterOpacity
                                 )
                             )
                         } else {
                             activeTool = DrawingTool.Highlighter
-                            selectedDrawingId = null
                             selectedTextId = null
+                            selectedStrokeIndex = null
+                            selectedTextIndex = null
                         }
                     }) {
-                        IconBrush(tint = if (activeTool == DrawingTool.Highlighter) highlighterColor else Color.White)
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .then(
+                                    if (activeTool == DrawingTool.Highlighter) Modifier.background(
+                                        MaterialTheme.colorScheme.secondaryContainer,
+                                        CircleShape
+                                    ) else Modifier
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            IconBrush()
+                        }
                     }
                     IconButton(onClick = {
-                        val isSelectedMatch =
-                            selectedDrawingId?.let { id -> drawings.find { it.id == id }?.tool == DrawingTool.Eraser }
-                                ?: false
-                        if (isSelectedMatch || activeTool == DrawingTool.Eraser) {
-                            val drawing = drawings.find { it.id == selectedDrawingId }
-                            backStack.add(
-                                EditRoute.DrawingSettings(
-                                    DrawingTool.Eraser,
-                                    Color.Transparent.toArgb(),
-                                    drawing?.strokeWidth ?: eraserWidth,
-                                    1f
-                                )
-                            )
-                        } else {
-                            activeTool = DrawingTool.Eraser
-                            selectedDrawingId = null
-                            selectedTextId = null
-                        }
+                        activeTool = DrawingTool.Eraser
+                        selectedTextId = null
+                        selectedStrokeIndex = null
+                        selectedTextIndex = null
                     }) {
-                        IconEraser(tint = if (activeTool == DrawingTool.Eraser) Color.Yellow else Color.White)
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .then(
+                                    if (activeTool == DrawingTool.Eraser) Modifier.background(
+                                        MaterialTheme.colorScheme.secondaryContainer,
+                                        CircleShape
+                                    ) else Modifier
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            IconEraser()
+                        }
                     }
                     IconButton(onClick = {
                         if (selectedTextId != null || activeTool == DrawingTool.Text) {
@@ -927,16 +760,28 @@ fun EditPhotoPage(
                             }
                         } else {
                             activeTool = DrawingTool.Text
-                            selectedDrawingId = null
                             selectedTextId = null
+                            selectedStrokeIndex = null
+                            selectedTextIndex = null
                         }
                     }) {
-                        Text(
-                            "T",
-                            color = if (activeTool == DrawingTool.Text) penColor else Color.White,
-                            fontSize = 24.sp,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .then(
+                                    if (activeTool == DrawingTool.Text) Modifier.background(
+                                        MaterialTheme.colorScheme.secondaryContainer,
+                                        CircleShape
+                                    ) else Modifier
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "T",
+                                fontSize = 24.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
@@ -980,7 +825,7 @@ fun CropOverlay(cropRect: Rect, onCropRectChange: (Rect) -> Unit) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val width = constraints.maxWidth.toFloat()
         val height = constraints.maxHeight.toFloat()
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
             val rect = Rect(
                 cropRect.left * width,
                 cropRect.top * height,
@@ -1081,4 +926,37 @@ fun Handle(offset: Offset, onDrag: (Offset) -> Unit) {
                 }
             }
     )
+}
+
+private fun hitTestText(
+    x: Float,
+    y: Float,
+    texts: List<TextElement>,
+    viewportWidth: Float,
+    viewportHeight: Float,
+    density: Float,
+): Int? {
+    val paint = android.graphics.Paint().apply { isAntiAlias = true }
+    for (i in texts.indices.reversed()) {
+        val elem = texts[i]
+        paint.textSize = elem.fontSize * density
+        val textWidth = paint.measureText(elem.text)
+        val textHeight = paint.textSize
+        val ex = elem.x * viewportWidth
+        val ey = elem.y * viewportHeight
+        if (x in ex..(ex + textWidth) && y in ey..(ey + textHeight + 4f)) return i
+    }
+    return null
+}
+
+private fun hitTestStroke(x: Float, y: Float, strokes: List<InkStroke>): Int? {
+    val hitRadius = 20f
+    for (i in strokes.indices.reversed()) {
+        strokes[i].shape.computeBoundingBox()?.let { box ->
+            if (box.xMin <= x + hitRadius && box.xMax >= x - hitRadius &&
+                box.yMin <= y + hitRadius && box.yMax >= y - hitRadius
+            ) return i
+        }
+    }
+    return null
 }

@@ -15,8 +15,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.vayunmathur.photos.data.Drawing
-import com.vayunmathur.photos.data.DrawingTool
+import com.vayunmathur.library.util.SerializedStroke
+import com.vayunmathur.library.util.deserialize
 import com.vayunmathur.photos.data.Photo
 import com.vayunmathur.photos.data.TextElement
 import kotlinx.coroutines.Dispatchers
@@ -28,19 +28,6 @@ import kotlinx.coroutines.withContext
 import java.io.InputStream
 import kotlin.math.roundToInt
 
-/**
- * ViewModel for the photo edit screen.
- *
- * Owns:
- *  - decoded source bitmap (LRU cache, keyed by URI)
- *  - transformed bitmap reflecting rotation + (final) crop
- *  - persisting the result back to MediaStore
- *
- * All bitmap work runs on [Dispatchers.Default] (CPU-bound: decode + Matrix +
- * compress; not I/O latency-bound).
- *
- * Bitmaps are recycled in [onCleared] to release native memory promptly.
- */
 class PhotoEditViewModel(
     application: Application,
 ) : AndroidViewModel(application) {
@@ -51,9 +38,6 @@ class PhotoEditViewModel(
     private val _transformedBitmap = MutableStateFlow<Bitmap?>(null)
     val transformedBitmap: StateFlow<Bitmap?> = _transformedBitmap.asStateFlow()
 
-    // Bounded LRU cache for decoded source bitmaps. Editing the same photo
-    // multiple times within a session reuses the decoded data. Eldest entries
-    // are recycled on eviction unless still referenced as the current original.
     private val decodedCache = object : LinkedHashMap<String, Bitmap>(32, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>): Boolean {
             if (size > 32) {
@@ -69,10 +53,6 @@ class PhotoEditViewModel(
 
     private var lastDecodedUri: String? = null
 
-    /**
-     * Decode the photo at [uri]. Result is published to [originalBitmap].
-     * Uses [Dispatchers.Default] since BitmapFactory work is CPU-bound.
-     */
     fun decode(uri: Uri) {
         val uriStr = uri.toString()
         if (uriStr == lastDecodedUri && _originalBitmap.value != null) return
@@ -85,9 +65,17 @@ class PhotoEditViewModel(
         val ctx: Context = getApplication()
         viewModelScope.launch(Dispatchers.Default) {
             try {
-                val bmp = ctx.contentResolver.openInputStream(uri)?.use { stream ->
-                    decodeSampledStream(stream, ctx, uri)
-                } ?: return@launch
+                val source = android.graphics.ImageDecoder.createSource(ctx.contentResolver, uri)
+                val bmp = android.graphics.ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    val w = info.size.width
+                    val h = info.size.height
+                    val target = 2048
+                    if (w > target || h > target) {
+                        val scale = target.toFloat() / maxOf(w, h)
+                        decoder.setTargetSize((w * scale).roundToInt(), (h * scale).roundToInt())
+                    }
+                    decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+                }
                 synchronized(decodedCache) { decodedCache[uriStr] = bmp }
                 lastDecodedUri = uriStr
                 _originalBitmap.value = bmp
@@ -97,33 +85,6 @@ class PhotoEditViewModel(
         }
     }
 
-    private fun decodeSampledStream(stream: InputStream, ctx: Context, uri: Uri): Bitmap? {
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeStream(stream, null, options)
-
-        var inSampleSize = 1
-        val targetW = 2048
-        val targetH = 2048
-        if (options.outHeight > targetH || options.outWidth > targetW) {
-            val halfHeight = options.outHeight / 2
-            val halfWidth = options.outWidth / 2
-            while (halfHeight / inSampleSize >= targetH && halfWidth / inSampleSize >= targetW) {
-                inSampleSize *= 2
-            }
-        }
-        options.inJustDecodeBounds = false
-        options.inSampleSize = inSampleSize
-
-        return ctx.contentResolver.openInputStream(uri)?.use { input2 ->
-            BitmapFactory.decodeStream(input2, null, options)
-        }
-    }
-
-    /**
-     * Produce a rotated (and, when not actively cropping, cropped) bitmap from
-     * the currently decoded source. The previous transformed bitmap is
-     * recycled if it was not the source itself.
-     */
     fun applyTransform(rotation: Float, cropRect: Rect, isCropping: Boolean) {
         val original = _originalBitmap.value ?: return
         viewModelScope.launch(Dispatchers.Default) {
@@ -154,16 +115,11 @@ class PhotoEditViewModel(
         }
     }
 
-    /**
-     * Save the edited photo to MediaStore. Mirrors the previously inline
-     * `savePhoto` function but runs through [viewModelScope] so the work is
-     * tied to the VM lifecycle.
-     */
     fun savePhoto(
         photo: Photo,
         rotation: Float,
         cropRect: Rect,
-        drawings: List<Drawing>,
+        strokes: List<SerializedStroke>,
         texts: List<TextElement>,
         viewportWidth: Float,
         asCopy: Boolean,
@@ -172,7 +128,7 @@ class PhotoEditViewModel(
         val ctx: Context = getApplication()
         viewModelScope.launch {
             withContext(Dispatchers.Default) {
-                writeEdited(ctx, photo, rotation, cropRect, drawings, texts, viewportWidth, asCopy)
+                writeEdited(ctx, photo, rotation, cropRect, strokes, texts, viewportWidth, asCopy)
             }
             onComplete()
         }
@@ -203,13 +159,17 @@ class PhotoEditViewModel(
             photo: Photo,
             rotation: Float,
             cropRect: Rect,
-            drawings: List<Drawing>,
+            strokes: List<SerializedStroke>,
             texts: List<TextElement>,
             viewportWidth: Float,
             asCopy: Boolean,
         ) {
-            val inputStream: InputStream? = context.contentResolver.openInputStream(Uri.parse(photo.uri))
-            val originalBitmap = BitmapFactory.decodeStream(inputStream) ?: return
+            val photoUri = Uri.parse(photo.uri)
+            val source = android.graphics.ImageDecoder.createSource(context.contentResolver, photoUri)
+            var originalBitmap = android.graphics.ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+            }
+
             val matrix = Matrix().apply { postRotate(rotation) }
             var transformedBitmap = Bitmap.createBitmap(
                 originalBitmap, 0, 0, originalBitmap.width, originalBitmap.height, matrix, true,
@@ -227,34 +187,23 @@ class PhotoEditViewModel(
             }
             val resultBitmap = transformedBitmap.copy(Bitmap.Config.ARGB_8888, true)
             val canvas = android.graphics.Canvas(resultBitmap)
-            val paint = android.graphics.Paint().apply {
-                isAntiAlias = true
-                strokeCap = android.graphics.Paint.Cap.ROUND
-                strokeJoin = android.graphics.Paint.Join.ROUND
-                style = android.graphics.Paint.Style.STROKE
-            }
-            if (drawings.isNotEmpty()) {
-                val saveCount = canvas.saveLayer(
-                    0f, 0f, resultBitmap.width.toFloat(), resultBitmap.height.toFloat(), null,
-                )
-                drawings.forEach { drawing ->
-                    paint.color = drawing.color
-                    paint.strokeWidth = drawing.strokeWidth
-                    paint.alpha = (drawing.opacity * 255).roundToInt()
-                    paint.xfermode = if (drawing.tool == DrawingTool.Eraser) {
-                        android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
-                    } else null
-                    val path = android.graphics.Path()
-                    drawing.points.firstOrNull()?.let { first ->
-                        path.moveTo(first.x * resultBitmap.width, first.y * resultBitmap.height)
-                        drawing.points.drop(1).forEach { next ->
-                            path.lineTo(next.x * resultBitmap.width, next.y * resultBitmap.height)
-                        }
-                    }
-                    canvas.drawPath(path, paint)
+
+            if (strokes.isNotEmpty()) {
+                val renderer = androidx.ink.rendering.android.canvas.CanvasStrokeRenderer.create()
+                val scaleMatrix = Matrix().apply {
+                    setScale(
+                        resultBitmap.width / viewportWidth,
+                        resultBitmap.width / viewportWidth,
+                    )
                 }
-                canvas.restoreToCount(saveCount)
+                strokes.forEach { serialized ->
+                    try {
+                        val stroke = serialized.deserialize()
+                        renderer.draw(canvas, stroke, scaleMatrix)
+                    } catch (_: Exception) {}
+                }
             }
+
             if (texts.isNotEmpty()) {
                 val textPaint = android.graphics.Paint().apply {
                     isAntiAlias = true
