@@ -17,15 +17,19 @@ import com.vayunmathur.library.util.ListPage
 import com.vayunmathur.library.util.MainNavigation
 import com.vayunmathur.library.util.NavKey
 import com.vayunmathur.library.util.buildDatabase
+import com.vayunmathur.library.util.closeCachedDatabase
 import com.vayunmathur.library.util.onFileDrop
 import com.vayunmathur.library.util.rememberNavBackStack
+import com.vayunmathur.notes.data.Note
 import com.vayunmathur.notes.data.NoteDao
 import com.vayunmathur.notes.data.NoteDatabase
 import com.vayunmathur.notes.ui.NotePage
 import com.vayunmathur.notes.ui.NotesListPage
 import com.vayunmathur.notes.util.NotesViewModel
 import com.vayunmathur.notes.util.NotesViewModelFactory
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     private lateinit var noteDao: NoteDao
@@ -36,8 +40,29 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Migrate notes from old database (used default name "passwords-db") to "notes-db"
+        val oldDbFile = getDatabasePath("passwords-db")
+        var oldNotes = emptyList<Note>()
+        if (oldDbFile.exists()) {
+            try {
+                val oldDb = buildDatabase<NoteDatabase>()
+                oldNotes = runBlocking { oldDb.noteDao().getAll() }
+                closeCachedDatabase<NoteDatabase>()
+            } catch (_: Exception) { }
+        }
+
         val db = buildDatabase<NoteDatabase>(dbName = "notes-db")
         noteDao = db.noteDao()
+
+        if (oldNotes.isNotEmpty()) {
+            runBlocking { noteDao.upsertAll(oldNotes) }
+        }
+        if (oldDbFile.exists()) {
+            oldDbFile.delete()
+            File("${oldDbFile.path}-wal").delete()
+            File("${oldDbFile.path}-shm").delete()
+            File("${oldDbFile.path}-journal").delete()
+        }
 
         handleIntent(intent)
 
