@@ -123,6 +123,15 @@ class WordMakerViewModel(application: Application) : AndroidViewModel(applicatio
 
         val target = unrevealed.random()
         _hintCooldownEnd.value = System.currentTimeMillis() + 30_000L
-        viewModelScope.launch { levelDataStore.addRevealedHint(target.first, target.second) }
+        viewModelScope.launch {
+            levelDataStore.addRevealedHint(target.first, target.second)
+
+            val nowRevealed = revealedPositions + target
+            crosswordData.letterPositions.forEach { (word, positions) ->
+                if (word !in foundWords && nowRevealed.containsAll(positions)) {
+                    levelDataStore.addFoundWord(word)
+                }
+            }
+        }
     }
 }
