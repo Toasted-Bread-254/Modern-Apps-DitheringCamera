@@ -1,13 +1,9 @@
 package com.vayunmathur.launcher.ui
 
 import android.appwidget.AppWidgetHost
-import android.appwidget.AppWidgetManager
-import android.content.Intent
-import android.os.Build
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
@@ -21,12 +17,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import com.vayunmathur.launcher.LauncherViewModel
+import com.vayunmathur.launcher.MainActivity
 import com.vayunmathur.launcher.widget.WidgetPicker
 
 @Composable
 fun LauncherScreen(
     viewModel: LauncherViewModel,
-    widgetHost: AppWidgetHost?
+    widgetHost: AppWidgetHost?,
+    activity: MainActivity
 ) {
     val apps by viewModel.apps.collectAsState()
     val query by viewModel.query.collectAsState()
@@ -43,7 +41,6 @@ fun LauncherScreen(
     val contextMenuApp by viewModel.contextMenuApp.collectAsState()
     val contextMenuDockApp by viewModel.contextMenuDockApp.collectAsState()
     val openFolder by viewModel.openFolder.collectAsState()
-    val folders by viewModel.folders.collectAsState()
 
     val context = LocalContext.current
     val view = LocalView.current
@@ -112,7 +109,6 @@ fun LauncherScreen(
             )
         }
 
-        // App Drawer overlay
         if (isDrawerOpen) {
             AppDrawer(
                 apps = apps,
@@ -131,14 +127,12 @@ fun LauncherScreen(
             )
         }
 
-        // Home context menu
         HomeContextMenu(
             expanded = homeContextMenuVisible,
             onDismiss = { viewModel.hideHomeContextMenu() },
             onWidgets = { viewModel.showWidgetPicker() }
         )
 
-        // App context menu (home screen items)
         contextMenuApp?.let { item ->
             AppContextMenu(
                 expanded = true,
@@ -151,7 +145,6 @@ fun LauncherScreen(
             )
         }
 
-        // Dock app context menu
         contextMenuDockApp?.let { item ->
             AppContextMenu(
                 expanded = true,
@@ -164,7 +157,6 @@ fun LauncherScreen(
             )
         }
 
-        // Widget picker
         if (showWidgetPicker) {
             WidgetPicker(
                 onDismiss = { viewModel.hideWidgetPicker() },
@@ -172,15 +164,13 @@ fun LauncherScreen(
                     viewModel.hideWidgetPicker()
                     if (widgetHost != null) {
                         val widgetId = widgetHost.allocateAppWidgetId()
-                        val manager = AppWidgetManager.getInstance(context)
-                        val bound = manager.bindAppWidgetIdIfAllowed(widgetId, providerInfo.provider)
-                        if (bound) {
+                        activity.requestBindWidget(widgetId, providerInfo) { boundId, info ->
                             viewModel.addWidget(
-                                appWidgetId = widgetId,
+                                appWidgetId = boundId,
                                 page = pagerState.currentPage,
                                 row = 0, col = 0,
-                                spanX = (providerInfo.minWidth / 80).coerceAtLeast(1),
-                                spanY = (providerInfo.minHeight / 80).coerceAtLeast(1)
+                                spanX = (info.minWidth / 80).coerceAtLeast(1),
+                                spanY = (info.minHeight / 80).coerceAtLeast(1)
                             )
                         }
                     }
@@ -188,7 +178,6 @@ fun LauncherScreen(
             )
         }
 
-        // Folder dialog
         openFolder?.let { folder ->
             val folderItems = viewModel.getFolderItems(folder.id)
             FolderDialog(

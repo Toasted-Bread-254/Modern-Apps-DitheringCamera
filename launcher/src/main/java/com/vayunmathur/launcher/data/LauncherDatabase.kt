@@ -131,7 +131,8 @@ class HomeItemTypeConverter {
 
 @Database(
     entities = [HomeScreenItem::class, DockItem::class, WidgetItem::class, FolderInfo::class],
-    version = 1
+    version = 1,
+    exportSchema = false
 )
 @TypeConverters(HomeItemTypeConverter::class)
 abstract class LauncherDatabase : RoomDatabase() {

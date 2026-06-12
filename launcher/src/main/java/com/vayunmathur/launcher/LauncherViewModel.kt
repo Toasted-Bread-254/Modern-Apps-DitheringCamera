@@ -121,7 +121,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val resolveInfos: List<ResolveInfo> = pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
         _apps.value = resolveInfos
             .mapNotNull { info ->
-                val label = info.loadLabel(pm)?.toString() ?: return@mapNotNull null
+                val label = info.loadLabel(pm).toString()
                 val icon = info.loadIcon(pm)
                 iconCache[info.activityInfo.packageName] = icon
                 AppInfo(

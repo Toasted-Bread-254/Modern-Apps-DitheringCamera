@@ -17,24 +17,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import kotlinx.datetime.Clock
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
-import java.time.format.TextStyle as JavaTextStyle
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
 fun AtAGlanceWidget(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val now = remember { Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()) }
+    val now = remember { LocalDate.now() }
 
-    val dayOfWeek = remember {
-        now.dayOfWeek.getDisplayName(JavaTextStyle.FULL, Locale.getDefault())
-    }
     val dateString = remember {
-        val month = now.month.getDisplayName(JavaTextStyle.FULL, Locale.getDefault())
-        "$dayOfWeek, $month ${now.dayOfMonth}"
+        now.format(DateTimeFormatter.ofPattern("EEEE, MMMM d", Locale.getDefault()))
     }
 
     val nextEvent = remember {
