@@ -7,10 +7,29 @@ import com.vayunmathur.passwords.data.Passkey
 import com.vayunmathur.passwords.data.PasskeyDao
 import com.vayunmathur.passwords.data.Password
 import com.vayunmathur.passwords.data.PasswordDao
+import org.linguafranca.pwdb.SerializableDatabase
+import org.linguafranca.pwdb.kdbx.Helpers
 import org.linguafranca.pwdb.kdbx.KdbxCreds
+import org.linguafranca.pwdb.kdbx.KdbxHeader
+import org.linguafranca.pwdb.kdbx.KdbxStreamFormat
 import org.linguafranca.pwdb.kdbx.dom.DomDatabaseWrapper
+import org.linguafranca.pwdb.kdbx.dom.DomHelper
+import org.linguafranca.pwdb.kdbx.dom.DomSerializableDatabase
+import org.linguafranca.pwdb.security.StreamEncryptor
+import org.w3c.dom.Element
+import org.w3c.dom.NodeList
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.time.Instant
+import java.util.Date
+import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.transform.OutputKeys
+import javax.xml.transform.TransformerFactory
+import javax.xml.transform.dom.DOMSource
+import javax.xml.transform.stream.StreamResult
+import javax.xml.xpath.XPathConstants
 
 class KdbxBackupFormat(
     private val passwordDao: PasswordDao,
@@ -59,7 +78,104 @@ class KdbxBackupFormat(
             root.addEntry(entry)
         }
 
-        db.save(creds, outputStream)
+        saveKdbx(db, creds, outputStream)
+    }
+
+    /**
+     * Android's Document.cloneNode(true) produces a malformed tree with nested
+     * Document nodes (type 9). DomSerializableDatabase.save() uses cloneNode
+     * internally, so we bypass it entirely: serialize the DOM to XML, reparse
+     * into a clean copy, apply protection/date processing, then serialize out.
+     * The KDBX encryption layer is handled by KdbxStreamFormat.
+     */
+    private fun saveKdbx(db: DomDatabaseWrapper, creds: KdbxCreds, outputStream: OutputStream) {
+        val domDbField = DomDatabaseWrapper::class.java.getDeclaredField("domDatabase")
+        domDbField.isAccessible = true
+        val realDomDb = domDbField.get(db) as DomSerializableDatabase
+
+        DomHelper.setElementContent("//Generator", realDomDb.doc.documentElement, "KeePassJava2-DOM")
+
+        val wrapper = object : SerializableDatabase {
+            private var encryption: StreamEncryptor? = null
+            private var headerHash: ByteArray? = null
+
+            override fun load(inputStream: InputStream) = this
+
+            override fun save(os: OutputStream) {
+                val doc = realDomDb.doc
+
+                // Serialize→reparse to get a clean copy (avoids broken cloneNode)
+                val baos = ByteArrayOutputStream()
+                val tf = TransformerFactory.newInstance()
+                tf.newTransformer().transform(DOMSource(doc), StreamResult(baos))
+                val copyDoc = DocumentBuilderFactory.newInstance()
+                    .newDocumentBuilder()
+                    .parse(ByteArrayInputStream(baos.toByteArray()))
+
+                val xpath = DomHelper.xpath
+
+                // Mark fields for protection based on Meta/MemoryProtection settings
+                for (field in listOf("Title", "UserName", "Password", "Notes", "URL")) {
+                    val query = "//Meta/MemoryProtection/Protect$field"
+                    val protect = xpath.evaluate(query, copyDoc, XPathConstants.STRING) as String
+                    if (protect.equals("true", ignoreCase = true)) {
+                        val path = "//String/Key[text()='$field']/following-sibling::Value"
+                        val nodes = xpath.evaluate(path, copyDoc, XPathConstants.NODESET) as NodeList
+                        for (i in 0 until nodes.length) {
+                            (nodes.item(i) as Element).setAttribute("kpj2-ProtectOnOutput", "True")
+                        }
+                    }
+                }
+
+                // Encrypt all protected fields
+                val protectedContent = xpath.evaluate(
+                    "//*[@kpj2-ProtectOnOutput='True']", copyDoc, XPathConstants.NODESET
+                ) as NodeList
+                for (i in 0 until protectedContent.length) {
+                    val element = protectedContent.item(i) as Element
+                    element.removeAttribute("kpj2-ProtectOnOutput")
+                    element.setAttribute("Protected", "True")
+                    val decrypted = DomHelper.getElementContent(".", element) ?: ""
+                    val encrypted = encryption!!.encrypt(decrypted.toByteArray())
+                    val base64 = String(org.apache.commons.codec.binary.Base64.encodeBase64(encrypted))
+                    DomHelper.setElementContent(".", element, base64)
+                }
+
+                // Format dates
+                val timeContent = xpath.evaluate(
+                    "//*[substring(name(),string-length(name())-6) = 'Changed'] | " +
+                        "//*[substring(name(),string-length(name())-3) = 'Time']",
+                    copyDoc, XPathConstants.NODESET
+                ) as NodeList
+                for (i in 0 until timeContent.length) {
+                    val element = timeContent.item(i) as Element
+                    val time = DomHelper.getElementContent(".", element) ?: continue
+                    val date = if (time == "\${creationDate}") {
+                        Date.from(Instant.now())
+                    } else {
+                        Helpers.toDate(time)
+                    }
+                    DomHelper.setElementContent(".", element, Helpers.fromDate(date))
+                }
+
+                // Serialize processed copy to output
+                val transformer = tf.newTransformer()
+                transformer.setOutputProperty(OutputKeys.INDENT, "yes")
+                transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4")
+                transformer.transform(DOMSource(copyDoc), StreamResult(os))
+            }
+
+            override fun getHeaderHash() = headerHash ?: ByteArray(0)
+            override fun setHeaderHash(hash: ByteArray?) { headerHash = hash }
+            override fun getEncryption() = encryption
+            override fun setEncryption(enc: StreamEncryptor?) { encryption = enc }
+            override fun addBinary(index: Int, payload: ByteArray?) = realDomDb.addBinary(index, payload)
+            override fun getBinary(index: Int): ByteArray = realDomDb.getBinary(index)
+            override fun getBinaryCount() = realDomDb.binaryCount
+        }
+
+        val streamFormat = KdbxStreamFormat(KdbxHeader(4))
+        streamFormat.save(wrapper, creds, outputStream)
     }
 
     override suspend fun import(context: Context, password: String?, inputStream: InputStream) {
@@ -109,7 +225,7 @@ class KdbxBackupFormat(
         val pw = Password(
             name = entry.title.orEmpty(),
             userId = entry.username.orEmpty(),
-            password = entry.password.orEmpty(),
+            password = entry.getProperty("Password").orEmpty(),
             websites = websites,
             totpSecret = totpSecret,
         )
