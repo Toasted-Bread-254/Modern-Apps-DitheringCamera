@@ -81,6 +81,7 @@ import com.vayunmathur.games.wordmaker.ui.SettingsPage
 import com.vayunmathur.games.wordmaker.util.AppBackupAgent
 import com.vayunmathur.games.wordmaker.util.WordMakerViewModel
 import com.vayunmathur.library.ui.AchievementNotification
+import com.vayunmathur.library.ui.IconSettings
 import com.vayunmathur.library.ui.DynamicTheme
 import com.vayunmathur.library.ui.GameCenterScreen
 import com.vayunmathur.library.util.AchievementsManager
@@ -304,12 +305,12 @@ fun WordGameScreen(
     }
 
     val isWon = crosswordData.winsWith(foundWords)
-    
+
     LaunchedEffect(isWon) {
         if (isWon) {
             if (currentLevel == 1) achievementsManager.onAchievementUnlocked("level_1_done")
             if (currentLevel == 861) achievementsManager.onAchievementUnlocked("manual_levels_done")
-            
+
             achievementsManager.onProgressUpdated("manual_levels_done", currentLevel)
             achievementsManager.onProgressUpdated("level_50", currentLevel)
             achievementsManager.onProgressUpdated("level_100", currentLevel)
@@ -335,7 +336,7 @@ fun WordGameScreen(
                         Icon(painterResource(id = android.R.drawable.btn_star_big_on), "Achievements")
                     }
                     IconButton(onClick = onOpenSettings) {
-                        Icon(painterResource(id = android.R.drawable.ic_menu_preferences), "Settings")
+                        IconSettings()
                     }
                 }
             )
@@ -818,7 +819,31 @@ fun LetterChooser(
         )
 
         Row(verticalAlignment = Alignment.Top) {
-            Spacer(modifier = Modifier.width(72.dp))
+            Column(
+                modifier = Modifier.width(72.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (tapToSpell && selectedLettersIndices.isNotEmpty()) {
+                    FilledIconButton(onClick = {
+                        selectedLettersIndices = selectedLettersIndices.dropLast(1)
+                    }) {
+                        Icon(painterResource(R.drawable.backspace_24px), contentDescription = "Backspace")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FilledIconButton(onClick = {
+                        if (selectedLettersIndices.isNotEmpty()) {
+                            val word = selectedLettersIndices.map { letters[it].char }.joinToString("")
+                            val ids = selectedLettersIndices.map { letters[it].id }
+                            coroutineScope.launch {
+                                onWordSubmitted(word, ids)
+                                selectedLettersIndices = emptyList()
+                            }
+                        }
+                    }) {
+                        Icon(painterResource(R.drawable.keyboard_return_24px), contentDescription = "Submit")
+                    }
+                }
+            }
             Box(
                 modifier = Modifier
                     .size(250.dp)
@@ -915,7 +940,7 @@ fun LetterChooser(
                                 }
                             } else Modifier),
                             CircleShape,
-                            if (index in selectedLettersIndices) colorScheme.primary else colorScheme.surfaceVariant,
+                            if (index in selectedLettersIndices) colorScheme.primary else colorScheme.secondary,
                             chooserLetter.char.toString(),
                             Modifier.padding(1.dp),
                             FontWeight.Bold,
@@ -927,28 +952,6 @@ fun LetterChooser(
             }
             FilledIconButton(onClick = onShuffle) {
                 Icon(painterResource(R.drawable.ic_shuffle), contentDescription = "Shuffle")
-            }
-        }
-        if (tapToSpell && selectedLettersIndices.isNotEmpty()) {
-            Row(modifier = Modifier.padding(top = 8.dp)) {
-                FilledIconButton(onClick = {
-                    selectedLettersIndices = selectedLettersIndices.dropLast(1)
-                }) {
-                    Icon(painterResource(android.R.drawable.ic_input_delete), contentDescription = "Backspace")
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                FilledIconButton(onClick = {
-                    if (selectedLettersIndices.isNotEmpty()) {
-                        val word = selectedLettersIndices.map { letters[it].char }.joinToString("")
-                        val ids = selectedLettersIndices.map { letters[it].id }
-                        coroutineScope.launch {
-                            onWordSubmitted(word, ids)
-                            selectedLettersIndices = emptyList()
-                        }
-                    }
-                }) {
-                    Icon(painterResource(android.R.drawable.ic_menu_send), contentDescription = "Submit")
-                }
             }
         }
     }

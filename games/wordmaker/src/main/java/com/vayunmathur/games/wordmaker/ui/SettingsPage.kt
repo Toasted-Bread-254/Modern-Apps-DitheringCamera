@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.vayunmathur.library.ui.IconNavigation
 import com.vayunmathur.games.wordmaker.R
 import com.vayunmathur.games.wordmaker.util.WordMakerViewModel
 
@@ -34,9 +35,7 @@ fun SettingsPage(viewModel: WordMakerViewModel, onBack: () -> Unit) {
             TopAppBar(
                 title = { Text(stringResource(R.string.settings)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(painterResource(android.R.drawable.ic_menu_revert), contentDescription = "Back")
-                    }
+                    IconNavigation(onBack)
                 },
                 actions = {
                     com.vayunmathur.library.ui.BackupButtons(
