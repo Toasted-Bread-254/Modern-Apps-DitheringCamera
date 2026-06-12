@@ -31,12 +31,14 @@
             <option value="$PROJECT_DIR$/findfamily" />
             <option value="$PROJECT_DIR$/games" />
             <option value="$PROJECT_DIR$/games/alchemist" />
+            <option value="$PROJECT_DIR$/games/app" />
             <option value="$PROJECT_DIR$/games/chess" />
             <option value="$PROJECT_DIR$/games/pipes" />
             <option value="$PROJECT_DIR$/games/solitaire" />
             <option value="$PROJECT_DIR$/games/unblockjam" />
             <option value="$PROJECT_DIR$/games/wordmaker" />
             <option value="$PROJECT_DIR$/health" />
+            <option value="$PROJECT_DIR$/launcher" />
             <option value="$PROJECT_DIR$/library" />
             <option value="$PROJECT_DIR$/library/biometric" />
             <option value="$PROJECT_DIR$/library/downloadservice" />
@@ -50,6 +52,9 @@
             <option value="$PROJECT_DIR$/passwords" />
             <option value="$PROJECT_DIR$/pdf" />
             <option value="$PROJECT_DIR$/photos" />
+            <option value="$PROJECT_DIR$/sdk" />
+            <option value="$PROJECT_DIR$/sdk/games" />
+            <option value="$PROJECT_DIR$/sdk/openassistant" />
             <option value="$PROJECT_DIR$/weather" />
             <option value="$PROJECT_DIR$/web" />
             <option value="$PROJECT_DIR$/youpipe" />
