@@ -28,11 +28,17 @@ import com.vayunmathur.weather.network.Hourly
 import com.vayunmathur.weather.util.TemperatureUnit
 import com.vayunmathur.weather.util.formatTemperatureCompact
 import com.vayunmathur.weather.util.weatherConditionForCode
+import androidx.compose.ui.unit.sp
+import kotlin.time.Clock
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.UtcOffset
+import kotlinx.datetime.plus
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.datetime.todayIn
 import kotlin.time.Instant
 
 /**
@@ -43,7 +49,7 @@ import kotlin.time.Instant
  * `primary`.
  */
 @Composable
-fun HourlyCard(hourly: Hourly, tempUnit: TemperatureUnit, utcOffsetSeconds: Int = 0) {
+fun HourlyCard(hourly: Hourly, tempUnit: TemperatureUnit, utcOffsetSeconds: Int = 0, use24Hour: Boolean = false) {
     val nowSec = System.currentTimeMillis() / 1000
     val cells = hourly.time.indices
         .mapNotNull { i ->
@@ -57,7 +63,6 @@ fun HourlyCard(hourly: Hourly, tempUnit: TemperatureUnit, utcOffsetSeconds: Int 
                 isDay = (hourly.isDay.getOrNull(i) ?: 1) == 1,
             )
         }
-        .take(24)
     if (cells.isEmpty()) return
 
     Surface(
@@ -72,7 +77,8 @@ fun HourlyCard(hourly: Hourly, tempUnit: TemperatureUnit, utcOffsetSeconds: Int 
                     val cell = cells[index]
                     if (index == 0) Spacer(Modifier.width(10.dp))
                     HourlyItem(
-                        time = if (index == 0) "Now" else formatHour(cell.epochSec),
+                        time = if (index == 0) "Now" else formatHour(cell.epochSec, use24Hour),
+                        dayLabel = formatDayLabel(cell.epochSec),
                         precipitationProbability = cell.precip,
                         temperature = cell.temperature,
                         isNow = index == 0,
@@ -89,6 +95,7 @@ fun HourlyCard(hourly: Hourly, tempUnit: TemperatureUnit, utcOffsetSeconds: Int 
 @Composable
 private fun HourlyItem(
     time: String,
+    dayLabel: String,
     precipitationProbability: Int,
     temperature: Double,
     isNow: Boolean,
@@ -96,7 +103,7 @@ private fun HourlyItem(
     tempUnit: TemperatureUnit,
 ) {
     Column(
-        modifier = Modifier.height(120.dp).width(45.dp),
+        modifier = Modifier.height(135.dp).width(45.dp),
         verticalArrangement = Arrangement.Bottom,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -117,6 +124,11 @@ private fun HourlyItem(
             time,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelLarge,
+        )
+        Text(
+            dayLabel,
+            color = Color.Gray,
+            fontSize = 10.sp,
         )
     }
 }
@@ -161,10 +173,23 @@ private fun parseIsoToEpochSec(iso: String?, utcOffsetSeconds: Int = 0): Long? {
         ?: runCatching { Instant.parse(iso).epochSeconds }.getOrNull()
 }
 
-private fun formatHour(epochSec: Long): String {
+private fun formatHour(epochSec: Long, use24Hour: Boolean): String {
     val ldt = Instant.fromEpochSeconds(epochSec).toLocalDateTime(TimeZone.currentSystemDefault())
     val h = ldt.hour
+    if (use24Hour) return "$h"
     val ampm = if (h < 12) "AM" else "PM"
     val display = if (h % 12 == 0) 12 else h % 12
     return "$display $ampm"
+}
+
+private fun formatDayLabel(epochSec: Long): String {
+    val tz = TimeZone.currentSystemDefault()
+    val date = Instant.fromEpochSeconds(epochSec).toLocalDateTime(tz).date
+    val today = Clock.System.todayIn(tz)
+    val tomorrow = today.plus(1, DateTimeUnit.DAY)
+    return when (date) {
+        today -> "TDY"
+        tomorrow -> "TMR"
+        else -> date.dayOfWeek.name.take(3)
+    }
 }

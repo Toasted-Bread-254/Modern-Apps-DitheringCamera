@@ -133,6 +133,8 @@ private fun LocationPage(
     val forecasts by viewModel.forecasts.collectAsState()
     val tempUnit = com.vayunmathur.weather.util.rememberTempUnit()
     val windUnit = com.vayunmathur.weather.util.rememberWindUnit()
+    val pressureUnit = com.vayunmathur.weather.util.rememberPressureUnit()
+    val use24Hour = com.vayunmathur.weather.util.rememberUse24Hour()
 
     LaunchedEffect(location.id) { viewModel.ensureForecast(location) }
 
@@ -172,7 +174,7 @@ private fun LocationPage(
         ) {
             SummaryCard(forecast = forecast, tempUnit = tempUnit)
             if (forecast.hourly != null) {
-                HourlyCard(hourly = forecast.hourly, tempUnit = tempUnit, utcOffsetSeconds = forecast.utcOffsetSeconds)
+                HourlyCard(hourly = forecast.hourly, tempUnit = tempUnit, utcOffsetSeconds = forecast.utcOffsetSeconds, use24Hour = use24Hour)
             }
             if (daily != null) {
                 DailyCard(daily = daily, tempUnit = tempUnit)
@@ -186,6 +188,8 @@ private fun LocationPage(
                     sunsetEpochSec = sunsetEpoch,
                     tempUnit = tempUnit,
                     windUnit = windUnit,
+                    pressureUnit = pressureUnit,
+                    use24Hour = use24Hour,
                 )
             }
             CreditsBottomSection()

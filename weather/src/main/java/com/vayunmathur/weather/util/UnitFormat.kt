@@ -8,6 +8,9 @@ enum class TemperatureUnit { Celsius, Fahrenheit }
 /** Wind-speed display unit. Storage / API is always km/h. */
 enum class WindUnit { KmH, Mph }
 
+/** Pressure display unit. Storage / API is always hPa. */
+enum class PressureUnit { Hpa, InHg }
+
 fun Double.celsiusTo(unit: TemperatureUnit): Double = when (unit) {
     TemperatureUnit.Celsius -> this
     TemperatureUnit.Fahrenheit -> this * 9.0 / 5.0 + 32.0
@@ -22,6 +25,11 @@ fun formatTemperature(celsius: Double, unit: TemperatureUnit): String {
 /** Round to a whole number with no unit suffix — used inside compact hero/strip cells. */
 fun formatTemperatureCompact(celsius: Double, unit: TemperatureUnit): String =
     "${celsius.celsiusTo(unit).roundToInt()}°"
+
+fun formatPressure(hpa: Double, unit: PressureUnit): String = when (unit) {
+    PressureUnit.InHg -> String.format("%.2f inHg", hpa * 0.02953)
+    PressureUnit.Hpa -> "${hpa.roundToInt()} hPa"
+}
 
 fun formatWind(kph: Double, unit: WindUnit): String = when (unit) {
     WindUnit.KmH -> "${kph.roundToInt()} km/h"

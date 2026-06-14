@@ -21,6 +21,7 @@ import com.vayunmathur.weather.ui.components.blocks.UvIndexBlock
 import com.vayunmathur.weather.ui.components.blocks.VisibilityBlock
 import com.vayunmathur.weather.ui.components.blocks.WindBlock
 import com.vayunmathur.weather.util.TemperatureUnit
+import com.vayunmathur.weather.util.PressureUnit
 import com.vayunmathur.weather.util.WindUnit
 
 /**
@@ -41,6 +42,8 @@ fun WeatherBlocks(
     sunsetEpochSec: Long?,
     tempUnit: TemperatureUnit,
     windUnit: WindUnit,
+    pressureUnit: PressureUnit,
+    use24Hour: Boolean,
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 140.dp),
@@ -53,9 +56,9 @@ fun WeatherBlocks(
         item { HumidityBlock(current = current, tempUnit = tempUnit) }
         item { UvIndexBlock(uvIndex = today?.uvIndexMax?.firstOrNull()) }
         item { WindBlock(current = current, unit = windUnit) }
-        item { PressureBlock(current = current) }
+        item { PressureBlock(current = current, pressureUnit = pressureUnit) }
         item { VisibilityBlock(current = current, useMiles = windUnit == WindUnit.Mph) }
-        item { SunBlock(sunriseEpochSec = sunriseEpochSec, sunsetEpochSec = sunsetEpochSec) }
+        item { SunBlock(sunriseEpochSec = sunriseEpochSec, sunsetEpochSec = sunsetEpochSec, use24Hour = use24Hour) }
         item { AirQualityBlock(air = air) }
         item { PollenBlock(air = air) }
     }

@@ -3,6 +3,7 @@ package com.vayunmathur.weather.util
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.text.util.LocalePreferences
 import java.util.Locale
 
@@ -38,6 +39,23 @@ fun rememberWindUnit(): WindUnit {
     LocalConfiguration.current
     return remember(LocalConfiguration.current) {
         if (isImperialMeasurementSystem(Locale.getDefault())) WindUnit.Mph else WindUnit.KmH
+    }
+}
+
+@Composable
+fun rememberPressureUnit(): PressureUnit {
+    LocalConfiguration.current
+    return remember(LocalConfiguration.current) {
+        if (isImperialMeasurementSystem(Locale.getDefault())) PressureUnit.InHg else PressureUnit.Hpa
+    }
+}
+
+@Composable
+fun rememberUse24Hour(): Boolean {
+    LocalConfiguration.current
+    val context = LocalContext.current
+    return remember(LocalConfiguration.current) {
+        android.text.format.DateFormat.is24HourFormat(context)
     }
 }
 

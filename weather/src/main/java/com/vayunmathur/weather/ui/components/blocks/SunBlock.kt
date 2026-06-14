@@ -39,7 +39,7 @@ import kotlin.time.Instant
  * progress, and a translucent bottom panel with sunrise / sunset times.
  */
 @Composable
-fun SunBlock(sunriseEpochSec: Long?, sunsetEpochSec: Long?) {
+fun SunBlock(sunriseEpochSec: Long?, sunsetEpochSec: Long?, use24Hour: Boolean) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = MaterialTheme.shapes.extraLarge,
@@ -97,11 +97,11 @@ fun SunBlock(sunriseEpochSec: Long?, sunsetEpochSec: Long?) {
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         RiseSetTimeRow(
-                            text = sunriseEpochSec?.let { formatTime(it) } ?: "—",
+                            text = sunriseEpochSec?.let { formatTime(it, use24Hour) } ?: "—",
                             iconRes = R.drawable.outline_clear_day_24,
                         )
                         RiseSetTimeRow(
-                            text = sunsetEpochSec?.let { formatTime(it) } ?: "—",
+                            text = sunsetEpochSec?.let { formatTime(it, use24Hour) } ?: "—",
                             iconRes = R.drawable.outline_clear_night_24,
                         )
                     }
@@ -124,12 +124,16 @@ private fun RiseSetTimeRow(text: String, iconRes: Int) {
     }
 }
 
-private fun formatTime(epochSec: Long): String {
+private fun formatTime(epochSec: Long, use24Hour: Boolean): String {
     val ldt = Instant.fromEpochSeconds(epochSec).toLocalDateTime(TimeZone.currentSystemDefault())
     val h = ldt.hour
     val m = ldt.minute
-    val display = if (h % 12 == 0) 12 else h % 12
-    val ampm = if (h < 12) "AM" else "PM"
     val mm = m.toString().padStart(2, '0')
-    return "$display:$mm $ampm"
+    return if (use24Hour) {
+        "${h.toString().padStart(2, '0')}:$mm"
+    } else {
+        val display = if (h % 12 == 0) 12 else h % 12
+        val ampm = if (h < 12) "AM" else "PM"
+        "$display:$mm $ampm"
+    }
 }
