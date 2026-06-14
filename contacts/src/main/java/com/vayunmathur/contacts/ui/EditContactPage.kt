@@ -108,7 +108,8 @@ fun EditContactPage(backStack: NavBackStack<Route>, viewModel: ContactViewModel,
 
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
-            viewModel.setEditDraftPhotoFromUri(uri)
+            val encoded = java.net.URLEncoder.encode(uri.toString(), "UTF-8")
+            backStack.add(Route.CropPhoto(encoded))
         }
     }
 

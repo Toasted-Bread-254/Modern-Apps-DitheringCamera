@@ -493,6 +493,7 @@ fun getDetailsInternal(context: Context, id: Long? = null, isProfile: Boolean = 
         ContactsContract.Data.RAW_CONTACT_ID,
         ContactsContract.Data._ID,
         ContactsContract.Data.MIMETYPE,
+        ContactsContract.Data.CONTACT_ID,
         ContactsContract.Data.DATA1,
         ContactsContract.Data.DATA2,
         ContactsContract.Data.DATA3,
@@ -540,6 +541,7 @@ fun getDetailsInternal(context: Context, id: Long? = null, isProfile: Boolean = 
             val d8Idx = cursor.getColumnIndexOrThrow(ContactsContract.Data.DATA8)
             val d9Idx = cursor.getColumnIndexOrThrow(ContactsContract.Data.DATA9)
             val d10Idx = cursor.getColumnIndexOrThrow(ContactsContract.Data.DATA10)
+            val contactIdIdx = cursor.getColumnIndexOrThrow(ContactsContract.Data.CONTACT_ID)
             val d15Idx = cursor.getColumnIndexOrThrow(ContactsContract.Data.DATA15)
 
             while (cursor.moveToNext()) {
@@ -591,9 +593,16 @@ fun getDetailsInternal(context: Context, id: Long? = null, isProfile: Boolean = 
                             }
                         }
                         CDKPhoto.CONTENT_ITEM_TYPE -> {
-                            val photoBlob = cursor.getBlobOrNull(d15Idx)
-                            if (photoBlob != null) {
-                                photosMap.getOrPut(rawId) { mutableListOf() }.add(Photo(dataId, Base64.encode(photoBlob)))
+                            val contactId = cursor.getLong(contactIdIdx)
+                            val contactUri = ContentUris.withAppendedId(ContactsContract.Contacts.CONTENT_URI, contactId)
+                            val fullSizeStream = ContactsContract.Contacts.openContactPhotoInputStream(contentResolver, contactUri, true)
+                            val photoBytes = if (fullSizeStream != null) {
+                                fullSizeStream.use { it.readBytes() }
+                            } else {
+                                cursor.getBlobOrNull(d15Idx)
+                            }
+                            if (photoBytes != null) {
+                                photosMap.getOrPut(rawId) { mutableListOf() }.add(Photo(dataId, Base64.encode(photoBytes)))
                             }
                         }
                         CDKSName.CONTENT_ITEM_TYPE -> {

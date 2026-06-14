@@ -533,6 +533,22 @@ class ContactViewModel(application: Application) : AndroidViewModel(application)
      * and the draft is left unchanged so the picker callback never blocks the
      * UI thread (large gallery photos can take 100+ ms to decode).
      */
+    fun setEditDraftPhotoFromBitmap(bitmap: Bitmap) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val scaled = if (bitmap.width != 1024 || bitmap.height != 1024) {
+                Bitmap.createScaledBitmap(bitmap, 1024, 1024, true)
+            } else bitmap
+            val baos = okio.Buffer()
+            scaled.compress(Bitmap.CompressFormat.JPEG, 100, baos.outputStream())
+            val encoded = android.util.Base64.encodeToString(baos.readByteArray(), android.util.Base64.NO_WRAP)
+            updateEditDraft { draft ->
+                val newPhoto = draft.photo?.withValue(encoded)
+                    ?: com.vayunmathur.contacts.data.Photo(0, encoded)
+                draft.copy(photo = newPhoto)
+            }
+        }
+    }
+
     fun setEditDraftPhotoFromUri(uri: android.net.Uri) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -540,7 +556,7 @@ class ContactViewModel(application: Application) : AndroidViewModel(application)
                 val bytes = ctx.contentResolver.openInputStream(uri)?.use { input ->
                     val bitmap = BitmapFactory.decodeStream(input)
                         ?: return@launch
-                    val scaled = bitmap.scale(500, 500)
+                    val scaled = bitmap.scale(1024, 1024)
                     val baos = okio.Buffer()
                     scaled.compress(Bitmap.CompressFormat.JPEG, 100, baos.outputStream())
                     val encoded = android.util.Base64.encodeToString(baos.readByteArray(), android.util.Base64.NO_WRAP)

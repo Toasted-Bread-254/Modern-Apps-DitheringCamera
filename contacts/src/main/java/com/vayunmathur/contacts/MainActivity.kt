@@ -295,6 +295,18 @@ fun Navigation(viewModel: ContactViewModel, initialRoute: Route? = null) {
         entry<Route.AddToGroupDialog>(metadata = DialogPage()) { key ->
             AddToGroupDialog(viewModel, key.contactIds) { backStack.pop() }
         }
+
+        entry<Route.CropPhoto>(metadata = ListDetailPage()) { key ->
+            val decodedUri = java.net.URLDecoder.decode(key.uri, "UTF-8")
+            CropPhotoScreen(
+                uri = decodedUri,
+                onCropComplete = { bitmap ->
+                    viewModel.setEditDraftPhotoFromBitmap(bitmap)
+                    backStack.pop()
+                },
+                onCancel = { backStack.pop() }
+            )
+        }
     }
 }
 
@@ -333,4 +345,7 @@ sealed interface Route: NavKey {
 
     @Serializable
     object AddAccountDialog : Route
+
+    @Serializable
+    data class CropPhoto(val uri: String) : Route
 }
