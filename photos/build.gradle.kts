@@ -16,6 +16,7 @@ android {
 
 dependencies {
     implementation(libs.androidx.compose.foundation)
+    implementation("androidx.compose.material:material-icons-extended")
     implementation(libs.androidx.fragment.ktx)
     implementation(libs.maplibre.compose)
     implementation(libs.coil.compose)

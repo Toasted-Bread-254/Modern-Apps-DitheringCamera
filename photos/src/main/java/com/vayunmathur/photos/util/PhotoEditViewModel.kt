@@ -3,10 +3,11 @@ package com.vayunmathur.photos.util
 import android.app.Application
 import android.content.ContentValues
 import android.content.Context
+import android.content.IntentSender
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
@@ -17,15 +18,18 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.library.util.SerializedStroke
 import com.vayunmathur.library.util.deserialize
+import com.vayunmathur.photos.data.ImageAdjustments
 import com.vayunmathur.photos.data.Photo
+import com.vayunmathur.photos.data.PhotoFilter
 import com.vayunmathur.photos.data.TextElement
+import com.vayunmathur.photos.data.applyToBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.InputStream
+import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
 
 class PhotoEditViewModel(
@@ -37,6 +41,32 @@ class PhotoEditViewModel(
 
     private val _transformedBitmap = MutableStateFlow<Bitmap?>(null)
     val transformedBitmap: StateFlow<Bitmap?> = _transformedBitmap.asStateFlow()
+
+    val adjustments = MutableStateFlow(ImageAdjustments())
+    val selectedFilter = MutableStateFlow<PhotoFilter?>(null)
+
+    private val _writePermissionRequest = MutableStateFlow<IntentSender?>(null)
+    val writePermissionRequest: StateFlow<IntentSender?> = _writePermissionRequest.asStateFlow()
+
+    private var pendingSaveBytes: ByteArray? = null
+    private var pendingSaveUri: Uri? = null
+    private var pendingSaveOnComplete: (() -> Unit)? = null
+
+    fun updateAdjustment(update: (ImageAdjustments) -> ImageAdjustments) {
+        adjustments.value = update(adjustments.value)
+    }
+
+    fun applyFilter(filter: PhotoFilter?) {
+        selectedFilter.value = filter
+        if (filter != null) {
+            adjustments.value = filter.adjustments
+        }
+    }
+
+    fun resetAdjustments() {
+        adjustments.value = ImageAdjustments()
+        selectedFilter.value = null
+    }
 
     private val decodedCache = object : LinkedHashMap<String, Bitmap>(32, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>): Boolean {
@@ -123,15 +153,67 @@ class PhotoEditViewModel(
         texts: List<TextElement>,
         viewportWidth: Float,
         asCopy: Boolean,
+        imageAdjustments: ImageAdjustments = ImageAdjustments(),
         onComplete: () -> Unit,
     ) {
+        Log.d(TAG, "savePhoto called with asCopy=$asCopy")
+        val ctx: Context = getApplication()
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.Default) {
+                prepareAndWrite(ctx, photo, rotation, cropRect, strokes, texts, viewportWidth, asCopy, imageAdjustments)
+            }
+            when (result) {
+                is WriteResult.Success -> onComplete()
+                is WriteResult.NeedsPermission -> {
+                    pendingSaveBytes = result.jpegBytes
+                    pendingSaveUri = result.uri
+                    pendingSaveOnComplete = onComplete
+                    _writePermissionRequest.value = result.intentSender
+                }
+                is WriteResult.Error -> {
+                    Log.e(TAG, "Save failed", result.exception)
+                    onComplete()
+                }
+            }
+        }
+    }
+
+    fun onWritePermissionGranted() {
+        val bytes = pendingSaveBytes ?: return
+        val uri = pendingSaveUri ?: return
+        val onComplete = pendingSaveOnComplete ?: return
+        pendingSaveBytes = null
+        pendingSaveUri = null
+        pendingSaveOnComplete = null
+        _writePermissionRequest.value = null
+
         val ctx: Context = getApplication()
         viewModelScope.launch {
             withContext(Dispatchers.Default) {
-                writeEdited(ctx, photo, rotation, cropRect, strokes, texts, viewportWidth, asCopy)
+                try {
+                    val resolver = ctx.contentResolver
+                    resolver.openOutputStream(uri, "w")?.use { out ->
+                        out.write(bytes)
+                    } ?: throw Exception("openOutputStream returned null after permission grant")
+                    val updateValues = ContentValues().apply {
+                        put(MediaStore.Images.Media.DATE_MODIFIED, System.currentTimeMillis() / 1000)
+                        put(MediaStore.Images.Media.SIZE, bytes.size.toLong())
+                    }
+                    resolver.update(uri, updateValues, null, null)
+                    Log.d(TAG, "Overwrite SUCCESS after permission grant")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Overwrite FAILED after permission grant", e)
+                }
             }
             onComplete()
         }
+    }
+
+    fun onWritePermissionDenied() {
+        pendingSaveBytes = null
+        pendingSaveUri = null
+        pendingSaveOnComplete = null
+        _writePermissionRequest.value = null
     }
 
     override fun onCleared() {
@@ -154,7 +236,13 @@ class PhotoEditViewModel(
     companion object {
         private const val TAG = "PhotoEditViewModel"
 
-        private fun writeEdited(
+        private sealed class WriteResult {
+            object Success : WriteResult()
+            data class NeedsPermission(val intentSender: IntentSender, val jpegBytes: ByteArray, val uri: Uri) : WriteResult()
+            data class Error(val exception: Exception) : WriteResult()
+        }
+
+        private fun prepareAndWrite(
             context: Context,
             photo: Photo,
             rotation: Float,
@@ -163,7 +251,9 @@ class PhotoEditViewModel(
             texts: List<TextElement>,
             viewportWidth: Float,
             asCopy: Boolean,
-        ) {
+            imageAdjustments: ImageAdjustments = ImageAdjustments(),
+        ): WriteResult {
+            Log.d(TAG, "prepareAndWrite: asCopy=$asCopy, uri=${photo.uri}")
             val photoUri = Uri.parse(photo.uri)
             val source = android.graphics.ImageDecoder.createSource(context.contentResolver, photoUri)
             var originalBitmap = android.graphics.ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
@@ -185,7 +275,11 @@ class PhotoEditViewModel(
             if (width > 0 && height > 0) {
                 transformedBitmap = Bitmap.createBitmap(transformedBitmap, left, top, width, height)
             }
-            val resultBitmap = transformedBitmap.copy(Bitmap.Config.ARGB_8888, true)
+            var adjustedBitmap = transformedBitmap.copy(Bitmap.Config.ARGB_8888, true)
+            if (imageAdjustments != ImageAdjustments()) {
+                adjustedBitmap = imageAdjustments.applyToBitmap(adjustedBitmap)
+            }
+            val resultBitmap = adjustedBitmap
             val canvas = android.graphics.Canvas(resultBitmap)
 
             if (strokes.isNotEmpty()) {
@@ -221,8 +315,10 @@ class PhotoEditViewModel(
                     canvas.restore()
                 }
             }
+
             val resolver = context.contentResolver
             val nowSeconds = System.currentTimeMillis() / 1000
+
             if (asCopy) {
                 val contentValues = ContentValues().apply {
                     put(MediaStore.Images.Media.DISPLAY_NAME, "Edited_${photo.name}")
@@ -236,20 +332,21 @@ class PhotoEditViewModel(
                         resultBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
                     }
                 }
-            } else {
-                val uri = Uri.parse(photo.uri)
-                try {
-                    resolver.openOutputStream(uri, "rwt")?.use { out ->
-                        resultBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
-                    }
-                    val updateValues = ContentValues().apply {
-                        put(MediaStore.Images.Media.DATE_MODIFIED, nowSeconds)
-                    }
-                    resolver.update(uri, updateValues, null, null)
-                } catch (e: Exception) {
-                    Log.e(TAG, "save failed", e)
-                }
+                return WriteResult.Success
             }
+
+            val uri = Uri.parse(photo.uri)
+            val jpegBytes = ByteArrayOutputStream().also {
+                resultBitmap.compress(Bitmap.CompressFormat.JPEG, 90, it)
+            }.toByteArray()
+
+            Log.d(TAG, "Requesting write permission via createWriteRequest for $uri (${jpegBytes.size} bytes)")
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val pendingIntent = MediaStore.createWriteRequest(resolver, listOf(uri))
+                return WriteResult.NeedsPermission(pendingIntent.intentSender, jpegBytes, uri)
+            }
+            return WriteResult.Error(Exception("createWriteRequest requires API 30+"))
         }
     }
 }

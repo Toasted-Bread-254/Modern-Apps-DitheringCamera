@@ -1,29 +1,45 @@
 package com.vayunmathur.photos.ui
 
+import android.app.Activity
 import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -40,10 +56,13 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.asImageBitmap
@@ -51,8 +70,12 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import com.vayunmathur.photos.data.DrawingTool
+import com.vayunmathur.photos.data.ImageAdjustments
+import com.vayunmathur.photos.data.PhotoFilter
+import com.vayunmathur.photos.data.PhotoFilters
 import com.vayunmathur.photos.data.TextElement
 import com.vayunmathur.photos.data.toBrush
+import com.vayunmathur.photos.data.toColorMatrix
 import com.vayunmathur.library.util.ResultEffect
 import com.vayunmathur.library.util.SerializedStroke
 import com.vayunmathur.library.util.deserialize
@@ -61,9 +84,12 @@ import com.vayunmathur.library.ui.CanvasTextElement
 import com.vayunmathur.library.ui.InkCanvasView
 import com.vayunmathur.library.util.translate
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -94,6 +120,23 @@ import com.vayunmathur.photos.data.PhotoDao
 import com.vayunmathur.photos.util.PhotoEditViewModel
 import java.util.UUID
 import kotlin.math.roundToInt
+
+private enum class EditorMode { None, Adjust, Filters }
+
+private enum class AdjustmentType(val label: String, val min: Float, val max: Float) {
+    Brightness("Brightness", -100f, 100f),
+    Contrast("Contrast", -100f, 100f),
+    Saturation("Saturation", -100f, 100f),
+    Warmth("Warmth", -100f, 100f),
+    Exposure("Exposure", -100f, 100f),
+    Highlights("Highlights", -100f, 100f),
+    Shadows("Shadows", -100f, 100f),
+    Sharpness("Sharpness", 0f, 100f),
+    Vignette("Vignette", 0f, 100f),
+    Grain("Grain", 0f, 100f),
+    Fade("Fade", 0f, 100f),
+    Tint("Tint", -100f, 100f),
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -129,6 +172,11 @@ fun EditPhotoPage(
     var cropRect by remember { mutableStateOf(Rect(0f, 0f, 1f, 1f)) }
     var startCropRect by remember { mutableStateOf(Rect(0f, 0f, 1f, 1f)) }
     var showSaveMenu by remember { mutableStateOf(false) }
+
+    var editorMode by remember { mutableStateOf(EditorMode.None) }
+    var selectedAdjustment by remember { mutableStateOf(AdjustmentType.Brightness) }
+    val adjustments by photoEditViewModel.adjustments.collectAsState()
+    val selectedFilter by photoEditViewModel.selectedFilter.collectAsState()
 
     var isDrawing by remember { mutableStateOf(false) }
     val inkStrokes = remember { mutableStateListOf<InkStroke>() }
@@ -193,13 +241,14 @@ family = StockBrushes.pressurePen(),
         val rotation: Float,
         val cropRect: Rect,
         val strokes: List<SerializedStroke>,
-        val texts: List<TextElement>
+        val texts: List<TextElement>,
+        val adjustments: ImageAdjustments = ImageAdjustments(),
     )
 
     val history = remember { mutableStateListOf<EditState>() }
 
     fun pushState() {
-        history.add(EditState(rotation, cropRect, inkStrokes.map { it.serialize() }, texts.toList()))
+        history.add(EditState(rotation, cropRect, inkStrokes.map { it.serialize() }, texts.toList(), adjustments))
     }
 
     fun undo() {
@@ -211,6 +260,7 @@ family = StockBrushes.pressurePen(),
             inkStrokes.addAll(lastState.strokes.mapNotNull { try { it.deserialize() } catch (_: Exception) { null } })
             texts.clear()
             texts.addAll(lastState.texts)
+            photoEditViewModel.updateAdjustment { lastState.adjustments }
         }
     }
 
@@ -265,6 +315,23 @@ family = StockBrushes.pressurePen(),
         }
     }
 
+    val writePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            photoEditViewModel.onWritePermissionGranted()
+        } else {
+            photoEditViewModel.onWritePermissionDenied()
+        }
+    }
+
+    val writePermissionRequest by photoEditViewModel.writePermissionRequest.collectAsState()
+    LaunchedEffect(writePermissionRequest) {
+        writePermissionRequest?.let { intentSender ->
+            writePermissionLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -275,13 +342,14 @@ family = StockBrushes.pressurePen(),
                 actions = {
                     if (isCropping) {
                         IconButton(onClick = {
-                            if (cropRect != startCropRect) {
+                    if (cropRect != startCropRect) {
                                 history.add(
                                     EditState(
                                         rotation,
                                         startCropRect,
                                         inkStrokes.map { it.serialize() },
-                                        texts.toList()
+                                        texts.toList(),
+                                        adjustments,
                                     )
                                 )
                             }
@@ -325,6 +393,7 @@ family = StockBrushes.pressurePen(),
                                 startCropRect = cropRect
                                 isCropping = true
                                 isDrawing = false
+                                editorMode = EditorMode.None
                             }) {
                                 IconCrop()
                             }
@@ -344,6 +413,7 @@ family = StockBrushes.pressurePen(),
                         IconButton(onClick = {
                             isDrawing = !isDrawing
                             isCropping = false
+                            editorMode = EditorMode.None
                         }) {
                             if (isDrawing) IconClose() else IconDraw()
                         }
@@ -359,7 +429,7 @@ family = StockBrushes.pressurePen(),
                                     text = { Text(stringResource(R.string.action_save)) },
                                     onClick = {
                                         showSaveMenu = false
-                                        photo?.let {
+                        photo?.let {
                                             photoEditViewModel.savePhoto(
                                                 it,
                                                 rotation,
@@ -368,6 +438,7 @@ family = StockBrushes.pressurePen(),
                                                 texts.toList(),
                                                 currentViewportWidth,
                                                 false,
+                                                adjustments,
                                             ) { context.finish() }
                                         }
                                     }
@@ -376,7 +447,7 @@ family = StockBrushes.pressurePen(),
                                     text = { Text(stringResource(R.string.action_save_as_copy)) },
                                     onClick = {
                                         showSaveMenu = false
-                                        photo?.let {
+                        photo?.let {
                                             photoEditViewModel.savePhoto(
                                                 it,
                                                 rotation,
@@ -385,6 +456,7 @@ family = StockBrushes.pressurePen(),
                                                 texts.toList(),
                                                 currentViewportWidth,
                                                 true,
+                                                adjustments,
                                             ) { context.finish() }
                                         }
                                     }
@@ -480,10 +552,15 @@ family = StockBrushes.pressurePen(),
                         contentAlignment = Alignment.Center
                     ) {
                         transformedBitmap?.let { bitmap ->
+                            val colorMatrix = remember(adjustments) { adjustments.toColorMatrix() }
+                            val hasAdjustments = adjustments != ImageAdjustments()
                             Image(
                                 bitmap = bitmap.asImageBitmap(),
                                 contentDescription = null,
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxSize(),
+                                colorFilter = if (hasAdjustments) {
+                                    ColorFilter.colorMatrix(ColorMatrix(colorMatrix.array))
+                                } else null,
                             )
                         }
 
@@ -623,6 +700,84 @@ family = StockBrushes.pressurePen(),
                         }
                     }
                 }
+            }
+
+            if (!isDrawing && !isCropping) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .clickable {
+                                editorMode = if (editorMode == EditorMode.Adjust) EditorMode.None else EditorMode.Adjust
+                            },
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (editorMode == EditorMode.Adjust) MaterialTheme.colorScheme.primaryContainer
+                               else MaterialTheme.colorScheme.surfaceVariant,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Outlined.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Adjust", fontSize = 13.sp)
+                        }
+                    }
+                    Surface(
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .clickable {
+                                editorMode = if (editorMode == EditorMode.Filters) EditorMode.None else EditorMode.Filters
+                            },
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (editorMode == EditorMode.Filters) MaterialTheme.colorScheme.primaryContainer
+                               else MaterialTheme.colorScheme.surfaceVariant,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Outlined.Photo, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Filters", fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+
+            if (editorMode == EditorMode.Adjust && !isDrawing && !isCropping) {
+                AdjustmentPanel(
+                    adjustments = adjustments,
+                    selectedAdjustment = selectedAdjustment,
+                    onSelectAdjustment = { selectedAdjustment = it },
+                    onUpdateAdjustment = { update ->
+                        pushState()
+                        photoEditViewModel.updateAdjustment(update)
+                        photoEditViewModel.applyFilter(null)
+                    },
+                    onReset = {
+                        pushState()
+                        photoEditViewModel.resetAdjustments()
+                    },
+                )
+            }
+
+            if (editorMode == EditorMode.Filters && !isDrawing && !isCropping) {
+                FilterPanel(
+                    bitmap = transformedBitmap,
+                    adjustments = adjustments,
+                    selectedFilter = selectedFilter,
+                    onSelectFilter = { filter ->
+                        pushState()
+                        photoEditViewModel.applyFilter(filter)
+                    },
+                )
             }
 
             if (isDrawing) {
@@ -926,6 +1081,194 @@ fun Handle(offset: Offset, onDrag: (Offset) -> Unit) {
                 }
             }
     )
+}
+
+@Composable
+private fun AdjustmentPanel(
+    adjustments: ImageAdjustments,
+    selectedAdjustment: AdjustmentType,
+    onSelectAdjustment: (AdjustmentType) -> Unit,
+    onUpdateAdjustment: ((ImageAdjustments) -> ImageAdjustments) -> Unit,
+    onReset: () -> Unit,
+) {
+    fun getValue(type: AdjustmentType): Float = when (type) {
+        AdjustmentType.Brightness -> adjustments.brightness
+        AdjustmentType.Contrast -> adjustments.contrast
+        AdjustmentType.Saturation -> adjustments.saturation
+        AdjustmentType.Warmth -> adjustments.warmth
+        AdjustmentType.Exposure -> adjustments.exposure
+        AdjustmentType.Highlights -> adjustments.highlights
+        AdjustmentType.Shadows -> adjustments.shadows
+        AdjustmentType.Sharpness -> adjustments.sharpness
+        AdjustmentType.Vignette -> adjustments.vignette
+        AdjustmentType.Grain -> adjustments.grain
+        AdjustmentType.Fade -> adjustments.fade
+        AdjustmentType.Tint -> adjustments.tint
+    }
+
+    fun withValue(type: AdjustmentType, value: Float): (ImageAdjustments) -> ImageAdjustments = { adj ->
+        when (type) {
+            AdjustmentType.Brightness -> adj.copy(brightness = value)
+            AdjustmentType.Contrast -> adj.copy(contrast = value)
+            AdjustmentType.Saturation -> adj.copy(saturation = value)
+            AdjustmentType.Warmth -> adj.copy(warmth = value)
+            AdjustmentType.Exposure -> adj.copy(exposure = value)
+            AdjustmentType.Highlights -> adj.copy(highlights = value)
+            AdjustmentType.Shadows -> adj.copy(shadows = value)
+            AdjustmentType.Sharpness -> adj.copy(sharpness = value)
+            AdjustmentType.Vignette -> adj.copy(vignette = value)
+            AdjustmentType.Grain -> adj.copy(grain = value)
+            AdjustmentType.Fade -> adj.copy(fade = value)
+            AdjustmentType.Tint -> adj.copy(tint = value)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            AdjustmentType.entries.forEach { type ->
+                val value = getValue(type)
+                FilterChip(
+                    selected = selectedAdjustment == type,
+                    onClick = { onSelectAdjustment(type) },
+                    label = {
+                        Text(
+                            if (value != 0f) "${type.label} ${value.roundToInt()}" else type.label,
+                            fontSize = 12.sp,
+                        )
+                    },
+                )
+            }
+        }
+
+        val currentValue = getValue(selectedAdjustment)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                selectedAdjustment.label,
+                fontSize = 12.sp,
+                modifier = Modifier.width(72.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Slider(
+                value = currentValue,
+                onValueChange = { newValue ->
+                    onUpdateAdjustment(withValue(selectedAdjustment, newValue))
+                },
+                valueRange = selectedAdjustment.min..selectedAdjustment.max,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                "${currentValue.roundToInt()}",
+                fontSize = 12.sp,
+                modifier = Modifier.width(36.dp),
+                textAlign = TextAlign.End,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (adjustments != ImageAdjustments()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .clickable { onReset() }
+                        .padding(4.dp),
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                ) {
+                    Text(
+                        "Reset All",
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilterPanel(
+    bitmap: android.graphics.Bitmap?,
+    adjustments: ImageAdjustments,
+    selectedFilter: PhotoFilter?,
+    onSelectFilter: (PhotoFilter) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(8.dp)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        PhotoFilters.all.forEach { filter ->
+            val isSelected = if (filter.adjustments == ImageAdjustments()) {
+                selectedFilter == null && adjustments == ImageAdjustments()
+            } else {
+                selectedFilter?.name == filter.name
+            }
+
+            Column(
+                modifier = Modifier
+                    .width(72.dp)
+                    .clickable { onSelectFilter(filter) },
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                bitmap?.let { bmp ->
+                    val filterMatrix = remember(filter) { filter.adjustments.toColorMatrix() }
+                    val hasFilter = filter.adjustments != ImageAdjustments()
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .then(
+                                if (isSelected) Modifier.border(
+                                    2.dp,
+                                    MaterialTheme.colorScheme.primary,
+                                    RoundedCornerShape(8.dp)
+                                ) else Modifier
+                            ),
+                    ) {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = filter.name,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                            colorFilter = if (hasFilter) {
+                                ColorFilter.colorMatrix(ColorMatrix(filterMatrix.array))
+                            } else null,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    filter.name,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
 }
 
 private fun hitTestText(
