@@ -6,6 +6,8 @@ import androidx.room.Delete
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Upsert
+import androidx.room.migration.Migration
+import com.vayunmathur.library.util.DatabaseMigrations
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -32,4 +34,10 @@ interface NoteDao {
 @Database(entities = [Note::class], version = 1)
 abstract class NoteDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
+
+    companion object : DatabaseMigrations {
+        override val migrations = listOf(
+            Migration(2, 1) { }
+        )
+    }
 }
