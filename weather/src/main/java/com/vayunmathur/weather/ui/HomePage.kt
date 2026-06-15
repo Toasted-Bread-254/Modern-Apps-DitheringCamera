@@ -41,7 +41,6 @@ import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.weather.R
 import com.vayunmathur.weather.Route
 import com.vayunmathur.weather.data.SavedLocation
-import com.vayunmathur.weather.ui.components.CreditsBottomSection
 import com.vayunmathur.weather.ui.components.CurrentWeatherCard
 import com.vayunmathur.weather.ui.components.DailyCard
 import com.vayunmathur.weather.ui.components.HourlyCard
@@ -60,7 +59,7 @@ import kotlin.time.Instant
  * - The drawer is opened by the hamburger in [MainSearchBar].
  * - Below the search bar, the vertical scroll renders, in order:
  *   `CurrentWeatherCard` → `SummaryCard` → `HourlyCard` → `DailyCard` →
- *   `WeatherBlocks` → `CreditsBottomSection`. 16 dp horizontal padding,
+ *   `WeatherBlocks`. 16 dp horizontal padding,
  *   24 dp top, 14 dp spacing between cards.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -192,7 +191,7 @@ private fun LocationPage(
                     use24Hour = use24Hour,
                 )
             }
-            CreditsBottomSection()
+
         }
     }
 }
