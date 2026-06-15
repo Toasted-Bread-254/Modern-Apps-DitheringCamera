@@ -9,4 +9,8 @@
     <string name="next_level">Livello successivo</string>
     <string name="close">Chiudi</string>
     <string name="bonus_words">Parole bonus</string>
+    <string name="settings">Impostazioni</string>
+    <string name="hint_confirmation">Sei sicuro di voler usare un suggerimento?</string>
+    <string name="yes">Sì</string>
+    <string name="no">No</string>
 </resources>
