@@ -770,10 +770,10 @@ class YouPipeViewModel(
                     }
                     entry = zipInputStream.nextEntry
                 }
-                }
 
                 if (subs.isNotEmpty()) subscriptionDao.upsertAll(subs)
                 if (history.isNotEmpty()) historyVideoDao.upsertAll(history)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error importing YouTube Takeout", e)
             }

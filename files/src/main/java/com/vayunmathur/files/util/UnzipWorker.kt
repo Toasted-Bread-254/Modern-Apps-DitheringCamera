@@ -59,11 +59,13 @@ class UnzipWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
                 ZipInputStream(countingInputStream).use { zipInputStream ->
                     var entry = zipInputStream.nextEntry
                     while (entry != null) {
-                        val entryPath = destPath.resolve(entry.name).normalize()
-                        if (!entryPath.startsWith(destPath)) {
+                        val entryFile = java.io.File(destPath.toString(), entry.name).canonicalFile
+                        val destFile = java.io.File(destPath.toString()).canonicalFile
+                        if (!entryFile.path.startsWith(destFile.path)) {
                             entry = zipInputStream.nextEntry
                             continue
                         }
+                        val entryPath = entryFile.path.toPath()
                         if (entry.isDirectory) {
                             fileSystem.createDirectories(entryPath)
                         } else {

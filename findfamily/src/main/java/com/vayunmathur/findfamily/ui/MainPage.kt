@@ -187,7 +187,7 @@ fun MainPage(
                                 }
                             }
                             IconButton({
-                                ffViewModel.deleteUser(user)
+                                user?.let { ffViewModel.deleteUser(it) }
                                 ffViewModel.setSelectedUserId(null)
                             }) {
                                 IconDelete()
@@ -196,7 +196,7 @@ fun MainPage(
                     } else if (selectedWaypointId != null && selectedWaypointId != 0L) {
                         val waypoint by ffViewModel.waypointByIdState(selectedWaypointId!!)
                         IconButton({
-                            ffViewModel.deleteWaypoint(waypoint)
+                            waypoint?.let { ffViewModel.deleteWaypoint(it) }
                             ffViewModel.setSelectedWaypointId(null)
                         }) {
                             IconDelete()
@@ -300,34 +300,36 @@ fun MainPage(
                 } else if (selectedUserId != null) {
                     val selectedUser by ffViewModel.userByIdState(selectedUserId!!)
                     val requestPickContact = platform.requestPickContact { name, photo ->
-                        ffViewModel.upsertUser(selectedUser.copy(name = name, photo = photo))
+                        selectedUser?.let { ffViewModel.upsertUser(it.copy(name = name, photo = photo)) }
                     }
                     Column {
-                        UserCard(selectedUser, userPositions[selectedUser.id], true) {}
-                        Spacer(Modifier.height(4.dp))
-                        Column(
-                            Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Card {
-                                Row(
-                                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(stringResource(R.string.share_your_location))
-                                    Spacer(Modifier.weight(1f))
-                                    Checkbox(
-                                        selectedUser.sendingEnabled,
-                                        { send ->
-                                            ffViewModel.upsertUser(selectedUser.copy(sendingEnabled = send))
-                                        })
-                                }
-                            }
+                        selectedUser?.let { user ->
+                            UserCard(user, userPositions[user.id], true) {}
                             Spacer(Modifier.height(4.dp))
-                            OutlinedButton({
-                                requestPickContact()
-                            }) {
-                                Text(stringResource(R.string.change_connected_contact))
+                            Column(
+                                Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Card {
+                                    Row(
+                                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(stringResource(R.string.share_your_location))
+                                        Spacer(Modifier.weight(1f))
+                                        Checkbox(
+                                            user.sendingEnabled,
+                                            { send ->
+                                                ffViewModel.upsertUser(user.copy(sendingEnabled = send))
+                                            })
+                                    }
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                OutlinedButton({
+                                    requestPickContact()
+                                }) {
+                                    Text(stringResource(R.string.change_connected_contact))
+                                }
                             }
                         }
                     }
@@ -363,14 +365,14 @@ fun MainPage(
         Box(Modifier.padding(paddingValues).fillMaxWidth()) {
             val selectedUserObj = if (selectedUserId != null) {
                 val user by ffViewModel.userByIdState(selectedUserId!!)
-                SelectedUser(user, isShowingPresent, historicalPosition)
+                user?.let { SelectedUser(it, isShowingPresent, historicalPosition) }
             } else null
 
             val selectedWaypointObj = if (selectedWaypointId != null) {
                 val waypoint by ffViewModel.waypointByIdState(selectedWaypointId!!) { Waypoint.NEW_WAYPOINT }
-                SelectedWaypoint(waypoint, waypointRange.toDoubleOrNull() ?: 0.0) {
+                waypoint?.let { wp -> SelectedWaypoint(wp, waypointRange.toDoubleOrNull() ?: 0.0) {
                     ffViewModel.setWaypointCoord(it)
-                }
+                } }
             } else null
 
             MapView(

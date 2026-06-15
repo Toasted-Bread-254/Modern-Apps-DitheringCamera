@@ -108,15 +108,15 @@ class WordMakerViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun revealHint(crosswordData: CrosswordData, foundWords: Set<String>, revealedHints: Set<Pair<Int, Int>>) {
         val revealedPositions = mutableSetOf<Pair<Int, Int>>()
-        crosswordData.letterPositions.forEach { (word, positions) ->
+        crosswordData.letterPositions.forEach { (word, occurrences) ->
             if (word in foundWords) {
-                revealedPositions.addAll(positions)
+                occurrences.forEach { positions -> revealedPositions.addAll(positions) }
             }
         }
         revealedPositions.addAll(revealedHints)
 
         val allCellPositions = mutableSetOf<Pair<Int, Int>>()
-        crosswordData.letterPositions.values.forEach { allCellPositions.addAll(it) }
+        crosswordData.letterPositions.values.forEach { occurrences -> occurrences.forEach { allCellPositions.addAll(it) } }
 
         val unrevealed = allCellPositions - revealedPositions
         if (unrevealed.isEmpty()) return
@@ -127,8 +127,8 @@ class WordMakerViewModel(application: Application) : AndroidViewModel(applicatio
             levelDataStore.addRevealedHint(target.first, target.second)
 
             val nowRevealed = revealedPositions + target
-            crosswordData.letterPositions.forEach { (word, positions) ->
-                if (word !in foundWords && nowRevealed.containsAll(positions)) {
+            crosswordData.letterPositions.forEach { (word, occurrences) ->
+                if (word !in foundWords && occurrences.any { nowRevealed.containsAll(it) }) {
                     levelDataStore.addFoundWord(word)
                 }
             }

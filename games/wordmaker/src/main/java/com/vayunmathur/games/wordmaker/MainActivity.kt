@@ -273,7 +273,7 @@ fun WordGameScreen(
     LaunchedEffect(wordToAnimate) {
         wordToAnimate?.let { animationInfo ->
             val word = animationInfo.word
-            val letterPositions = crosswordData.letterPositions[word]
+            val letterPositions = crosswordData.letterPositions[word]?.firstOrNull()
             if (letterPositions != null) {
                 val letters = word.mapIndexed { index, char ->
                     val id = animationInfo.letterIds[index]
@@ -651,19 +651,23 @@ fun CrosswordBoard(
     scaleUpdated: (Float) -> Unit
 ) {
     val allCharPositions = mutableMapOf<Pair<Int, Int>, Char>()
-    crosswordData.letterPositions.forEach { (word, positions) ->
+    crosswordData.letterPositions.forEach { (word, occurrences) ->
         if (word in foundWords && word != wordToAnimate) {
-            word.forEachIndexed { index, char ->
-                allCharPositions[positions[index]] = char
+            for (positions in occurrences) {
+                word.forEachIndexed { index, char ->
+                    allCharPositions[positions[index]] = char
+                }
             }
         }
     }
     // Also reveal hint cells
-    crosswordData.letterPositions.forEach { (word, positions) ->
-        word.forEachIndexed { index, char ->
-            val pos = positions[index]
-            if (pos in revealedHints && pos !in allCharPositions) {
-                allCharPositions[pos] = char
+    crosswordData.letterPositions.forEach { (word, occurrences) ->
+        for (positions in occurrences) {
+            word.forEachIndexed { index, char ->
+                val pos = positions[index]
+                if (pos in revealedHints && pos !in allCharPositions) {
+                    allCharPositions[pos] = char
+                }
             }
         }
     }
