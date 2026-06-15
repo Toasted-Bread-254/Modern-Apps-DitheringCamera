@@ -22,7 +22,12 @@ import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -39,6 +44,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
@@ -66,6 +72,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -74,6 +81,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -96,11 +106,14 @@ import com.vayunmathur.camera.util.AspectRatioOption
 import com.vayunmathur.camera.util.BokehAnalyzer
 import com.vayunmathur.camera.util.CameraMode
 import com.vayunmathur.camera.util.CameraViewModel
+import com.vayunmathur.camera.util.GuideDot
+import com.vayunmathur.camera.util.GuideDotState
 import com.vayunmathur.camera.util.FlashMode
 import com.vayunmathur.camera.util.QrAnalyzer
 import com.vayunmathur.camera.util.TimerDuration
 import com.vayunmathur.library.util.NavBackStack
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 
 private const val BOKEH_SHADER = """
@@ -179,7 +192,7 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
     val shadows by viewModel.shadows.collectAsState()
 
     var maskBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    val isPhotoType = cameraMode in listOf(CameraMode.PHOTO, CameraMode.PORTRAIT, CameraMode.PANORAMA)
+    val isPhotoType = cameraMode in listOf(CameraMode.PHOTO, CameraMode.PORTRAIT, CameraMode.PANORAMA, CameraMode.PHOTOSPHERE)
     val isSloMo = cameraMode == CameraMode.SLOW_MO
     val highSpeedActive by viewModel.highSpeedActive.collectAsState()
     val availableZoomLevels by viewModel.availableZoomLevels.collectAsState()
@@ -189,6 +202,10 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
     val panoStitching by viewModel.panoramaEngine.isStitching.collectAsState()
     val panoFrameCount by viewModel.panoramaEngine.frameCount.collectAsState()
     val panoAngle by viewModel.panoramaEngine.sweepAngle.collectAsState()
+    val panoDots by viewModel.panoramaEngine.guideDots.collectAsState()
+    val panoCurrentAngle by viewModel.panoramaEngine.currentAngle.collectAsState()
+    val panoDirection by viewModel.panoramaEngine.sweepDirection.collectAsState()
+    val panoPitch by viewModel.panoramaEngine.currentPitch.collectAsState()
 
     // Orientation tracking
     var deviceRotation by remember { mutableIntStateOf(0) }
@@ -285,7 +302,7 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
             maskBitmap = null
             controller.clearImageAnalysisAnalyzer()
             viewModel.setQrResult(null)
-        } else if (cameraMode == CameraMode.PHOTO || cameraMode == CameraMode.PORTRAIT || cameraMode == CameraMode.PANORAMA) {
+    } else if (cameraMode == CameraMode.PHOTO || cameraMode == CameraMode.PORTRAIT || cameraMode == CameraMode.PANORAMA || cameraMode == CameraMode.PHOTOSPHERE) {
             controller.setEnabledUseCases(CameraController.IMAGE_CAPTURE or CameraController.IMAGE_ANALYSIS)
             when (cameraMode) {
                 CameraMode.PORTRAIT -> {
@@ -294,7 +311,7 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
                         BokehAnalyzer(context) { mask -> maskBitmap = mask }
                     )
                 }
-                CameraMode.PANORAMA -> {
+                CameraMode.PANORAMA, CameraMode.PHOTOSPHERE -> {
                     maskBitmap = null
                     controller.setImageAnalysisAnalyzer(
                         ContextCompat.getMainExecutor(context)
@@ -490,6 +507,20 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
                         onZoomSelected = { viewModel.setZoomRatio(it) },
                         modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
                     )
+
+                    if ((cameraMode == CameraMode.PANORAMA || cameraMode == CameraMode.PHOTOSPHERE) && (panoSweeping || panoStitching)) {
+                        PanoramaOverlay(
+                            isSweeping = panoSweeping,
+                            isStitching = panoStitching,
+                            guideDots = panoDots,
+                            currentAngle = panoCurrentAngle,
+                            sweepDirection = panoDirection,
+                            currentPitch = panoPitch,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(previewAspectRatio)
+                        )
+                    }
                 }
 
                 ShutterRow(
@@ -499,6 +530,10 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
                     galleryBitmap = galleryBitmap,
                     onCapture = {
                         when {
+                            cameraMode == CameraMode.PHOTOSPHERE -> {
+                                if (panoSweeping) viewModel.stopPhotosphere()
+                                else viewModel.startPhotosphere()
+                            }
                             cameraMode == CameraMode.PANORAMA -> {
                                 if (panoSweeping) viewModel.stopPanorama()
                                 else viewModel.startPanorama()
@@ -556,16 +591,6 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = 280.dp)
-                )
-            }
-
-            if (cameraMode == CameraMode.PANORAMA && (panoSweeping || panoStitching)) {
-                PanoramaOverlay(
-                    isSweeping = panoSweeping,
-                    isStitching = panoStitching,
-                    frameCount = panoFrameCount,
-                    sweepAngle = panoAngle,
-                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 60.dp)
                 )
             }
 
@@ -903,7 +928,8 @@ private fun ModeSelector(
             listOf(
                 CameraMode.PORTRAIT to "Portrait",
                 CameraMode.PHOTO to "Photo",
-                CameraMode.PANORAMA to "Pano"
+                CameraMode.PANORAMA to "Pano",
+                CameraMode.PHOTOSPHERE to "Sphere"
             )
         } else {
             listOf(
@@ -1127,61 +1153,96 @@ private fun RecordingIndicator(durationSec: Long, modifier: Modifier = Modifier)
 private fun PanoramaOverlay(
     isSweeping: Boolean,
     isStitching: Boolean,
-    frameCount: Int,
-    sweepAngle: Float,
+    guideDots: List<GuideDot>,
+    currentAngle: Float,
+    sweepDirection: Int,
+    currentPitch: Float,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier
-            .background(Color(0xCC000000), RoundedCornerShape(16.dp))
-            .padding(horizontal = 24.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        if (isStitching) {
-            Text(
-                "Processing panorama…",
-                color = Color.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
-        } else if (isSweeping) {
-            Text(
-                "← Sweep slowly →",
-                color = Color.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.size(4.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "$frameCount frames",
-                    color = Color(0xFFBBBBBB),
-                    fontSize = 13.sp
-                )
-                Text("•", color = Color(0xFF888888), fontSize = 13.sp)
-                Text(
-                    "${sweepAngle.toInt()}°",
-                    color = Color(0xFFBBBBBB),
-                    fontSize = 13.sp
-                )
-            }
-
-            Spacer(Modifier.size(8.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.6f)
-                    .background(Color(0xFF444444), RoundedCornerShape(4.dp))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth((sweepAngle / 180f).coerceIn(0f, 1f))
-                        .background(Color.White, RoundedCornerShape(4.dp))
-                        .size(4.dp)
-                )
+    if (isStitching) {
+        Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp)
+                Spacer(Modifier.height(8.dp))
+                Text("Processing panorama\u2026", color = Color.White, fontSize = 16.sp)
             }
         }
+        return
+    }
+
+    if (!isSweeping) return
+
+    val capturedCount = guideDots.count { it.state == GuideDotState.CAPTURED }
+    val totalDots = guideDots.size
+    val halfFOV = 30f
+
+    val flashAlpha = remember { Animatable(0f) }
+    LaunchedEffect(capturedCount) {
+        if (capturedCount > 1) {
+            flashAlpha.snapTo(0.3f)
+            flashAlpha.animateTo(0f, tween(250))
+        }
+    }
+
+    Box(modifier.fillMaxSize()) {
+        if (flashAlpha.value > 0f) {
+            Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = flashAlpha.value)))
+        }
+
+        Canvas(Modifier.fillMaxSize()) {
+            val centerX = size.width / 2
+            val centerY = size.height / 2
+            val halfVertFOV = 40f
+
+            guideDots.forEach { dot ->
+                val angleOffset = dot.targetAngle - currentAngle
+                val pitchOffset = dot.targetPitch - currentPitch
+                if (Math.abs(angleOffset) <= halfFOV * 1.2f && Math.abs(pitchOffset) <= halfVertFOV * 1.2f) {
+                    val dotX = centerX + (angleOffset / halfFOV) * (size.width / 2)
+                    val dotY = centerY - (pitchOffset / halfVertFOV) * (size.height / 2)
+                    val baseRadius = 14.dp.toPx()
+
+                    when (dot.state) {
+                        GuideDotState.PENDING -> {
+                            drawCircle(Color.White.copy(alpha = 0.7f), baseRadius, Offset(dotX, dotY), style = Stroke(2.dp.toPx()))
+                            drawCircle(Color.White.copy(alpha = 0.3f), 3.dp.toPx(), Offset(dotX, dotY))
+                        }
+                        GuideDotState.ALIGNING, GuideDotState.CAPTURING -> {
+                            drawCircle(Color(0xFF4FC3F7), baseRadius * 1.2f, Offset(dotX, dotY))
+                            drawCircle(Color.White, baseRadius * 1.2f, Offset(dotX, dotY), style = Stroke(2.dp.toPx()))
+                        }
+                        GuideDotState.CAPTURED -> {
+                            drawCircle(Color(0xFF4CAF50), baseRadius, Offset(dotX, dotY))
+                            val checkPath = Path().apply {
+                                moveTo(dotX - baseRadius * 0.35f, dotY)
+                                lineTo(dotX - baseRadius * 0.05f, dotY + baseRadius * 0.3f)
+                                lineTo(dotX + baseRadius * 0.4f, dotY - baseRadius * 0.3f)
+                            }
+                            drawPath(checkPath, Color.White, style = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round))
+                        }
+                    }
+                }
+            }
+
+            val crossSize = 20.dp.toPx()
+            val crossGap = 6.dp.toPx()
+            val crossStroke = 2.dp.toPx()
+            val crossColor = Color.White
+            drawLine(crossColor, Offset(centerX - crossSize, centerY), Offset(centerX - crossGap, centerY), crossStroke)
+            drawLine(crossColor, Offset(centerX + crossGap, centerY), Offset(centerX + crossSize, centerY), crossStroke)
+            drawLine(crossColor, Offset(centerX, centerY - crossSize), Offset(centerX, centerY - crossGap), crossStroke)
+            drawLine(crossColor, Offset(centerX, centerY + crossGap), Offset(centerX, centerY + crossSize), crossStroke)
+            drawCircle(crossColor, 2.dp.toPx(), Offset(centerX, centerY))
+        }
+
+        Text(
+            "$capturedCount / $totalDots",
+            color = Color.White,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 60.dp)
+                .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+        )
     }
 }

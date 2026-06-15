@@ -128,7 +128,7 @@ data class EmailAccount(
             0xFF607D8B  // Blue Grey
         )
         val hash = email.hashCode()
-        return colors[Math.abs(hash) % colors.size]
+        return colors[(hash and Int.MAX_VALUE) % colors.size]
     }
 }
 

@@ -5,44 +5,44 @@ data class CrosswordData(
     val solutionWords: Set<String>,
     val lettersInChooser: List<Char>,
     val gridStructure: List<String>,
-    val letterPositions: Map<String, List<Pair<Int, Int>>>) {
+    val letterPositions: Map<String, List<List<Pair<Int, Int>>>>) {
 
     fun getWordAt(row: Int, col: Int, foundWords: Set<String>): String? {
+        val cell = Pair(row, col)
         // Prioritize vertical words
-        for ((word, positions) in letterPositions) {
+        for ((word, occurrences) in letterPositions) {
             if (word !in foundWords) continue
-            if (positions.contains(Pair(row, col))) {
-                val isVertical = positions.first().second == positions.last().second
-                if (isVertical) {
-                    return word
+            for (positions in occurrences) {
+                if (cell in positions) {
+                    val isVertical = positions.first().second == positions.last().second
+                    if (isVertical) return word
                 }
             }
         }
         // If no vertical word, check for horizontal
-        for ((word, positions) in letterPositions) {
-            if(word !in foundWords) continue
-            if (positions.contains(Pair(row, col))) {
-                return word
+        for ((word, occurrences) in letterPositions) {
+            if (word !in foundWords) continue
+            for (positions in occurrences) {
+                if (cell in positions) return word
             }
         }
         return null
     }
 
     fun winsWith(foundWords: Set<String>): Boolean {
-        // consider the fact that "unfound words" might actually be made up by the found words
         val unfoundWords = solutionWords - foundWords
 
-        // Convert found positions to a Set for O(1) lookup performance
         val foundLetterPositions = foundWords
             .mapNotNull { letterPositions[it] }
+            .flatten()
             .flatten()
             .toSet()
 
         val unfoundLetterPositions = unfoundWords
             .mapNotNull { letterPositions[it] }
             .flatten()
+            .flatten()
 
-        // Now this check is much faster and crash-proof
         return foundLetterPositions.containsAll(unfoundLetterPositions)
     }
 
@@ -94,9 +94,9 @@ data class CrosswordData(
             }
         }
 
-        private fun extractWordsAndPositions(grid: List<String>): Pair<List<String>, Map<String, List<Pair<Int, Int>>>> {
+        private fun extractWordsAndPositions(grid: List<String>): Pair<List<String>, Map<String, List<List<Pair<Int, Int>>>>> {
             val words = mutableListOf<String>()
-            val positions = mutableMapOf<String, List<Pair<Int, Int>>>()
+            val positions = mutableMapOf<String, MutableList<List<Pair<Int, Int>>>>()
             val numRows = grid.size
             if (numRows == 0) return Pair(emptyList(), emptyMap())
             val numCols = grid[0].length
@@ -113,14 +113,14 @@ data class CrosswordData(
                     } else {
                         if (currentWord.length > 1) {
                             words.add(currentWord)
-                            positions[currentWord] = List(currentWord.length) { i -> Pair(r, startCol + i) }
+                            positions.getOrPut(currentWord) { mutableListOf() }.add(List(currentWord.length) { i -> Pair(r, startCol + i) })
                         }
                         currentWord = ""
                     }
                 }
                 if (currentWord.length > 1) {
                     words.add(currentWord)
-                    positions[currentWord] = List(currentWord.length) { i -> Pair(r, startCol + i) }
+                    positions.getOrPut(currentWord) { mutableListOf() }.add(List(currentWord.length) { i -> Pair(r, startCol + i) })
                 }
             }
 
@@ -136,14 +136,14 @@ data class CrosswordData(
                     } else {
                         if (currentWord.length > 1) {
                             words.add(currentWord)
-                            positions[currentWord] = List(currentWord.length) { i -> Pair(startRow + i, c) }
+                            positions.getOrPut(currentWord) { mutableListOf() }.add(List(currentWord.length) { i -> Pair(startRow + i, c) })
                         }
                         currentWord = ""
                     }
                 }
                 if (currentWord.length > 1) {
                     words.add(currentWord)
-                    positions[currentWord] = List(currentWord.length) { i -> Pair(startRow + i, c) }
+                    positions.getOrPut(currentWord) { mutableListOf() }.add(List(currentWord.length) { i -> Pair(startRow + i, c) })
                 }
             }
 

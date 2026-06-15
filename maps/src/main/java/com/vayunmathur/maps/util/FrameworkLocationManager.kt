@@ -76,9 +76,9 @@ class FrameworkLocationManager(context: Context) : SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
-            accelerometerReading = event.values
+            accelerometerReading = event.values.copyOf()
         } else if (event.sensor.type == Sensor.TYPE_MAGNETIC_FIELD) {
-            magnetometerReading = event.values
+            magnetometerReading = event.values.copyOf()
         }
 
         // Calculate Orientation

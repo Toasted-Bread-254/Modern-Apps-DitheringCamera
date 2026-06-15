@@ -42,7 +42,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
-enum class CameraMode { PHOTO, PORTRAIT, PANORAMA, VIDEO, SLOW_MO, TIMELAPSE }
+enum class CameraMode { PHOTO, PORTRAIT, PANORAMA, PHOTOSPHERE, VIDEO, SLOW_MO, TIMELAPSE }
 enum class FlashMode { ON, OFF, AUTO }
 enum class TimerDuration(val seconds: Int) { NONE(0), THREE(3), FIVE(5), TEN(10) }
 enum class AspectRatioOption(val label: String) { RATIO_16_9("16:9"), RATIO_4_3("4:3"), RATIO_1_1("1:1") }
@@ -545,6 +545,22 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun stopPanorama() {
+        panoramaEngine.stopSweep()
+        viewModelScope.launch {
+            val result = panoramaEngine.stitch()
+            if (result != null) {
+                panoramaEngine.saveToMediaStore(result)
+                result.recycle()
+            }
+            panoramaEngine.reset()
+        }
+    }
+
+    fun startPhotosphere() {
+        panoramaEngine.startSweep(fullSphere = true)
+    }
+
+    fun stopPhotosphere() {
         panoramaEngine.stopSweep()
         viewModelScope.launch {
             val result = panoramaEngine.stitch()

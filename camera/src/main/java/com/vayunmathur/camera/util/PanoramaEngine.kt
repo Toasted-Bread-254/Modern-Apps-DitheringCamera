@@ -3,6 +3,7 @@ package com.vayunmathur.camera.util
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -11,6 +12,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import org.opencv.android.OpenCVLoader
@@ -26,6 +28,7 @@ import org.opencv.core.MatOfKeyPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Rect
+import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.features2d.BFMatcher
 import org.opencv.features2d.ORB
@@ -33,6 +36,20 @@ import org.opencv.imgproc.Imgproc
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+enum class GuideDotState {
+    PENDING,
+    ALIGNING,
+    CAPTURING,
+    CAPTURED
+}
+
+data class GuideDot(
+    val index: Int,
+    val targetAngle: Float,
+    val targetPitch: Float = 0f,
+    val state: GuideDotState
+)
 
 class PanoramaEngine(private val context: Context) : SensorEventListener {
 
@@ -51,36 +68,82 @@ class PanoramaEngine(private val context: Context) : SensorEventListener {
     private val _sweepAngle = MutableStateFlow(0f)
     val sweepAngle = _sweepAngle.asStateFlow()
 
+    private val _guideDots = MutableStateFlow<List<GuideDot>>(emptyList())
+    val guideDots: StateFlow<List<GuideDot>> = _guideDots.asStateFlow()
+
+    private val _currentAngle = MutableStateFlow(0f)
+    val currentAngle: StateFlow<Float> = _currentAngle.asStateFlow()
+
+    private val _currentPitch = MutableStateFlow(0f)
+    val currentPitch: StateFlow<Float> = _currentPitch.asStateFlow()
+
+    private val _sweepDirection = MutableStateFlow(0)
+    val sweepDirection: StateFlow<Int> = _sweepDirection.asStateFlow()
+
     private val frames = mutableListOf<Bitmap>()
     private var accumulatedAngle = 0f
+    private var accumulatedPitch = 0f
     private var lastTimestamp = 0L
     private var lastCaptureAngle = 0f
+    private var angularVelocity = 0f
+    private var pitchVelocity = 0f
+
+    private var sphereMode = false
+    private val ALIGNMENT_THRESHOLD_DEGREES = 3f
+    private val PITCH_THRESHOLD_DEGREES = 5f
+    private val MAX_VELOCITY_DPS = 30f
 
     @Volatile
     var latestFrame: Bitmap? = null
 
     companion object {
-        private const val CAPTURE_INTERVAL_DEGREES = 25f
-        private const val MAX_FRAMES = 8
-        private const val MAX_SWEEP_DEGREES = 180f
-        private const val FRAME_SCALE = 0.5f
+        private const val FRAME_SCALE = 0.75f
 
         init {
             OpenCVLoader.initLocal()
         }
     }
 
-    fun startSweep() {
+    fun startSweep(fullSphere: Boolean = false) {
+        sphereMode = fullSphere
         frames.clear()
         accumulatedAngle = 0f
+        accumulatedPitch = 0f
         lastCaptureAngle = 0f
         lastTimestamp = 0L
+        angularVelocity = 0f
+        pitchVelocity = 0f
         _frameCount.value = 0
         _sweepAngle.value = 0f
-        _isSweeping.value = true
+        _sweepDirection.value = 0
+        _currentAngle.value = 0f
+        _currentPitch.value = 0f
+
+        val dots = if (fullSphere) {
+            var idx = 0
+            val result = mutableListOf<GuideDot>()
+            for (pitch in listOf(0f, -30f, 30f)) {
+                val yawStep = if (pitch == 0f) 30f else 60f
+                val count = (360f / yawStep).toInt()
+                for (i in 0 until count) {
+                    result.add(GuideDot(idx, i * yawStep, pitch, if (idx == 0) GuideDotState.CAPTURING else GuideDotState.PENDING))
+                    idx++
+                }
+            }
+            result
+        } else {
+            (0 until 7).map { i ->
+                GuideDot(i, i * 30f, 0f, if (i == 0) GuideDotState.CAPTURING else GuideDotState.PENDING)
+            }
+        }
+        _guideDots.value = dots
+
         captureFrame()
+        updateDotState(0, GuideDotState.CAPTURED)
+
+        _isSweeping.value = true
         gyroscope?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
     }
 
@@ -94,7 +157,10 @@ class PanoramaEngine(private val context: Context) : SensorEventListener {
         val w = (frame.width * FRAME_SCALE).toInt()
         val h = (frame.height * FRAME_SCALE).toInt()
         val scaled = Bitmap.createScaledBitmap(frame, w, h, true)
-        frames.add(scaled)
+        val rotMatrix = Matrix().apply { postRotate(90f) }
+        val rotated = Bitmap.createBitmap(scaled, 0, 0, scaled.width, scaled.height, rotMatrix, true)
+        scaled.recycle()
+        frames.add(rotated)
         _frameCount.value = frames.size
         lastCaptureAngle = accumulatedAngle
     }
@@ -106,58 +172,112 @@ class PanoramaEngine(private val context: Context) : SensorEventListener {
         val timestamp = event.timestamp
         if (lastTimestamp != 0L) {
             val dt = (timestamp - lastTimestamp) / 1_000_000_000f
-            val yawRate = Math.toDegrees(event.values[1].toDouble()).toFloat()
-            accumulatedAngle += Math.abs(yawRate * dt).toFloat()
-            _sweepAngle.value = accumulatedAngle
+            val pitchRate = Math.toDegrees(event.values[0].toDouble()).toFloat()
+            val yawRate = -Math.toDegrees(event.values[1].toDouble()).toFloat()
+            pitchVelocity = pitchRate
+            angularVelocity = yawRate
+            accumulatedPitch += pitchRate * dt
+            accumulatedAngle += yawRate * dt
+            _currentPitch.value = accumulatedPitch
+            _currentAngle.value = accumulatedAngle
+            _sweepAngle.value = Math.abs(accumulatedAngle)
+
+            if (_sweepDirection.value == 0 && Math.abs(accumulatedAngle) > 10f) {
+                val dir = if (accumulatedAngle > 0) 1 else -1
+                _sweepDirection.value = dir
+                if (dir == -1 && !sphereMode) {
+                    _guideDots.value = _guideDots.value.map { it.copy(targetAngle = -it.targetAngle) }
+                }
+            }
+
+            checkDotAlignment()
         }
         lastTimestamp = timestamp
 
-        if (accumulatedAngle - lastCaptureAngle >= CAPTURE_INTERVAL_DEGREES
-            && frames.size < MAX_FRAMES
-        ) {
-            captureFrame()
-        }
-
-        if (accumulatedAngle >= MAX_SWEEP_DEGREES || frames.size >= MAX_FRAMES) {
+        val maxAngle = if (sphereMode) 360f else 200f
+        if (_guideDots.value.all { it.state == GuideDotState.CAPTURED } || Math.abs(accumulatedAngle) > maxAngle) {
             stopSweep()
         }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
+    private fun checkDotAlignment() {
+        val dots = _guideDots.value
+        val currentAng = accumulatedAngle
+        var captured = false
+
+        _guideDots.value = dots.map { dot ->
+            if (dot.state == GuideDotState.CAPTURED) return@map dot
+
+            val angleDiff = Math.abs(currentAng - dot.targetAngle)
+            val pitchDiff = Math.abs(accumulatedPitch - dot.targetPitch)
+            val withinCapture = angleDiff < ALIGNMENT_THRESHOLD_DEGREES && pitchDiff < PITCH_THRESHOLD_DEGREES
+            val withinAligning = angleDiff < ALIGNMENT_THRESHOLD_DEGREES * 2 && pitchDiff < PITCH_THRESHOLD_DEGREES * 2
+            val steadyEnough = Math.abs(angularVelocity) < MAX_VELOCITY_DPS && Math.abs(pitchVelocity) < MAX_VELOCITY_DPS
+
+            when {
+                withinCapture && steadyEnough && !captured -> {
+                    captureFrame()
+                    captured = true
+                    dot.copy(state = GuideDotState.CAPTURED)
+                }
+                withinCapture -> dot.copy(state = GuideDotState.CAPTURING)
+                withinAligning -> dot.copy(state = GuideDotState.ALIGNING)
+                dot.state != GuideDotState.PENDING -> dot.copy(state = GuideDotState.PENDING)
+                else -> dot
+            }
+        }
+    }
+
+    private fun updateDotState(index: Int, state: GuideDotState) {
+        _guideDots.value = _guideDots.value.map {
+            if (it.index == index) it.copy(state = state) else it
+        }
+    }
+
     suspend fun stitch(): Bitmap? {
         if (frames.size < 2) return null
         _isStitching.value = true
         return withContext(Dispatchers.IO) {
             try {
-                val mats = frames.map { bmp ->
-                    val mat = Mat()
-                    Utils.bitmapToMat(bmp, mat)
-                    mat
-                }
-
-                var result = mats[0].clone()
-                val orb = ORB.create(1000)
-                val matcher = BFMatcher.create(Core.NORM_HAMMING, true)
-
-                for (i in 1 until mats.size) {
-                    result = stitchPair(result, mats[i], orb, matcher) ?: run {
-                        mats.forEach { it.release() }
-                        return@withContext null
-                    }
-                }
-
-                mats.forEach { it.release() }
-
-                val bitmap = Bitmap.createBitmap(result.cols(), result.rows(), Bitmap.Config.ARGB_8888)
-                Utils.matToBitmap(result, bitmap)
-                result.release()
-                bitmap
-            } catch (_: Exception) {
+                stitchManual()
+            } catch (e: Exception) {
+                e.printStackTrace()
                 null
             } finally {
                 _isStitching.value = false
             }
+        }
+    }
+
+    private fun stitchManual(): Bitmap? {
+        return try {
+            val mats = frames.map { bmp ->
+                val mat = Mat()
+                Utils.bitmapToMat(bmp, mat)
+                mat
+            }
+
+            var result = mats[0].clone()
+            val orb = ORB.create(2000)
+            val matcher = BFMatcher.create(Core.NORM_HAMMING, true)
+
+            for (i in 1 until mats.size) {
+                result = stitchPair(result, mats[i], orb, matcher) ?: run {
+                    mats.forEach { it.release() }
+                    return null
+                }
+            }
+
+            mats.forEach { it.release() }
+
+            val bitmap = Bitmap.createBitmap(result.cols(), result.rows(), Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(result, bitmap)
+            result.release()
+            bitmap
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -187,7 +307,7 @@ class PanoramaEngine(private val context: Context) : SensorEventListener {
         desc2.release()
 
         val matchList = matches.toList().sortedBy { it.distance }
-        val goodMatches = matchList.take((matchList.size * 0.3).toInt().coerceAtLeast(10))
+        val goodMatches = matchList.take((matchList.size * 0.5).toInt().coerceAtLeast(10))
         if (goodMatches.size < 10) return null
 
         val kpList1 = kp1.toList()
@@ -197,63 +317,98 @@ class PanoramaEngine(private val context: Context) : SensorEventListener {
         val dstPts = MatOfPoint2f(*goodMatches.map { kpList1[it.trainIdx].pt }.toTypedArray())
 
         val mask = MatOfByte()
-        val H = Calib3d.findHomography(srcPts, dstPts, Calib3d.RANSAC, 5.0, mask)
+        val affine = Calib3d.estimateAffinePartial2D(srcPts, dstPts, mask, Calib3d.RANSAC, 3.0)
         srcPts.release()
         dstPts.release()
         kp1.release()
         kp2.release()
 
-        if (H.empty()) return null
+        if (affine.empty()) return null
 
-        val corners = MatOfPoint2f(
+        val corners = arrayOf(
             Point(0.0, 0.0),
             Point(next.cols().toDouble(), 0.0),
             Point(next.cols().toDouble(), next.rows().toDouble()),
             Point(0.0, next.rows().toDouble())
         )
-        val warpedCorners = MatOfPoint2f()
-        Core.perspectiveTransform(corners, warpedCorners, H)
-        corners.release()
+        val warpedCorners = corners.map { pt ->
+            val x = affine.get(0, 0)[0] * pt.x + affine.get(0, 1)[0] * pt.y + affine.get(0, 2)[0]
+            val y = affine.get(1, 0)[0] * pt.x + affine.get(1, 1)[0] * pt.y + affine.get(1, 2)[0]
+            Point(x, y)
+        }
 
-        val allPts = warpedCorners.toList() + listOf(
+        val allPts = warpedCorners + listOf(
             Point(0.0, 0.0),
             Point(base.cols().toDouble(), 0.0),
             Point(base.cols().toDouble(), base.rows().toDouble()),
             Point(0.0, base.rows().toDouble())
         )
-        warpedCorners.release()
 
         val minX = allPts.minOf { it.x }
         val minY = allPts.minOf { it.y }
         val maxX = allPts.maxOf { it.x }
         val maxY = allPts.maxOf { it.y }
 
-        val translation = Mat.eye(3, 3, CvType.CV_64F)
-        translation.put(0, 2, -minX)
-        translation.put(1, 2, -minY)
-
         val outW = (maxX - minX).toInt()
         val outH = (maxY - minY).toInt()
         if (outW <= 0 || outH <= 0 || outW > 10000 || outH > 10000) {
-            translation.release()
-            H.release()
+            affine.release()
             return null
         }
 
+        val combinedAffine = affine.clone()
+        combinedAffine.put(0, 2, affine.get(0, 2)[0] - minX)
+        combinedAffine.put(1, 2, affine.get(1, 2)[0] - minY)
+
         val warpedNext = Mat()
-        val combinedH = Mat()
-        Core.gemm(translation, H, 1.0, Mat(), 0.0, combinedH)
-        Imgproc.warpPerspective(next, warpedNext, combinedH, Size(outW.toDouble(), outH.toDouble()))
+        Imgproc.warpAffine(next, warpedNext, combinedAffine, Size(outW.toDouble(), outH.toDouble()))
 
         val output = warpedNext.clone()
         val roi = Rect((-minX).toInt(), (-minY).toInt(), base.cols(), base.rows())
         if (roi.x >= 0 && roi.y >= 0 && roi.x + roi.width <= output.cols() && roi.y + roi.height <= output.rows()) {
-            base.copyTo(Mat(output, roi))
+            val baseOnCanvas = Mat.zeros(output.size(), output.type())
+            base.copyTo(Mat(baseOnCanvas, roi))
+
+            val baseMask = Mat.zeros(output.size(), CvType.CV_8UC1)
+            Mat(baseMask, roi).setTo(Scalar(255.0))
+
+            val warpedGray = Mat()
+            val warpedMask = Mat()
+            Imgproc.cvtColor(output, warpedGray, Imgproc.COLOR_RGBA2GRAY)
+            Imgproc.threshold(warpedGray, warpedMask, 1.0, 255.0, Imgproc.THRESH_BINARY)
+            warpedGray.release()
+
+            val overlapMask = Mat()
+            Core.bitwise_and(baseMask, warpedMask, overlapMask)
+
+            val baseOnly = Mat()
+            Core.subtract(baseMask, overlapMask, baseOnly)
+
+            val warpedOnly = Mat()
+            Core.subtract(warpedMask, overlapMask, warpedOnly)
+
+            val result = Mat.zeros(output.size(), output.type())
+            baseOnCanvas.copyTo(result, baseOnly)
+            output.copyTo(result, warpedOnly)
+
+            val blended = Mat()
+            Core.addWeighted(baseOnCanvas, 0.5, output, 0.5, 0.0, blended)
+            blended.copyTo(result, overlapMask)
+
+            result.copyTo(output)
+
+            baseOnCanvas.release()
+            baseMask.release()
+            warpedMask.release()
+            overlapMask.release()
+            baseOnly.release()
+            warpedOnly.release()
+            blended.release()
+            result.release()
         }
 
-        translation.release()
-        H.release()
-        combinedH.release()
+        affine.release()
+        combinedAffine.release()
         warpedNext.release()
 
         return output
@@ -281,5 +436,11 @@ class PanoramaEngine(private val context: Context) : SensorEventListener {
         _sweepAngle.value = 0f
         _isSweeping.value = false
         _isStitching.value = false
+        _guideDots.value = emptyList()
+        _currentAngle.value = 0f
+        _currentPitch.value = 0f
+        _sweepDirection.value = 0
+        accumulatedPitch = 0f
+        pitchVelocity = 0f
     }
 }

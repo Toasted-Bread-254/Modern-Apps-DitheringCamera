@@ -94,15 +94,15 @@ class FindFamilyViewModel(
     // ------------------------------------------------------------------
 
     @Composable
-    fun userByIdState(id: Long, default: () -> User? = { null }): State<User> {
+    fun userByIdState(id: Long, default: () -> User? = { null }): State<User?> {
         val list by users.collectAsState()
-        return remember { derivedStateOf { (list.firstOrNull { it.id == id } ?: default())!! } }
+        return remember { derivedStateOf { list.firstOrNull { it.id == id } ?: default() } }
     }
 
     @Composable
-    fun waypointByIdState(id: Long, default: () -> Waypoint? = { null }): State<Waypoint> {
+    fun waypointByIdState(id: Long, default: () -> Waypoint? = { null }): State<Waypoint?> {
         val list by waypoints.collectAsState()
-        return remember { derivedStateOf { (list.firstOrNull { it.id == id } ?: default())!! } }
+        return remember { derivedStateOf { list.firstOrNull { it.id == id } ?: default() } }
     }
 
     // ------------------------------------------------------------------

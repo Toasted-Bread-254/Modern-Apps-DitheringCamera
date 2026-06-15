@@ -3,6 +3,7 @@ import com.vayunmathur.findfamily.data.LocationValue
 import com.vayunmathur.findfamily.data.LocationValueCompatible
 import com.vayunmathur.findfamily.data.TemporaryLink
 import com.vayunmathur.findfamily.data.User
+import com.vayunmathur.findfamily.data.RequestStatus
 import com.vayunmathur.findfamily.data.UserDao
 import com.vayunmathur.findfamily.uwb.UwbEnvelope
 import com.vayunmathur.library.network.NetworkClient
@@ -68,7 +69,7 @@ object Networking {
             network_is_down = false
             return x
         } catch(e: Exception) {
-            // Check for timeout exceptions without direct Ktor dependency if possible, 
+            // Check for timeout exceptions without direct Ktor dependency if possible,
             // but for now we'll just catch all and assume network might be down if it fails.
             if (!network_is_down) {
                 println("network error: ${e.message}")

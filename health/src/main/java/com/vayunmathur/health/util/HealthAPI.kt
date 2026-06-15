@@ -501,7 +501,7 @@ object HealthAPI {
 
     suspend fun deleteRecord(record: Record) {
         // Delete from local Room DB
-        db.healthDao().deleteByIds(listOf(record.primaryKey))
+        db.healthDao().deleteByIds(listOf(record.id))
 
         // Delete from Health Connect if it has a valid ID
         try {
@@ -658,7 +658,7 @@ object HealthAPI {
                                 .groupBy {
                                     val date = LocalDate.parse(it.day)
                                     val firstDayOfWeek =
-                                            date.plus(
+                                    date.minus(
                                                     (date.dayOfWeek.ordinal + 1) % 7,
                                                     DateTimeUnit.DAY
                                             )

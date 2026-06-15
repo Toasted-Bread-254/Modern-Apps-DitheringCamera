@@ -2,6 +2,7 @@ package com.vayunmathur.youpipe.ui
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -111,7 +112,8 @@ fun VideoPage(
     val videoState by ypvm.videoState.collectAsState()
 
     LaunchedEffect(videoID) {
-        ypvm.loadVideo(videoID, downloadedVideo)
+        val downloaded = downloadedFlow.first()
+        ypvm.loadVideo(videoID, downloaded)
     }
     LaunchedEffect(downloadedVideo) {
         downloadedVideo
@@ -492,7 +494,9 @@ fun CommentItem(c: Comment) {
 
 fun uploadTimeAgo(context: android.content.Context, date: Instant): String {
     val now = Clock.System.now()
-    return when(val duration = now - date) {
+    val duration = now - date
+    if (duration.isNegative()) return context.getString(R.string.time_ago_just_now)
+    return when(duration) {
         in 0.minutes..5.minutes -> context.getString(R.string.time_ago_just_now)
         in 5.minutes..1.hours -> context.getString(R.string.time_ago_minutes, duration.inWholeMinutes.toInt())
         in 1.hours..24.hours -> context.getString(R.string.time_ago_hours, duration.inWholeHours.toInt())
@@ -510,7 +514,7 @@ fun uploadTimeAgo(context: android.content.Context, date: LocalDate): String {
     } else if(period.days > 0) {
         context.getString(R.string.time_ago_days, period.days)
     } else {
-        throw IllegalStateException("Should have been found by uploadTimeAgo")
+        context.getString(R.string.time_ago_just_now)
     }
 }
 

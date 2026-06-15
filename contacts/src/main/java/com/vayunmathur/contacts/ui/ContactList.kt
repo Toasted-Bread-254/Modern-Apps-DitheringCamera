@@ -322,7 +322,7 @@ fun ContactListPick(mimeType: String?, contacts: List<Contact>, onClick: (Uri) -
 
     val groupedContacts = remember(otherContacts) {
         otherContacts
-            .groupBy { it.name.value.first().uppercaseChar() }
+            .groupBy { it.name.value.firstOrNull()?.uppercaseChar() ?: '#' }
             .toSortedMap()
     }
 

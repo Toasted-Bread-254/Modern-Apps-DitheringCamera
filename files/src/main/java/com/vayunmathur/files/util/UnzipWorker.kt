@@ -59,7 +59,11 @@ class UnzipWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
                 ZipInputStream(countingInputStream).use { zipInputStream ->
                     var entry = zipInputStream.nextEntry
                     while (entry != null) {
-                        val entryPath = destPath.resolve(entry.name)
+                        val entryPath = destPath.resolve(entry.name).normalize()
+                        if (!entryPath.startsWith(destPath)) {
+                            entry = zipInputStream.nextEntry
+                            continue
+                        }
                         if (entry.isDirectory) {
                             fileSystem.createDirectories(entryPath)
                         } else {

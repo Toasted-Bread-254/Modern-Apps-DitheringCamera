@@ -126,7 +126,7 @@ fun ContactDetailsPage(
                 actions = {
                     IconButton({
                         val newFavoriteState = !contact!!.isFavorite
-                        CoroutineScope(Dispatchers.IO).launch {
+                        scope.launch(Dispatchers.IO) {
                             val newContact = contact!!.copy(isFavorite = newFavoriteState)
                             viewModel.saveContact(newContact)
                         }

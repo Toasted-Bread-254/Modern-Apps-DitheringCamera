@@ -18,18 +18,33 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.library.util.SerializedStroke
 import com.vayunmathur.library.util.deserialize
+import com.vayunmathur.photos.data.BlurParams
+import com.vayunmathur.photos.data.CurvesAdjustment
+import com.vayunmathur.photos.data.HealingStrokes
+import com.vayunmathur.photos.data.HslAdjustments
 import com.vayunmathur.photos.data.ImageAdjustments
+import com.vayunmathur.photos.data.PerspectiveCorners
 import com.vayunmathur.photos.data.Photo
 import com.vayunmathur.photos.data.PhotoFilter
+import com.vayunmathur.photos.data.SelectiveEdits
 import com.vayunmathur.photos.data.TextElement
 import com.vayunmathur.photos.data.applyToBitmap
+import com.vayunmathur.photos.data.applyLutToBitmap
+import com.vayunmathur.photos.data.applyHslToBitmap
+import com.vayunmathur.photos.data.applyBlurToBitmap
+import com.vayunmathur.photos.data.applySelectiveEdits
+import com.vayunmathur.photos.data.applyHealingToBitmap
+import com.vayunmathur.photos.data.applyPerspectiveToBitmap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 class PhotoEditViewModel(
@@ -44,6 +59,17 @@ class PhotoEditViewModel(
 
     val adjustments = MutableStateFlow(ImageAdjustments())
     val selectedFilter = MutableStateFlow<PhotoFilter?>(null)
+
+    val curvesAdjustment = MutableStateFlow(CurvesAdjustment())
+    val hslAdjustments = MutableStateFlow(HslAdjustments())
+    val blurParams = MutableStateFlow(BlurParams())
+    val selectiveEdits = MutableStateFlow(SelectiveEdits())
+    val healingStrokes = MutableStateFlow(HealingStrokes())
+    val perspectiveCorners = MutableStateFlow(PerspectiveCorners())
+
+    private val _previewBitmap = MutableStateFlow<Bitmap?>(null)
+    val previewBitmap: StateFlow<Bitmap?> = _previewBitmap.asStateFlow()
+    private var previewJob: Job? = null
 
     private val _writePermissionRequest = MutableStateFlow<IntentSender?>(null)
     val writePermissionRequest: StateFlow<IntentSender?> = _writePermissionRequest.asStateFlow()
@@ -66,6 +92,71 @@ class PhotoEditViewModel(
     fun resetAdjustments() {
         adjustments.value = ImageAdjustments()
         selectedFilter.value = null
+    }
+
+    fun updateCurves(curves: CurvesAdjustment) { curvesAdjustment.value = curves }
+    fun resetCurves() { curvesAdjustment.value = CurvesAdjustment() }
+
+    fun updateHsl(hsl: HslAdjustments) {
+        hslAdjustments.value = hsl
+        requestPreviewUpdate()
+    }
+    fun resetHsl() {
+        hslAdjustments.value = HslAdjustments()
+        _previewBitmap.value = null
+    }
+
+    fun updateBlur(params: BlurParams) {
+        blurParams.value = params
+        requestPreviewUpdate()
+    }
+    fun resetBlur() {
+        blurParams.value = BlurParams()
+        _previewBitmap.value = null
+    }
+
+    fun updateSelective(edits: SelectiveEdits) {
+        selectiveEdits.value = edits
+        requestPreviewUpdate()
+    }
+    fun resetSelective() {
+        selectiveEdits.value = SelectiveEdits()
+        _previewBitmap.value = null
+    }
+
+    fun updateHealing(strokes: HealingStrokes) { healingStrokes.value = strokes }
+    fun resetHealing() { healingStrokes.value = HealingStrokes() }
+
+    fun updatePerspective(corners: PerspectiveCorners) { perspectiveCorners.value = corners }
+    fun resetPerspective() { perspectiveCorners.value = PerspectiveCorners() }
+
+    private fun requestPreviewUpdate() {
+        previewJob?.cancel()
+        previewJob = viewModelScope.launch(Dispatchers.Default) {
+            delay(150)
+            val source = _transformedBitmap.value ?: return@launch
+            val maxDim = 512
+            val scale = min(maxDim.toFloat() / source.width, maxDim.toFloat() / source.height).coerceAtMost(1f)
+            var preview = Bitmap.createScaledBitmap(
+                source,
+                (source.width * scale).roundToInt().coerceAtLeast(1),
+                (source.height * scale).roundToInt().coerceAtLeast(1),
+                true,
+            )
+            val hsl = hslAdjustments.value
+            if (!hsl.isIdentity()) {
+                preview = hsl.applyHslToBitmap(preview)
+            }
+            val blur = blurParams.value
+            if (!blur.isIdentity()) {
+                preview = blur.applyBlurToBitmap(preview)
+            }
+            val selective = selectiveEdits.value
+            if (!selective.isIdentity()) {
+                preview = selective.applySelectiveEdits(preview)
+            }
+            _previewBitmap.value = preview
+        }
     }
 
     private val decodedCache = object : LinkedHashMap<String, Bitmap>(32, 0.75f, true) {
@@ -154,13 +245,19 @@ class PhotoEditViewModel(
         viewportWidth: Float,
         asCopy: Boolean,
         imageAdjustments: ImageAdjustments = ImageAdjustments(),
+        curves: CurvesAdjustment = CurvesAdjustment(),
+        hsl: HslAdjustments = HslAdjustments(),
+        blur: BlurParams = BlurParams(),
+        selective: SelectiveEdits = SelectiveEdits(),
+        healing: HealingStrokes = HealingStrokes(),
+        perspective: PerspectiveCorners = PerspectiveCorners(),
         onComplete: () -> Unit,
     ) {
         Log.d(TAG, "savePhoto called with asCopy=$asCopy")
         val ctx: Context = getApplication()
         viewModelScope.launch {
             val result = withContext(Dispatchers.Default) {
-                prepareAndWrite(ctx, photo, rotation, cropRect, strokes, texts, viewportWidth, asCopy, imageAdjustments)
+                prepareAndWrite(ctx, photo, rotation, cropRect, strokes, texts, viewportWidth, asCopy, imageAdjustments, curves, hsl, blur, selective, healing, perspective)
             }
             when (result) {
                 is WriteResult.Success -> onComplete()
@@ -252,6 +349,12 @@ class PhotoEditViewModel(
             viewportWidth: Float,
             asCopy: Boolean,
             imageAdjustments: ImageAdjustments = ImageAdjustments(),
+            curves: CurvesAdjustment = CurvesAdjustment(),
+            hsl: HslAdjustments = HslAdjustments(),
+            blur: BlurParams = BlurParams(),
+            selective: SelectiveEdits = SelectiveEdits(),
+            healing: HealingStrokes = HealingStrokes(),
+            perspective: PerspectiveCorners = PerspectiveCorners(),
         ): WriteResult {
             Log.d(TAG, "prepareAndWrite: asCopy=$asCopy, uri=${photo.uri}")
             val photoUri = Uri.parse(photo.uri)
@@ -260,10 +363,13 @@ class PhotoEditViewModel(
                 decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
             }
 
+            // 1. Rotate
             val matrix = Matrix().apply { postRotate(rotation) }
             var transformedBitmap = Bitmap.createBitmap(
                 originalBitmap, 0, 0, originalBitmap.width, originalBitmap.height, matrix, true,
             )
+
+            // 2. Crop
             val left = (cropRect.left * transformedBitmap.width).roundToInt()
                 .coerceIn(0, transformedBitmap.width - 1)
             val top = (cropRect.top * transformedBitmap.height).roundToInt()
@@ -275,13 +381,45 @@ class PhotoEditViewModel(
             if (width > 0 && height > 0) {
                 transformedBitmap = Bitmap.createBitmap(transformedBitmap, left, top, width, height)
             }
-            var adjustedBitmap = transformedBitmap.copy(Bitmap.Config.ARGB_8888, true)
-            if (imageAdjustments != ImageAdjustments()) {
-                adjustedBitmap = imageAdjustments.applyToBitmap(adjustedBitmap)
-            }
-            val resultBitmap = adjustedBitmap
-            val canvas = android.graphics.Canvas(resultBitmap)
 
+            // 3. Perspective correction
+            var resultBitmap = transformedBitmap.copy(Bitmap.Config.ARGB_8888, true)
+            if (!perspective.isIdentity()) {
+                resultBitmap = perspective.applyPerspectiveToBitmap(resultBitmap)
+            }
+
+            // 4. Image adjustments via ColorMatrix
+            if (imageAdjustments != ImageAdjustments()) {
+                resultBitmap = imageAdjustments.applyToBitmap(resultBitmap)
+            }
+
+            // 5. Curves LUT
+            if (!curves.isIdentity()) {
+                resultBitmap = curves.applyLutToBitmap(resultBitmap)
+            }
+
+            // 6. HSL tuning
+            if (!hsl.isIdentity()) {
+                resultBitmap = hsl.applyHslToBitmap(resultBitmap)
+            }
+
+            // 7. Selective edits
+            if (!selective.isIdentity()) {
+                resultBitmap = selective.applySelectiveEdits(resultBitmap)
+            }
+
+            // 8. Blur
+            if (!blur.isIdentity()) {
+                resultBitmap = blur.applyBlurToBitmap(resultBitmap)
+            }
+
+            // 9. Healing strokes
+            if (!healing.isIdentity()) {
+                resultBitmap = healing.applyHealingToBitmap(resultBitmap)
+            }
+
+            // 10. Render ink strokes
+            val canvas = android.graphics.Canvas(resultBitmap)
             if (strokes.isNotEmpty()) {
                 val renderer = androidx.ink.rendering.android.canvas.CanvasStrokeRenderer.create()
                 val scaleMatrix = Matrix().apply {
@@ -298,6 +436,7 @@ class PhotoEditViewModel(
                 }
             }
 
+            // 11. Render text overlays
             if (texts.isNotEmpty()) {
                 val textPaint = android.graphics.Paint().apply {
                     isAntiAlias = true
@@ -316,6 +455,7 @@ class PhotoEditViewModel(
                 }
             }
 
+            // 12. Write to disk
             val resolver = context.contentResolver
             val nowSeconds = System.currentTimeMillis() / 1000
 

@@ -96,6 +96,7 @@ class PlaybackManager private constructor(context: Context) {
     }
 
     fun playShuffled(songs: List<Music>, sourceId: String? = null, sourceName: String? = null) {
+        if (songs.isEmpty()) return
         _currentSource.value = sourceId
         _currentSourceName.value = sourceName
         val startWithIndex = Random.nextInt(songs.size)

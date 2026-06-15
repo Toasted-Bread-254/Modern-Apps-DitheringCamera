@@ -76,6 +76,16 @@ import com.vayunmathur.photos.data.PhotoFilters
 import com.vayunmathur.photos.data.TextElement
 import com.vayunmathur.photos.data.toBrush
 import com.vayunmathur.photos.data.toColorMatrix
+import com.vayunmathur.photos.data.CurveChannel
+import com.vayunmathur.photos.data.CurvesAdjustment
+import com.vayunmathur.photos.data.HslAdjustments
+import com.vayunmathur.photos.data.HslColorRange
+import com.vayunmathur.photos.data.BlurParams
+import com.vayunmathur.photos.data.SelectiveEdits
+import com.vayunmathur.photos.data.SelectiveMask
+import com.vayunmathur.photos.data.HealingStrokes
+import com.vayunmathur.photos.data.HealingStroke
+import com.vayunmathur.photos.data.PerspectiveCorners
 import com.vayunmathur.library.util.ResultEffect
 import com.vayunmathur.library.util.SerializedStroke
 import com.vayunmathur.library.util.deserialize
@@ -121,7 +131,7 @@ import com.vayunmathur.photos.util.PhotoEditViewModel
 import java.util.UUID
 import kotlin.math.roundToInt
 
-private enum class EditorMode { None, Adjust, Filters }
+private enum class EditorMode { None, Adjust, Filters, Curves, HSL, Blur, Selective, Healing, Perspective }
 
 private enum class AdjustmentType(val label: String, val min: Float, val max: Float) {
     Brightness("Brightness", -100f, 100f),
@@ -177,6 +187,24 @@ fun EditPhotoPage(
     var selectedAdjustment by remember { mutableStateOf(AdjustmentType.Brightness) }
     val adjustments by photoEditViewModel.adjustments.collectAsState()
     val selectedFilter by photoEditViewModel.selectedFilter.collectAsState()
+
+    val curvesAdjustment by photoEditViewModel.curvesAdjustment.collectAsState()
+    val hslAdjustments by photoEditViewModel.hslAdjustments.collectAsState()
+    val blurParams by photoEditViewModel.blurParams.collectAsState()
+    val selectiveEdits by photoEditViewModel.selectiveEdits.collectAsState()
+    val healingStrokes by photoEditViewModel.healingStrokes.collectAsState()
+    val perspectiveCorners by photoEditViewModel.perspectiveCorners.collectAsState()
+    val previewBitmap by photoEditViewModel.previewBitmap.collectAsState()
+
+    var selectedCurveChannel by remember { mutableStateOf(CurveChannel.Combined) }
+    var selectedHslRange by remember { mutableStateOf(HslColorRange.Red) }
+    var currentSelectiveMask by remember { mutableStateOf(SelectiveMask()) }
+    var showSelectiveMask by remember { mutableStateOf(false) }
+    var healingBrushSize by remember { mutableFloatStateOf(0.02f) }
+    var isSettingHealingSource by remember { mutableStateOf(true) }
+    var healingSourceX by remember { mutableStateOf<Float?>(null) }
+    var healingSourceY by remember { mutableStateOf<Float?>(null) }
+    var currentHealingPoints by remember { mutableStateOf<List<Pair<Float, Float>>>(emptyList()) }
 
     var isDrawing by remember { mutableStateOf(false) }
     val inkStrokes = remember { mutableStateListOf<InkStroke>() }
@@ -243,12 +271,22 @@ family = StockBrushes.pressurePen(),
         val strokes: List<SerializedStroke>,
         val texts: List<TextElement>,
         val adjustments: ImageAdjustments = ImageAdjustments(),
+        val curves: CurvesAdjustment = CurvesAdjustment(),
+        val hsl: HslAdjustments = HslAdjustments(),
+        val blur: BlurParams = BlurParams(),
+        val selective: SelectiveEdits = SelectiveEdits(),
+        val healing: HealingStrokes = HealingStrokes(),
+        val perspective: PerspectiveCorners = PerspectiveCorners(),
     )
 
     val history = remember { mutableStateListOf<EditState>() }
 
     fun pushState() {
-        history.add(EditState(rotation, cropRect, inkStrokes.map { it.serialize() }, texts.toList(), adjustments))
+        history.add(EditState(
+            rotation, cropRect, inkStrokes.map { it.serialize() }, texts.toList(),
+            adjustments, curvesAdjustment, hslAdjustments, blurParams,
+            selectiveEdits, healingStrokes, perspectiveCorners,
+        ))
     }
 
     fun undo() {
@@ -261,6 +299,12 @@ family = StockBrushes.pressurePen(),
             texts.clear()
             texts.addAll(lastState.texts)
             photoEditViewModel.updateAdjustment { lastState.adjustments }
+            photoEditViewModel.updateCurves(lastState.curves)
+            photoEditViewModel.updateHsl(lastState.hsl)
+            photoEditViewModel.updateBlur(lastState.blur)
+            photoEditViewModel.updateSelective(lastState.selective)
+            photoEditViewModel.updateHealing(lastState.healing)
+            photoEditViewModel.updatePerspective(lastState.perspective)
         }
     }
 
@@ -332,6 +376,18 @@ family = StockBrushes.pressurePen(),
         }
     }
 
+    fun doSave(asCopy: Boolean) {
+        photo?.let {
+            photoEditViewModel.savePhoto(
+                it, rotation, cropRect,
+                inkStrokes.map { s -> s.serialize() },
+                texts.toList(), currentViewportWidth, asCopy, adjustments,
+                curvesAdjustment, hslAdjustments, blurParams,
+                selectiveEdits, healingStrokes, perspectiveCorners,
+            ) { context.finish() }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -345,11 +401,10 @@ family = StockBrushes.pressurePen(),
                     if (cropRect != startCropRect) {
                                 history.add(
                                     EditState(
-                                        rotation,
-                                        startCropRect,
-                                        inkStrokes.map { it.serialize() },
-                                        texts.toList(),
-                                        adjustments,
+                                        rotation, startCropRect,
+                                        inkStrokes.map { it.serialize() }, texts.toList(),
+                                        adjustments, curvesAdjustment, hslAdjustments, blurParams,
+                                        selectiveEdits, healingStrokes, perspectiveCorners,
                                     )
                                 )
                             }
@@ -427,39 +482,11 @@ family = StockBrushes.pressurePen(),
                             ) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.action_save)) },
-                                    onClick = {
-                                        showSaveMenu = false
-                        photo?.let {
-                                            photoEditViewModel.savePhoto(
-                                                it,
-                                                rotation,
-                                                cropRect,
-                                                inkStrokes.map { s -> s.serialize() },
-                                                texts.toList(),
-                                                currentViewportWidth,
-                                                false,
-                                                adjustments,
-                                            ) { context.finish() }
-                                        }
-                                    }
+                                    onClick = { showSaveMenu = false; doSave(false) }
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.action_save_as_copy)) },
-                                    onClick = {
-                                        showSaveMenu = false
-                        photo?.let {
-                                            photoEditViewModel.savePhoto(
-                                                it,
-                                                rotation,
-                                                cropRect,
-                                                inkStrokes.map { s -> s.serialize() },
-                                                texts.toList(),
-                                                currentViewportWidth,
-                                                true,
-                                                adjustments,
-                                            ) { context.finish() }
-                                        }
-                                    }
+                                    onClick = { showSaveMenu = false; doSave(true) }
                                 )
                             }
                         }
@@ -551,16 +578,51 @@ family = StockBrushes.pressurePen(),
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        transformedBitmap?.let { bitmap ->
-                            val colorMatrix = remember(adjustments) { adjustments.toColorMatrix() }
+                        val displayBitmap = when (editorMode) {
+                            EditorMode.HSL, EditorMode.Blur, EditorMode.Selective -> previewBitmap ?: transformedBitmap
+                            else -> transformedBitmap
+                        }
+                        displayBitmap?.let { bitmap ->
+                            val adjMatrix = remember(adjustments) { adjustments.toColorMatrix() }
+                            val curvesMatrix = remember(curvesAdjustment) {
+                                if (!curvesAdjustment.isIdentity()) curvesAdjustment.toColorMatrix() else null
+                            }
                             val hasAdjustments = adjustments != ImageAdjustments()
+                            val combinedMatrix = remember(adjMatrix, curvesMatrix, hasAdjustments) {
+                                if (curvesMatrix != null) {
+                                    val combined = android.graphics.ColorMatrix(adjMatrix.array)
+                                    combined.postConcat(curvesMatrix)
+                                    ColorMatrix(combined.array)
+                                } else if (hasAdjustments) {
+                                    ColorMatrix(adjMatrix.array)
+                                } else null
+                            }
+
+                            val perspectiveMatrix = remember(perspectiveCorners) {
+                                if (!perspectiveCorners.isIdentity()) {
+                                    perspectiveCorners.toMatrix(1f, 1f)
+                                } else null
+                            }
+
                             Image(
                                 bitmap = bitmap.asImageBitmap(),
                                 contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                colorFilter = if (hasAdjustments) {
-                                    ColorFilter.colorMatrix(ColorMatrix(colorMatrix.array))
-                                } else null,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .then(
+                                        if (perspectiveMatrix != null) {
+                                            val values = FloatArray(9)
+                                            perspectiveMatrix.getValues(values)
+                                            Modifier.graphicsLayer {
+                                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                                                val m = androidx.compose.ui.graphics.Matrix()
+                                                m[0, 0] = values[0]; m[0, 1] = values[1]; m[0, 3] = values[2]
+                                                m[1, 0] = values[3]; m[1, 1] = values[4]; m[1, 3] = values[5]
+                                                m[3, 0] = values[6]; m[3, 1] = values[7]; m[3, 3] = values[8]
+                                            }
+                                        } else Modifier
+                                    ),
+                                colorFilter = combinedMatrix?.let { ColorFilter.colorMatrix(it) },
                             )
                         }
 
@@ -692,6 +754,63 @@ family = StockBrushes.pressurePen(),
                             )
                         }
 
+                        if (editorMode == EditorMode.Blur && !blurParams.isIdentity()) {
+                            BlurOverlay(
+                                blurParams = blurParams,
+                                onBlurChanged = {
+                                    pushState()
+                                    photoEditViewModel.updateBlur(it)
+                                },
+                            )
+                        }
+
+                        if (editorMode == EditorMode.Selective) {
+                            MaskOverlay(
+                                mask = currentSelectiveMask,
+                                showMask = showSelectiveMask,
+                                onMaskChanged = { currentSelectiveMask = it },
+                            )
+                        }
+
+                        if (editorMode == EditorMode.Healing) {
+                            HealingOverlay(
+                                sourceX = healingSourceX,
+                                sourceY = healingSourceY,
+                                brushSize = healingBrushSize,
+                                isSettingSource = isSettingHealingSource,
+                                onSourceSet = { x, y ->
+                                    healingSourceX = x
+                                    healingSourceY = y
+                                    isSettingHealingSource = false
+                                },
+                                onPaint = { x, y ->
+                                    if (healingSourceX != null && healingSourceY != null) {
+                                        currentHealingPoints = currentHealingPoints + (x to y)
+                                    }
+                                },
+                            )
+                        }
+
+                        if (editorMode == EditorMode.Perspective && !perspectiveCorners.isIdentity()) {
+                            val corners = perspectiveCorners
+                            Handle(offset = Offset(corners.topLeft.first * viewportWidth, corners.topLeft.second * viewportHeight), onDrag = { delta ->
+                                pushState()
+                                photoEditViewModel.updatePerspective(corners.copy(topLeft = (corners.topLeft.first + delta.x / viewportWidth).coerceIn(0f, 1f) to (corners.topLeft.second + delta.y / viewportHeight).coerceIn(0f, 1f)))
+                            })
+                            Handle(offset = Offset(corners.topRight.first * viewportWidth, corners.topRight.second * viewportHeight), onDrag = { delta ->
+                                pushState()
+                                photoEditViewModel.updatePerspective(corners.copy(topRight = (corners.topRight.first + delta.x / viewportWidth).coerceIn(0f, 1f) to (corners.topRight.second + delta.y / viewportHeight).coerceIn(0f, 1f)))
+                            })
+                            Handle(offset = Offset(corners.bottomLeft.first * viewportWidth, corners.bottomLeft.second * viewportHeight), onDrag = { delta ->
+                                pushState()
+                                photoEditViewModel.updatePerspective(corners.copy(bottomLeft = (corners.bottomLeft.first + delta.x / viewportWidth).coerceIn(0f, 1f) to (corners.bottomLeft.second + delta.y / viewportHeight).coerceIn(0f, 1f)))
+                            })
+                            Handle(offset = Offset(corners.bottomRight.first * viewportWidth, corners.bottomRight.second * viewportHeight), onDrag = { delta ->
+                                pushState()
+                                photoEditViewModel.updatePerspective(corners.copy(bottomRight = (corners.bottomRight.first + delta.x / viewportWidth).coerceIn(0f, 1f) to (corners.bottomRight.second + delta.y / viewportHeight).coerceIn(0f, 1f)))
+                            })
+                        }
+
                         if (isCropping) {
                             CropOverlay(
                                 cropRect = cropRect,
@@ -706,46 +825,37 @@ family = StockBrushes.pressurePen(),
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.Center,
+                        .padding(horizontal = 4.dp, vertical = 4.dp)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Surface(
-                        modifier = Modifier
-                            .padding(horizontal = 4.dp)
-                            .clickable {
-                                editorMode = if (editorMode == EditorMode.Adjust) EditorMode.None else EditorMode.Adjust
-                            },
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (editorMode == EditorMode.Adjust) MaterialTheme.colorScheme.primaryContainer
-                               else MaterialTheme.colorScheme.surfaceVariant,
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                    data class ToolButton(val mode: EditorMode, val label: String)
+                    val tools = listOf(
+                        ToolButton(EditorMode.Adjust, "Adjust"),
+                        ToolButton(EditorMode.Filters, "Filters"),
+                        ToolButton(EditorMode.Curves, "Curves"),
+                        ToolButton(EditorMode.HSL, "HSL"),
+                        ToolButton(EditorMode.Blur, "Blur"),
+                        ToolButton(EditorMode.Selective, "Selective"),
+                        ToolButton(EditorMode.Healing, "Heal"),
+                        ToolButton(EditorMode.Perspective, "Perspective"),
+                    )
+                    tools.forEach { tool ->
+                        Surface(
+                            modifier = Modifier
+                                .clickable {
+                                    editorMode = if (editorMode == tool.mode) EditorMode.None else tool.mode
+                                },
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (editorMode == tool.mode) MaterialTheme.colorScheme.primaryContainer
+                                   else MaterialTheme.colorScheme.surfaceVariant,
                         ) {
-                            Icon(Icons.Outlined.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Adjust", fontSize = 13.sp)
-                        }
-                    }
-                    Surface(
-                        modifier = Modifier
-                            .padding(horizontal = 4.dp)
-                            .clickable {
-                                editorMode = if (editorMode == EditorMode.Filters) EditorMode.None else EditorMode.Filters
-                            },
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (editorMode == EditorMode.Filters) MaterialTheme.colorScheme.primaryContainer
-                               else MaterialTheme.colorScheme.surfaceVariant,
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(Icons.Outlined.Photo, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Filters", fontSize = 13.sp)
+                            Text(
+                                tool.label,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            )
                         }
                     }
                 }
@@ -778,6 +888,97 @@ family = StockBrushes.pressurePen(),
                         photoEditViewModel.applyFilter(filter)
                     },
                 )
+            }
+
+            if (editorMode == EditorMode.Curves && !isDrawing && !isCropping) {
+                CurvesPanel(
+                    curves = curvesAdjustment,
+                    selectedChannel = selectedCurveChannel,
+                    onChannelSelected = { selectedCurveChannel = it },
+                    onCurvesChanged = {
+                        pushState()
+                        photoEditViewModel.updateCurves(it)
+                    },
+                )
+            }
+
+            if (editorMode == EditorMode.HSL && !isDrawing && !isCropping) {
+                HslPanel(
+                    hsl = hslAdjustments,
+                    selectedRange = selectedHslRange,
+                    onRangeSelected = { selectedHslRange = it },
+                    onHslChanged = {
+                        pushState()
+                        photoEditViewModel.updateHsl(it)
+                    },
+                )
+            }
+
+            if (editorMode == EditorMode.Blur && !isDrawing && !isCropping) {
+                BlurPanel(
+                    blurParams = blurParams,
+                    onBlurChanged = {
+                        pushState()
+                        photoEditViewModel.updateBlur(it)
+                    },
+                )
+            }
+
+            if (editorMode == EditorMode.Selective && !isDrawing && !isCropping) {
+                SelectiveEditPanel(
+                    mask = currentSelectiveMask,
+                    showMask = showSelectiveMask,
+                    onMaskChanged = { currentSelectiveMask = it },
+                    onShowMaskChanged = { showSelectiveMask = it },
+                    onAddMask = {
+                        pushState()
+                        photoEditViewModel.updateSelective(
+                            selectiveEdits.copy(masks = selectiveEdits.masks + currentSelectiveMask)
+                        )
+                        currentSelectiveMask = SelectiveMask()
+                    },
+                )
+            }
+
+            if (editorMode == EditorMode.Healing && !isDrawing && !isCropping) {
+                HealingPanel(
+                    brushSize = healingBrushSize,
+                    isSettingSource = isSettingHealingSource,
+                    onBrushSizeChanged = { healingBrushSize = it },
+                    onSetSourceToggled = { isSettingHealingSource = it },
+                )
+            }
+
+            if (editorMode == EditorMode.Perspective && !isDrawing && !isCropping) {
+                PerspectivePanel(
+                    onApply = {
+                        // Perspective is already live via graphicsLayer; this is a no-op confirmation
+                    },
+                    onReset = {
+                        pushState()
+                        photoEditViewModel.resetPerspective()
+                    },
+                )
+            }
+
+            // Commit healing stroke when dragging ends
+            LaunchedEffect(currentHealingPoints.size) {
+                if (currentHealingPoints.isNotEmpty() && editorMode == EditorMode.Healing) {
+                    kotlinx.coroutines.delay(300)
+                    if (healingSourceX != null && healingSourceY != null && currentHealingPoints.isNotEmpty()) {
+                        pushState()
+                        val stroke = HealingStroke(
+                            sourceX = healingSourceX!!,
+                            sourceY = healingSourceY!!,
+                            points = currentHealingPoints,
+                            brushSize = healingBrushSize,
+                        )
+                        photoEditViewModel.updateHealing(
+                            healingStrokes.copy(strokes = healingStrokes.strokes + stroke)
+                        )
+                        currentHealingPoints = emptyList()
+                    }
+                }
             }
 
             if (isDrawing) {

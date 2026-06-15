@@ -669,7 +669,7 @@ class YouPipeViewModel(
             _isImporting.value = true
             _importProgress.value = 0f
             try {
-                val zipInputStream = ZipInputStream(ctx.contentResolver.openInputStream(uri))
+                ZipInputStream(ctx.contentResolver.openInputStream(uri)).use { zipInputStream ->
                 var entry = zipInputStream.nextEntry
                 val subs = mutableListOf<Subscription>()
                 val history = mutableListOf<HistoryVideo>()
@@ -769,6 +769,7 @@ class YouPipeViewModel(
                         }
                     }
                     entry = zipInputStream.nextEntry
+                }
                 }
 
                 if (subs.isNotEmpty()) subscriptionDao.upsertAll(subs)
