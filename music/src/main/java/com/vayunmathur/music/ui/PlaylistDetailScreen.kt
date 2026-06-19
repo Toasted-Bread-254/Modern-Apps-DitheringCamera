@@ -12,7 +12,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -40,11 +39,10 @@ fun PlaylistDetailScreen(backStack: NavBackStack<Route>, musicViewModel: MusicVi
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(allMusic, playlistId) {
-        val musicIds = musicViewModel.getMusicInPlaylist(playlistId)
-        musicInPlaylist = allMusic.filter { musicIds.contains(it.id) }
+        val musicIds = musicViewModel.getMusicInPlaylist(playlistId).toSet()
+        musicInPlaylist = allMusic.filter { it.id in musicIds }
     }
 
-    val context = LocalContext.current
     val currentMediaItem by musicViewModel.currentMediaItem.collectAsState()
     val currentSource by musicViewModel.currentSource.collectAsState()
 
@@ -176,9 +174,9 @@ fun PlaylistDetailScreen(backStack: NavBackStack<Route>, musicViewModel: MusicVi
                     trailingContent = {
                         IconButton({
                             musicViewModel.removeMusicFromPlaylist(playlistId, music.id) {
-                                scope.launch {
-                                    val musicIds = musicViewModel.getMusicInPlaylist(playlistId)
-                                    musicInPlaylist = allMusic.filter { musicIds.contains(it.id) }
+                            scope.launch {
+                                    val musicIds = musicViewModel.getMusicInPlaylist(playlistId).toSet()
+                                    musicInPlaylist = allMusic.filter { it.id in musicIds }
                                 }
                             }
                         }) {

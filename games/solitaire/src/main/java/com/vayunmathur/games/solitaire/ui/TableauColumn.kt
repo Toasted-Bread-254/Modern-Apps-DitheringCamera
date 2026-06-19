@@ -36,24 +36,22 @@ fun TableauColumn(
             if (pile.faceDown.isEmpty() && pile.faceUp.isEmpty()) {
                 EmptySlot(cardWidth = cardWidth, cardHeight = cardHeight)
             }
-            var yOffset = 0.dp
-            pile.faceDown.forEachIndexed { _, _ ->
+            pile.faceDown.indices.forEach { i ->
                 CardBack(
-                    modifier = Modifier.offset(y = yOffset),
+                    modifier = Modifier.offset(y = FACE_DOWN_OVERLAP * i),
                     cardWidth = cardWidth,
                     cardHeight = cardHeight
                 )
-                yOffset += FACE_DOWN_OVERLAP
             }
+            val faceDownOffset = FACE_DOWN_OVERLAP * pile.faceDown.size
             pile.faceUp.forEachIndexed { index, card ->
                 val cardsFromHere = pile.faceUp.subList(index, pile.faceUp.size)
-                val currentOffset = yOffset
                 DraggableCard(
                     card = card,
                     cards = cardsFromHere,
                     sourceId = "tableau_${columnIndex}_$index",
                     viewModel = viewModel,
-                    modifier = Modifier.offset(y = currentOffset),
+                    modifier = Modifier.offset(y = faceDownOffset + FACE_UP_OVERLAP * index),
                     cardWidth = cardWidth,
                     cardHeight = cardHeight
                 ) {
@@ -63,7 +61,6 @@ fun TableauColumn(
                         cardHeight = cardHeight
                     )
                 }
-                yOffset += FACE_UP_OVERLAP
             }
         }
     }

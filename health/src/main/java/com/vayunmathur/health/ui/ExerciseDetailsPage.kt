@@ -297,8 +297,4 @@ private fun formatTime(zdt: java.time.ZonedDateTime): String {
     return "$h:$minute $amPm"
 }
 
-private fun formatDuration(minutes: Long): String {
-    val h = minutes / 60
-    val m = minutes % 60
-    return if (h > 0) "${h}h ${m}m" else "${m}m"
-}
+private fun formatDuration(minutes: Long): String = com.vayunmathur.health.util.formatDuration(minutes)

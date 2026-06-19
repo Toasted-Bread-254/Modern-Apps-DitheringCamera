@@ -1,7 +1,6 @@
 package com.vayunmathur.passwords.util
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
-import kotlin.math.pow
 
 object TOTP {
     private fun base32Decode(data: String): ByteArray {
@@ -24,7 +23,6 @@ object TOTP {
     }
 
     private fun hotp(key: ByteArray, counter: Long): String {
-        val digits = 6
         val counterBytes = ByteArray(8)
         var c = counter
         for (i in 7 downTo 0) {
@@ -32,16 +30,14 @@ object TOTP {
             c = c ushr 8
         }
         val mac = Mac.getInstance("HmacSHA1")
-        val keySpec = SecretKeySpec(key, "RAW")
-        mac.init(keySpec)
+        mac.init(SecretKeySpec(key, "RAW"))
         val hash = mac.doFinal(counterBytes)
-        val offset = (hash[hash.size - 1].toInt() and 0x0f)
+        val offset = hash.last().toInt() and 0x0f
         val binary = ((hash[offset].toInt() and 0x7f) shl 24) or
                 ((hash[offset + 1].toInt() and 0xff) shl 16) or
                 ((hash[offset + 2].toInt() and 0xff) shl 8) or
                 (hash[offset + 3].toInt() and 0xff)
-        val otp = binary % 10.0.pow(digits.toDouble()).toInt()
-        return otp.toString().padStart(digits, '0')
+        return (binary % 1_000_000).toString().padStart(6, '0')
     }
 
     fun generate(secret: String, epochSecond: Long): String {

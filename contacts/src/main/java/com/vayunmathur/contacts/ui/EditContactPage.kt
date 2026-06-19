@@ -714,7 +714,7 @@ private fun AddPictureSection(
         }
         Spacer(Modifier.height(8.dp))
         Row {
-            val pictureLabel = if (photo != null) stringResource(R.string.change_picture) else stringResource(R.string.add_picture)
+            val pictureLabel = stringResource(if (photo != null) R.string.change_picture else R.string.add_picture)
             TextButton(onClick) {
                 Text(
                     text = pictureLabel,

@@ -20,13 +20,7 @@ class Authenticator(context: Context) : AbstractAccountAuthenticator(context) {
 }
 
 class AuthenticatorService : Service() {
-    private lateinit var authenticator: Authenticator
+    private val authenticator by lazy { Authenticator(this) }
 
-    override fun onCreate() {
-        authenticator = Authenticator(this)
-    }
-
-    override fun onBind(intent: Intent?): IBinder? {
-        return authenticator.iBinder
-    }
+    override fun onBind(intent: Intent?): IBinder = authenticator.iBinder
 }

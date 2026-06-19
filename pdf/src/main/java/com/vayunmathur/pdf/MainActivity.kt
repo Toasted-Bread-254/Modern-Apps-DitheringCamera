@@ -71,13 +71,8 @@ class MainActivity : AppCompatActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    if (data == null && !isCapturing) {
-                        InitialScreen(
-                            onOpenPdf = { filePickerLauncher.launch(arrayOf("application/pdf")) },
-                            onCapturePdf = { isCapturing = true }
-                        )
-                    } else if (isCapturing) {
-                        CapturePdfScreen(
+                    when {
+                        isCapturing -> CapturePdfScreen(
                             viewModel = pdfViewModel,
                             onBack = { isCapturing = false },
                             onPdfCreated = { uri ->
@@ -85,21 +80,18 @@ class MainActivity : AppCompatActivity() {
                                 isCapturing = false
                             }
                         )
-                    } else {
-                        val onBack = {
-                            if (startedWithIntent) {
-                                finish()
-                            } else {
-                                data = null
-                                pdfViewModel.clearDocument()
-                            }
-                        }
-
-                        PdfViewerScreen(
+                        data != null -> PdfViewerScreen(
                             documentUri = data!!,
                             pdfName = data?.lastPathSegment ?: "pdf",
                             viewModel = pdfViewModel,
-                            onBack = onBack
+                            onBack = {
+                                if (startedWithIntent) finish()
+                                else { data = null; pdfViewModel.clearDocument() }
+                            }
+                        )
+                        else -> InitialScreen(
+                            onOpenPdf = { filePickerLauncher.launch(arrayOf("application/pdf")) },
+                            onCapturePdf = { isCapturing = true }
                         )
                     }
                 }

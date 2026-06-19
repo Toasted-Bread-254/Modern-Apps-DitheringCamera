@@ -5,8 +5,6 @@ import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,9 +31,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.changedToUp
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
@@ -52,12 +47,7 @@ import com.vayunmathur.photos.data.Photo
 import com.vayunmathur.photos.util.GalleryViewModel
 import com.vayunmathur.photos.util.ImageLoader
 import com.vayunmathur.photos.util.SyncWorker
-import kotlinx.datetime.LocalDate
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.format.MonthNames
-import kotlinx.datetime.toLocalDateTime
 import kotlin.math.roundToInt
-import kotlin.time.Instant
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,14 +75,7 @@ fun TrashPage(backStack: NavBackStack<Route>, galleryViewModel: GalleryViewModel
     }
 
     val photosGroupedByMonth by remember {
-        derivedStateOf {
-            trashedPhotos.groupBy {
-                val date = Instant.fromEpochMilliseconds(it.date).toLocalDateTime(TimeZone.currentSystemDefault())
-                LocalDate(date.year, date.month, 1)
-            }.toSortedMap(Comparator<LocalDate>(LocalDate::compareTo).reversed()).mapKeys {
-                resources.getString(com.vayunmathur.photos.R.string.month_year_format, MonthNames.ENGLISH_ABBREVIATED.names[it.key.month.ordinal], it.key.year)
-            }.mapValues { pair -> pair.value.sortedByDescending { it.date } }
-        }
+        derivedStateOf { groupPhotosByMonth(trashedPhotos, resources) }
     }
 
     Scaffold(
@@ -149,21 +132,7 @@ fun TrashPage(backStack: NavBackStack<Route>, galleryViewModel: GalleryViewModel
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                if (event.changes.size > 1) {
-                                    val zoom = event.calculateZoom()
-                                    if (zoom != 1f) {
-                                        columnCount = (columnCount / zoom).coerceIn(2f, 8f)
-                                        event.changes.forEach { it.consume() }
-                                    }
-                                }
-                                if (event.changes.all { it.changedToUp() }) break
-                            }
-                        }
-                    }
+                    .pinchToZoomColumns({ columnCount }, { columnCount = it })
             ) {
                 LazyVerticalGrid(
                     GridCells.Fixed(columnCount.roundToInt().coerceIn(2, 8)),

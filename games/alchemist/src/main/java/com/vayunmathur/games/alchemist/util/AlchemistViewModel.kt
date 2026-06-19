@@ -24,37 +24,18 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/**
- * A committed element placed on the play area. The currently-being-dragged offset
- * lives in Compose; this is the last-known committed position.
- */
 data class PlacedItem(val id: Long, val offset: Offset, val key: Long = System.nanoTime())
 
-/**
- * ViewModel for the Alchemist game.
- *
- * Owns:
- *  - JSON asset load (items / recipes) via the singleton [Alchemist].
- *  - Available-items (inventory) derivation from DataStore.
- *  - Committed placed-elements list and combination logic.
- *  - Initial seeding of the four base elements.
- *  - Achievement triggers when the inventory changes (after [bindAchievements]).
- *
- * Compose still owns: per-element in-flight drag offsets, dialog visibility,
- * and any UI-only animation state.
- */
 class AlchemistViewModel(application: Application) : AndroidViewModel(application) {
 
     private val ds = DataStoreUtils.getInstance(application)
 
-    // --- Catalog (constants after JSON load) ---
     private val _allItems = MutableStateFlow<List<AlchemyItem>>(emptyList())
     val allItems: StateFlow<List<AlchemyItem>> = _allItems.asStateFlow()
 
     private val _recipes = MutableStateFlow<List<AlchemyRecipe>>(emptyList())
     val recipes: StateFlow<List<AlchemyRecipe>> = _recipes.asStateFlow()
 
-    // --- Unlocked inventory (persisted) ---
     val itemIds: StateFlow<Set<Long>> = ds.stringSetFlow("available_items")
         .map { set -> set.map { it.toLong() }.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
@@ -64,19 +45,13 @@ class AlchemistViewModel(application: Application) : AndroidViewModel(applicatio
             items.filter { it.id in ids }.sortedBy { it.name }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    // --- Placed elements on the play area (committed positions) ---
     private val _placedElements = MutableStateFlow<List<PlacedItem>>(emptyList())
     val placedElements: StateFlow<List<PlacedItem>> = _placedElements.asStateFlow()
 
-    // --- One-shot events for newly-discovered items (drives the unlock toast) ---
     private val _newUnlocksEvent = MutableSharedFlow<List<AlchemyItem>>(extraBufferCapacity = 5)
     val newUnlocksEvent: SharedFlow<List<AlchemyItem>> = _newUnlocksEvent.asSharedFlow()
 
     init {
-        // Load JSON + derive recipes on Dispatchers.IO to keep first frame
-        // responsive. Other consumers (e.g. AlchemistAchievementsManager) read
-        // Alchemist.items directly; the singleton's defaults (empty lists) and
-        // the `Alchemist.items.isNotEmpty()` guards keep them safe during boot.
         viewModelScope.launch(Dispatchers.IO) {
             Alchemist.init(application)
             _allItems.value = Alchemist.items
@@ -92,14 +67,12 @@ class AlchemistViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    /** Persist a newly-discovered element id to the inventory. */
     fun unlockItem(id: Long) {
         if (id !in itemIds.value) {
             ds.addStringToSet("available_items", id.toString())
         }
     }
 
-    /** Add a new placed element (e.g. dragged out of the inventory panel). */
     fun placeElement(id: Long, offset: Offset): PlacedItem {
         val newItem = PlacedItem(id, offset)
         _placedElements.update { it + newItem }
@@ -107,19 +80,16 @@ class AlchemistViewModel(application: Application) : AndroidViewModel(applicatio
         return newItem
     }
 
-    /** Update the committed position of an already-placed element after a drag ends. */
     fun updateElementPosition(key: Long, offset: Offset) {
         _placedElements.update { list ->
             list.map { if (it.key == key) it.copy(offset = offset) else it }
         }
     }
 
-    /** Remove a placed element (e.g. dragged onto the deletion sidebar). */
     fun removeElement(key: Long) {
         _placedElements.update { list -> list.filterNot { it.key == key } }
     }
 
-    /** Duplicate a placed element at a slightly offset position. */
     fun duplicateElement(key: Long) {
         val current = _placedElements.value
         val elementToDuplicate = current.find { it.key == key } ?: return
@@ -134,11 +104,6 @@ class AlchemistViewModel(application: Application) : AndroidViewModel(applicatio
         _placedElements.update { emptyList() }
     }
 
-    /**
-     * Test the moved element against the other placed elements for a recipe match.
-     * If found, removes the two inputs, adds the outputs at the target's position,
-     * and persists newly-discovered ids.
-     */
     fun tryCombine(movedKey: Long, movedOffset: Offset) {
         val current = _placedElements.value
         val movedItem = current.find { it.key == movedKey } ?: return
@@ -156,8 +121,7 @@ class AlchemistViewModel(application: Application) : AndroidViewModel(applicatio
             list.filterNot { it.key in toRemoveKeys } + toAdd
         }
 
-        // Emit the new-discovery toast for any outputs not already in the
-        // inventory, then persist all outputs.
+        // Emit discovery toast for new outputs
         val knownIds = itemIds.value
         val discovered = recipe.outputs
             .filter { it !in knownIds }
@@ -171,11 +135,6 @@ class AlchemistViewModel(application: Application) : AndroidViewModel(applicatio
 
     // --- Achievements ---
     private var achievementsBound = false
-
-    /**
-     * Wires achievement triggers to inventory changes. Safe to call multiple
-     * times; only the first call subscribes.
-     */
     fun bindAchievements(achievementsManager: AchievementsManager) {
         if (achievementsBound) return
         achievementsBound = true

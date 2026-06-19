@@ -65,12 +65,7 @@ private fun PerspectiveCroppedImage(
                 val targetWidth = (bounds.width * bitmap.width).roundToInt().coerceAtLeast(1)
                 val targetHeight = (bounds.height * bitmap.height).roundToInt().coerceAtLeast(1)
 
-                val srcPoints = floatArrayOf(
-                    quad.topLeft.x * bitmap.width, quad.topLeft.y * bitmap.height,
-                    quad.topRight.x * bitmap.width, quad.topRight.y * bitmap.height,
-                    quad.bottomRight.x * bitmap.width, quad.bottomRight.y * bitmap.height,
-                    quad.bottomLeft.x * bitmap.width, quad.bottomLeft.y * bitmap.height
-                )
+                val srcPoints = quad.toSrcPoints(bitmap.width, bitmap.height)
                 val dstPoints = floatArrayOf(
                     0f, 0f,
                     targetWidth.toFloat(), 0f,
@@ -114,12 +109,9 @@ private fun BoundingBoxCroppedImage(
     var painterSize by remember(image.uri) { mutableStateOf<Size?>(null) }
 
     val crop = image.cropRect ?: Rect(0f, 0f, 1f, 1f)
-    val finalModifier = if (painterSize != null && painterSize!!.width > 0f && painterSize!!.height > 0f) {
-        val aspect = (painterSize!!.width * crop.width) / (painterSize!!.height * crop.height)
-        modifier.aspectRatio(aspect)
-    } else {
-        modifier
-    }
+    val finalModifier = painterSize?.takeIf { it.width > 0f && it.height > 0f }?.let { size ->
+        modifier.aspectRatio((size.width * crop.width) / (size.height * crop.height))
+    } ?: modifier
 
     Box(finalModifier.clipToBounds()) {
         AsyncImage(

@@ -27,14 +27,10 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun VisibilityBlock(current: Current, useMiles: Boolean = false) {
-    val value: Int
-    val unit: String
-    if (useMiles) {
-        value = (current.visibility / 1609.34).roundToInt()
-        unit = "mi"
+    val (value, unit) = if (useMiles) {
+        (current.visibility / 1609.34).roundToInt() to "mi"
     } else {
-        value = (current.visibility / 1000).roundToInt()
-        unit = "km"
+        (current.visibility / 1000).roundToInt() to "km"
     }
     Surface(
         color = MaterialTheme.colorScheme.surface,

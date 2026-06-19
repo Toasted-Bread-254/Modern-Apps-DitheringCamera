@@ -25,40 +25,15 @@ class GetWeatherByNameIntent : AssistantIntent<LocationQueryInput, WeatherData>(
     override suspend fun performCalculation(input: LocationQueryInput): WeatherData {
         return try {
             val matches = WeatherApi.geocode(input.name, limit = 1).results
-            val place = matches.firstOrNull() ?: return WeatherData(
-                locationName = input.name,
-                temperatureCelsius = 0.0,
-                feelsLikeCelsius = 0.0,
-                condition = "",
-                highCelsius = 0.0,
-                lowCelsius = 0.0,
-                precipitationChancePercent = 0,
-                humidityPercent = 0,
-                windKph = 0.0,
-                windDirection = "",
-                uvIndex = 0.0,
-                error = "No location matched '${input.name}'",
-            )
+            val place = matches.firstOrNull()
+                ?: return errorWeatherData(input.name, "No location matched '${input.name}'")
             val forecast = WeatherApi.forecast(place.latitude, place.longitude)
             val label = listOfNotNull(place.name, place.country)
                 .filter { it.isNotBlank() }
                 .joinToString(", ")
             forecast.toWeatherData(locationName = label.ifBlank { place.name })
         } catch (e: Exception) {
-            WeatherData(
-                locationName = input.name,
-                temperatureCelsius = 0.0,
-                feelsLikeCelsius = 0.0,
-                condition = "",
-                highCelsius = 0.0,
-                lowCelsius = 0.0,
-                precipitationChancePercent = 0,
-                humidityPercent = 0,
-                windKph = 0.0,
-                windDirection = "",
-                uvIndex = 0.0,
-                error = e.message ?: "Failed to fetch forecast",
-            )
+            errorWeatherData(input.name, e.message ?: "Failed to fetch forecast")
         }
     }
 }

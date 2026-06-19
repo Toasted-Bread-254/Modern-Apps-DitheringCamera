@@ -2,9 +2,7 @@ package com.vayunmathur.games.chess.data
 import kotlin.math.abs
 import com.vayunmathur.games.chess.R
 
-enum class PieceType(
-    val resID: Int
-) {
+enum class PieceType(val resID: Int) {
     KING(R.drawable.chess_king_2_fill1_24px),
     QUEEN(R.drawable.chess_queen_fill1_24px),
     ROOK(R.drawable.chess_rook_fill1_24px),
@@ -12,15 +10,23 @@ enum class PieceType(
     KNIGHT(R.drawable.chess_knight_fill1_24px),
     PAWN(R.drawable.chess_pawn_fill1_24px)
 }
+
 enum class PieceColor { WHITE, BLACK }
+
+val PieceColor.opposite get() = if (this == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE
 
 data class Piece(val type: PieceType, val color: PieceColor, val hasMoved: Boolean = false)
 
 data class Position(val row: Int, val col: Int)
 
-// ---------------------------------------------------------------------------
-// Updated Move Class with Notation Logic
-// ---------------------------------------------------------------------------
+private fun getFileChar(col: Int): Char = 'a' + col
+private fun getRankChar(row: Int): Char = '8' - row
+
+private val PieceType.notationLetter: String get() = when (this) {
+    PieceType.KING -> "K"; PieceType.QUEEN -> "Q"; PieceType.ROOK -> "R"
+    PieceType.BISHOP -> "B"; PieceType.KNIGHT -> "N"; PieceType.PAWN -> ""
+}
+
 data class Move(
     val start: Position,
     val end: Position,
@@ -30,65 +36,31 @@ data class Move(
     val isCheck: Boolean = false,
     val isCheckmate: Boolean = false,
     val isCastling: Boolean = false,
-    val ambiguity: String = "" // Disambiguation string, e.g., "b" for "Nbd7"
+    val ambiguity: String = ""
 ) {
     override fun toString(): String {
-        if (isCastling) {
-            return if (end.col > start.col) "O-O" else "O-O-O"
-        }
+        if (isCastling) return if (end.col > start.col) "O-O" else "O-O-O"
 
-        val sb = StringBuilder()
-
-        // 1. Piece Letter (Skip for Pawns)
-        if (piece.type != PieceType.PAWN) {
-            sb.append(getPieceLetter(piece.type))
-            sb.append(ambiguity) // Add disambiguation
-        }
-
-        // 2. Capture Notation
-        if (capturedPiece != null) {
-            if (piece.type == PieceType.PAWN) {
-                sb.append(getFileChar(start.col)) // Pawns capture like "exd5"
+        return buildString {
+            if (piece.type != PieceType.PAWN) {
+                append(piece.type.notationLetter)
+                append(ambiguity)
             }
-            sb.append("x")
+            if (capturedPiece != null) {
+                if (piece.type == PieceType.PAWN) append(getFileChar(start.col))
+                append("x")
+            }
+            append(getFileChar(end.col))
+            append(getRankChar(end.row))
+            promotedTo?.let { append("=").append(it.notationLetter) }
+            when {
+                isCheckmate -> append("#")
+                isCheck -> append("+")
+            }
         }
-
-        // 3. Destination Square
-        sb.append(getFileChar(end.col))
-        sb.append(getRankChar(end.row))
-
-        // 4. Promotion
-        if (promotedTo != null) {
-            sb.append("=")
-            sb.append(getPieceLetter(promotedTo!!))
-        }
-
-        // 5. Check / Checkmate
-        if (isCheckmate) {
-            sb.append("#")
-        } else if (isCheck) {
-            sb.append("+")
-        }
-
-        return sb.toString()
     }
-
-    private fun getPieceLetter(type: PieceType): String = when (type) {
-        PieceType.KING -> "K"
-        PieceType.QUEEN -> "Q"
-        PieceType.ROOK -> "R"
-        PieceType.BISHOP -> "B"
-        PieceType.KNIGHT -> "N"
-        PieceType.PAWN -> ""
-    }
-
-    private fun getFileChar(col: Int): Char = 'a' + col
-    private fun getRankChar(row: Int): Char = '8' - row
 }
 
-// ---------------------------------------------------------------------------
-// Complete Board Class
-// ---------------------------------------------------------------------------
 data class Board(
     val pieces: List<List<Piece?>>,
     val capturedByWhite: List<Piece> = emptyList(),
@@ -98,97 +70,67 @@ data class Board(
     val moves: List<Move> = emptyList()
 ) {
 
-    // --- Core Move Logic (Public) ---
-
     fun movePiece(start: Position, end: Position, promoteTo: PieceType? = null): Board {
         val movingPiece = pieces[start.row][start.col]
             ?: throw IllegalStateException("No piece at start position")
 
-        // 1. Calculate Ambiguity (MUST be done on the CURRENT board state)
         val ambiguity = calculateAmbiguity(start, end, movingPiece)
-
-        // 2. Determine Capture (Standard or En Passant)
         var capturedPiece = pieces[end.row][end.col]
         val isEnPassantMove = movingPiece.type == PieceType.PAWN && isEnPassant(start, end)
 
         if (isEnPassantMove) {
-            val captureRow = if (movingPiece.color == PieceColor.WHITE) end.row + 1 else end.row - 1
-            capturedPiece = pieces[captureRow][end.col]
+            capturedPiece = pieces[enPassantCaptureRow(movingPiece.color, end.row)][end.col]
         }
 
-        // 3. Execute Physical Move
         val newPieces = pieces.map { it.toMutableList() }.toMutableList()
 
-        // Handle Castling (Move the Rook)
         var isCastlingMove = false
         if (movingPiece.type == PieceType.KING && abs(start.col - end.col) == 2) {
             isCastlingMove = true
             val rookStartCol = if (end.col > start.col) 7 else 0
             val rookEndCol = if (end.col > start.col) end.col - 1 else end.col + 1
-            val rook = newPieces[start.row][rookStartCol]
-
-            newPieces[start.row][rookEndCol] = rook?.copy(hasMoved = true)
+            newPieces[start.row][rookEndCol] = newPieces[start.row][rookStartCol]?.copy(hasMoved = true)
             newPieces[start.row][rookStartCol] = null
         }
 
-        // Handle En Passant Capture Removal
         if (isEnPassantMove) {
-            val captureRow = if (movingPiece.color == PieceColor.WHITE) end.row + 1 else end.row - 1
-            newPieces[captureRow][end.col] = null
+            newPieces[enPassantCaptureRow(movingPiece.color, end.row)][end.col] = null
         }
 
-        // Place Moving Piece
-        val finalPieceType = promoteTo ?: movingPiece.type
-        newPieces[end.row][end.col] = movingPiece.copy(type = finalPieceType, hasMoved = true)
+        newPieces[end.row][end.col] = movingPiece.copy(type = promoteTo ?: movingPiece.type, hasMoved = true)
         newPieces[start.row][start.col] = null
 
-        // 4. Update Captured Lists
         val newCapturedWhite = if (capturedPiece?.color == PieceColor.BLACK) capturedByWhite + capturedPiece else capturedByWhite
         val newCapturedBlack = if (capturedPiece?.color == PieceColor.WHITE) capturedByBlack + capturedPiece else capturedByBlack
 
-        // 5. Determine Game State (Check/Mate) using a temporary board
         val tempNextBoard = Board(newPieces.map { it.toList() })
-        val opponentColor = if (movingPiece.color == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE
+        val opponentColor = movingPiece.color.opposite
         val isCheck = tempNextBoard.isKingInCheck(opponentColor)
         val isCheckmate = tempNextBoard.isCheckmate(opponentColor)
 
-        // 6. Create Full Move Object
         val fullMove = Move(
-            start = start,
-            end = end,
-            piece = movingPiece,
-            capturedPiece = capturedPiece,
-            promotedTo = promoteTo,
-            isCheck = isCheck,
-            isCheckmate = isCheckmate,
-            isCastling = isCastlingMove,
-            ambiguity = ambiguity
+            start = start, end = end, piece = movingPiece,
+            capturedPiece = capturedPiece, promotedTo = promoteTo,
+            isCheck = isCheck, isCheckmate = isCheckmate,
+            isCastling = isCastlingMove, ambiguity = ambiguity
         )
-
-        val isPromotingNow = (promoteTo == null && isPromotionSquare(movingPiece, end))
 
         return Board(
             pieces = newPieces.map { it.toList() },
             capturedByWhite = newCapturedWhite,
             capturedByBlack = newCapturedBlack,
             lastMove = fullMove,
-            promotionPosition = if (isPromotingNow) end else null,
+            promotionPosition = if (promoteTo == null && isPromotionSquare(movingPiece, end)) end else null,
             moves = moves + fullMove
         )
     }
 
-    /**
-     * Lightweight internal move function to simulate board states.
-     * Does NOT calculate notation or ambiguity to prevent infinite recursion.
-     */
     private fun movePieceInternal(start: Position, end: Position): Board {
         val newPieces = pieces.map { it.toMutableList() }.toMutableList()
         val piece = newPieces[start.row][start.col] ?: return this
 
-        // Simple Capture Logic for validity checking
         if (piece.type == PieceType.PAWN && isEnPassant(start, end)) {
-            val capRow = if (piece.color == PieceColor.WHITE) end.row + 1 else end.row - 1
-            newPieces[capRow][end.col] = null
+            newPieces[enPassantCaptureRow(piece.color, end.row)][end.col] = null
         }
 
         if (piece.type == PieceType.KING && abs(start.col - end.col) == 2) {
@@ -201,55 +143,43 @@ data class Board(
         newPieces[end.row][end.col] = piece.copy(hasMoved = true)
         newPieces[start.row][start.col] = null
 
-        return this.copy(pieces = newPieces.map { it.toList() }, lastMove = Move(start, end, piece))
+        return copy(pieces = newPieces.map { it.toList() }, lastMove = Move(start, end, piece))
     }
 
     fun promotePawn(position: Position, to: PieceType): Board {
         val newPieces = pieces.map { it.toMutableList() }.toMutableList()
         val piece = newPieces[position.row][position.col]!!
-        val newPiece = piece.copy(type = to)
-        newPieces[position.row][position.col] = newPiece
+        newPieces[position.row][position.col] = piece.copy(type = to)
 
-        // Create a temporary board with the promoted piece to check game state
-        val tempBoard = this.copy(pieces = newPieces.map { it.toList() })
-        val opponentColor = if (piece.color == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE
+        val tempBoard = copy(pieces = newPieces.map { it.toList() })
+        val opponentColor = piece.color.opposite
         val isCheck = tempBoard.isKingInCheck(opponentColor)
         val isCheckmate = tempBoard.isCheckmate(opponentColor)
 
-        // Update the last move in the history to reflect the promotion and game state
         val updatedMoves = moves.toMutableList()
-        var updatedLastMove: Move? = null
+        var updatedLastMove = lastMove
         if (updatedMoves.isNotEmpty()) {
-            val last = updatedMoves.removeAt(updatedMoves.lastIndex)
-            updatedLastMove = last.copy(promotedTo = to, isCheck = isCheck, isCheckmate = isCheckmate)
+            updatedLastMove = updatedMoves.removeLast().copy(promotedTo = to, isCheck = isCheck, isCheckmate = isCheckmate)
             updatedMoves.add(updatedLastMove)
         }
 
-        return this.copy(
+        return copy(
             pieces = newPieces.map { it.toList() },
             promotionPosition = null,
             moves = updatedMoves,
-            lastMove = updatedLastMove ?: lastMove
+            lastMove = updatedLastMove
         )
     }
 
-    // --- Validation Logic ---
-
     fun isValidMove(start: Position, end: Position): Boolean {
         val piece = pieces[start.row][start.col] ?: return false
-
-        // 1. Check movement rules
         if (!isValidMoveIgnoringCheck(start, end)) return false
-
-        // 2. Check if King is safe after move (using internal simulation)
-        val newBoard = movePieceInternal(start, end)
-        return !newBoard.isKingInCheck(piece.color)
+        return !movePieceInternal(start, end).isKingInCheck(piece.color)
     }
 
     private fun isValidMoveIgnoringCheck(start: Position, end: Position): Boolean {
         val piece = pieces[start.row][start.col] ?: return false
         val targetPiece = pieces[end.row][end.col]
-
         if (targetPiece != null && targetPiece.color == piece.color) return false
 
         return when (piece.type) {
@@ -257,77 +187,50 @@ data class Board(
             PieceType.ROOK -> isValidRookMove(start, end)
             PieceType.KNIGHT -> isValidKnightMove(start, end)
             PieceType.BISHOP -> isValidBishopMove(start, end)
-            PieceType.QUEEN -> isValidQueenMove(start, end)
+            PieceType.QUEEN -> isValidRookMove(start, end) || isValidBishopMove(start, end)
             PieceType.KING -> isValidKingMove(start, end, piece)
         }
     }
 
     fun isKingInCheck(kingColor: PieceColor): Boolean {
-        val kingPosition = findKing(kingColor) ?: return false
-        for (row in pieces.indices) {
-            for (col in pieces[row].indices) {
-                val piece = pieces[row][col]
-                if (piece != null && piece.color != kingColor) {
-                    if (isValidMoveIgnoringCheck(Position(row, col), kingPosition)) {
-                        return true
-                    }
-                }
+        val kingPos = findKing(kingColor) ?: return false
+        return pieces.flatMapIndexed { row, cols ->
+            cols.mapIndexedNotNull { col, piece ->
+                if (piece != null && piece.color != kingColor) Position(row, col) else null
             }
-        }
-        return false
+        }.any { isValidMoveIgnoringCheck(it, kingPos) }
     }
 
     fun isCheckmate(kingColor: PieceColor): Boolean {
         if (!isKingInCheck(kingColor)) return false
-
-        for (row in pieces.indices) {
-            for (col in pieces[row].indices) {
-                val piece = pieces[row][col]
-                if (piece != null && piece.color == kingColor) {
-                    for (i in 0..7) {
-                        for (j in 0..7) {
-                            val newPosition = Position(i, j)
-                            if (isValidMove(Position(row, col), newPosition)) {
-                                return false // Found a legal move
-                            }
-                        }
-                    }
-                }
+        return pieces.flatMapIndexed { row, cols ->
+            cols.mapIndexedNotNull { col, piece ->
+                if (piece != null && piece.color == kingColor) Position(row, col) else null
             }
+        }.none { pos ->
+            (0..7).any { i -> (0..7).any { j -> isValidMove(pos, Position(i, j)) } }
         }
-        return true
     }
 
-    // --- Helper Functions ---
+    private fun enPassantCaptureRow(color: PieceColor, endRow: Int): Int =
+        if (color == PieceColor.WHITE) endRow + 1 else endRow - 1
 
     private fun calculateAmbiguity(start: Position, end: Position, movingPiece: Piece): String {
         if (movingPiece.type == PieceType.PAWN || movingPiece.type == PieceType.KING) return ""
 
-        val alternatives = mutableListOf<Position>()
-
-        for (r in pieces.indices) {
-            for (c in pieces[r].indices) {
-                val p = pieces[r][c]
-                // Find OTHER pieces of same type/color
-                if (p != null && p !== movingPiece && p.type == movingPiece.type && p.color == movingPiece.color) {
-                    val pos = Position(r, c)
-                    // Can it reach the destination?
-                    if (isValidMoveIgnoringCheck(pos, end)) {
-                        // Is the move legal (doesn't expose king)?
-                        val simBoard = movePieceInternal(pos, end)
-                        if (!simBoard.isKingInCheck(movingPiece.color)) {
-                            alternatives.add(pos)
-                        }
-                    }
-                }
+        val alternatives = pieces.flatMapIndexed { r, cols ->
+            cols.mapIndexedNotNull { c, p ->
+                if (p != null && !(r == start.row && c == start.col) &&
+                    p.type == movingPiece.type && p.color == movingPiece.color &&
+                    isValidMoveIgnoringCheck(Position(r, c), end) &&
+                    !movePieceInternal(Position(r, c), end).isKingInCheck(movingPiece.color)
+                ) Position(r, c) else null
             }
         }
 
         if (alternatives.isEmpty()) return ""
-
         val sameFile = alternatives.any { it.col == start.col }
         val sameRank = alternatives.any { it.row == start.row }
-
         return when {
             sameFile && sameRank -> "${getFileChar(start.col)}${getRankChar(start.row)}"
             sameFile -> "${getRankChar(start.row)}"
@@ -336,12 +239,10 @@ data class Board(
     }
 
     private fun findKing(kingColor: PieceColor): Position? {
-        for (row in pieces.indices) {
-            for (col in pieces[row].indices) {
-                val piece = pieces[row][col]
-                if (piece != null && piece.type == PieceType.KING && piece.color == kingColor) {
+        pieces.forEachIndexed { row, cols ->
+            cols.forEachIndexed { col, piece ->
+                if (piece?.type == PieceType.KING && piece.color == kingColor)
                     return Position(row, col)
-                }
             }
         }
         return null
@@ -351,43 +252,33 @@ data class Board(
         val direction = if (color == PieceColor.WHITE) -1 else 1
         val startRow = if (color == PieceColor.WHITE) 6 else 1
 
-        // Move forward
         if (start.col == end.col) {
             if (pieces[end.row][end.col] != null) return false
             if (start.row + direction == end.row) return true
             if (start.row == startRow && start.row + 2 * direction == end.row && pieces[start.row + direction][start.col] == null) return true
         }
-        // Capture
         if (abs(start.col - end.col) == 1 && start.row + direction == end.row) {
             return pieces[end.row][end.col] != null || isEnPassant(start, end)
         }
-
         return false
     }
 
-    fun isEnPassant(start: Position, end: Position): Boolean {
+    private fun isEnPassant(start: Position, end: Position): Boolean {
         val last = lastMove ?: return false
         val lastPiece = pieces[last.end.row][last.end.col] ?: return false
-
-        if (lastPiece.type == PieceType.PAWN && abs(last.start.row - last.end.row) == 2) {
-            val pawnRow = if (lastPiece.color == PieceColor.WHITE) 4 else 3
-            if (start.row == pawnRow && end.col == last.end.col && end.row == last.end.row + if (lastPiece.color == PieceColor.WHITE) 1 else -1) {
-                return true
-            }
-        }
-        return false
+        if (lastPiece.type != PieceType.PAWN || abs(last.start.row - last.end.row) != 2) return false
+        val pawnRow = if (lastPiece.color == PieceColor.WHITE) 4 else 3
+        return start.row == pawnRow && end.col == last.end.col &&
+                end.row == last.end.row + if (lastPiece.color == PieceColor.WHITE) 1 else -1
     }
 
-    private fun isPromotionSquare(piece: Piece, position: Position): Boolean {
-        return piece.type == PieceType.PAWN &&
+    private fun isPromotionSquare(piece: Piece, position: Position): Boolean =
+        piece.type == PieceType.PAWN &&
                 ((piece.color == PieceColor.WHITE && position.row == 0) ||
                         (piece.color == PieceColor.BLACK && position.row == 7))
-    }
 
-    private fun isValidRookMove(start: Position, end: Position): Boolean {
-        if (start.row != end.row && start.col != end.col) return false
-        return !isPathBlocked(start, end)
-    }
+    private fun isValidRookMove(start: Position, end: Position): Boolean =
+        (start.row == end.row || start.col == end.col) && !isPathBlocked(start, end)
 
     private fun isValidKnightMove(start: Position, end: Position): Boolean {
         val rowDiff = abs(start.row - end.row)
@@ -395,41 +286,24 @@ data class Board(
         return (rowDiff == 2 && colDiff == 1) || (rowDiff == 1 && colDiff == 2)
     }
 
-    private fun isValidBishopMove(start: Position, end: Position): Boolean {
-        if (abs(start.row - end.row) != abs(start.col - end.col)) return false
-        return !isPathBlocked(start, end)
-    }
-
-    private fun isValidQueenMove(start: Position, end: Position): Boolean {
-        return isValidRookMove(start, end) || isValidBishopMove(start, end)
-    }
+    private fun isValidBishopMove(start: Position, end: Position): Boolean =
+        abs(start.row - end.row) == abs(start.col - end.col) && !isPathBlocked(start, end)
 
     private fun isValidKingMove(start: Position, end: Position, piece: Piece): Boolean {
         val rowDiff = abs(start.row - end.row)
         val colDiff = abs(start.col - end.col)
 
-        // Castling
         if (!piece.hasMoved && rowDiff == 0 && colDiff == 2) {
-            // Cannot castle out of check
             if (isKingInCheck(piece.color)) return false
-
             val rookCol = if (end.col > start.col) 7 else 0
             val rook = pieces[start.row][rookCol]
-
             if (rook != null && !rook.hasMoved && rook.type == PieceType.ROOK) {
                 val direction = if (end.col > start.col) 1 else -1
                 var current = start.col + direction
-
-                // Check path for pieces and attacks
                 while (current != rookCol) {
-                    // 1. Path must be empty
                     if (pieces[start.row][current] != null) return false
-
-                    // 2. King cannot pass through check (only check squares king actually steps on)
-                    // The king moves 2 squares. We check the square he crosses and the destination.
                     if (abs(current - start.col) <= 2) {
-                        val simBoard = movePieceInternal(start, Position(start.row, current))
-                        if (simBoard.isKingInCheck(piece.color)) return false
+                        if (movePieceInternal(start, Position(start.row, current)).isKingInCheck(piece.color)) return false
                     }
                     current += direction
                 }
@@ -453,107 +327,65 @@ data class Board(
     }
 
     fun toFen(): String {
-        val sb = StringBuilder()
-        for (row in pieces) {
-            var empty = 0
-            for (piece in row) {
-                if (piece == null) {
-                    empty++
-                } else {
-                    if (empty > 0) {
-                        sb.append(empty)
-                        empty = 0
+        val boardStr = pieces.joinToString("/") { row ->
+            buildString {
+                var empty = 0
+                for (piece in row) {
+                    if (piece == null) {
+                        empty++
+                    } else {
+                        if (empty > 0) { append(empty); empty = 0 }
+                        append(piece.fenChar)
                     }
-                    sb.append(getPieceLetter(piece.type, piece.color))
                 }
+                if (empty > 0) append(empty)
             }
-            if (empty > 0) {
-                sb.append(empty)
-            }
-            sb.append("/")
         }
-        sb.deleteCharAt(sb.length - 1)
 
-        // Turn
-        val turn = moves.lastOrNull()?.piece?.color?.let { if (it == PieceColor.WHITE) "b" else "w" } ?: "w"
-        sb.append(" $turn")
+        val turn = if (moves.lastOrNull()?.piece?.color == PieceColor.WHITE) "b" else "w"
 
-        // Castling availability
         var castling = ""
-        val whiteKing = pieces[7][4]
-        val blackKing = pieces[0][4]
-        if (whiteKing?.type == PieceType.KING && !whiteKing.hasMoved) {
-            val wrk = pieces[7][7]
-            if (wrk?.type == PieceType.ROOK && !wrk.hasMoved) castling += "K"
-            val wqr = pieces[7][0]
-            if (wqr?.type == PieceType.ROOK && !wqr.hasMoved) castling += "Q"
+        pieces[7][4]?.takeIf { it.type == PieceType.KING && !it.hasMoved }?.let {
+            if (pieces[7][7]?.let { r -> r.type == PieceType.ROOK && !r.hasMoved } == true) castling += "K"
+            if (pieces[7][0]?.let { r -> r.type == PieceType.ROOK && !r.hasMoved } == true) castling += "Q"
         }
-        if (blackKing?.type == PieceType.KING && !blackKing.hasMoved) {
-            val brk = pieces[0][7]
-            if (brk?.type == PieceType.ROOK && !brk.hasMoved) castling += "k"
-            val bqr = pieces[0][0]
-            if (bqr?.type == PieceType.ROOK && !bqr.hasMoved) castling += "q"
+        pieces[0][4]?.takeIf { it.type == PieceType.KING && !it.hasMoved }?.let {
+            if (pieces[0][7]?.let { r -> r.type == PieceType.ROOK && !r.hasMoved } == true) castling += "k"
+            if (pieces[0][0]?.let { r -> r.type == PieceType.ROOK && !r.hasMoved } == true) castling += "q"
         }
-        sb.append(" ${castling.ifEmpty { "-" }}")
 
-        // En passant target square
-        val enPassant = if (lastMove != null && lastMove.piece.type == PieceType.PAWN && abs(lastMove.start.row - lastMove.end.row) == 2) {
-            val file = getFileChar(lastMove.start.col)
-            val rank = if (lastMove.piece.color == PieceColor.WHITE) '3' else '6'
-            "$file$rank"
-        } else {
-            "-"
-        }
-        sb.append(" $enPassant")
+        val enPassant = lastMove?.takeIf { it.piece.type == PieceType.PAWN && abs(it.start.row - it.end.row) == 2 }?.let {
+            "${getFileChar(it.start.col)}${if (it.piece.color == PieceColor.WHITE) '3' else '6'}"
+        } ?: "-"
 
-        // Halfmove clock and fullmove number (not implemented, using 0 and 1)
-        sb.append(" 0 1")
-
-        return sb.toString()
+        return "$boardStr $turn ${castling.ifEmpty { "-" }} $enPassant 0 1"
     }
 
-    private fun getPieceLetter(type: PieceType, color: PieceColor): String {
+    private val Piece.fenChar: String get() {
         val letter = when (type) {
-            PieceType.KING -> "k"
-            PieceType.QUEEN -> "q"
-            PieceType.ROOK -> "r"
-            PieceType.BISHOP -> "b"
-            PieceType.KNIGHT -> "n"
-            PieceType.PAWN -> "p"
+            PieceType.KING -> "k"; PieceType.QUEEN -> "q"; PieceType.ROOK -> "r"
+            PieceType.BISHOP -> "b"; PieceType.KNIGHT -> "n"; PieceType.PAWN -> "p"
         }
         return if (color == PieceColor.WHITE) letter.uppercase() else letter
     }
-    private fun getFileChar(col: Int): Char = 'a' + col
-    private fun getRankChar(row: Int): Char = '8' - row
 
     companion object {
         val initialState = Board(
             pieces = listOf(
                 listOf(
-                    Piece(PieceType.ROOK, PieceColor.BLACK),
-                    Piece(PieceType.KNIGHT, PieceColor.BLACK),
-                    Piece(PieceType.BISHOP, PieceColor.BLACK),
-                    Piece(PieceType.QUEEN, PieceColor.BLACK),
-                    Piece(PieceType.KING, PieceColor.BLACK),
-                    Piece(PieceType.BISHOP, PieceColor.BLACK),
-                    Piece(PieceType.KNIGHT, PieceColor.BLACK),
-                    Piece(PieceType.ROOK, PieceColor.BLACK)
+                    Piece(PieceType.ROOK, PieceColor.BLACK), Piece(PieceType.KNIGHT, PieceColor.BLACK),
+                    Piece(PieceType.BISHOP, PieceColor.BLACK), Piece(PieceType.QUEEN, PieceColor.BLACK),
+                    Piece(PieceType.KING, PieceColor.BLACK), Piece(PieceType.BISHOP, PieceColor.BLACK),
+                    Piece(PieceType.KNIGHT, PieceColor.BLACK), Piece(PieceType.ROOK, PieceColor.BLACK)
                 ),
                 List(8) { Piece(PieceType.PAWN, PieceColor.BLACK) },
-                List(8) { null },
-                List(8) { null },
-                List(8) { null },
-                List(8) { null },
+                List(8) { null }, List(8) { null }, List(8) { null }, List(8) { null },
                 List(8) { Piece(PieceType.PAWN, PieceColor.WHITE) },
                 listOf(
-                    Piece(PieceType.ROOK, PieceColor.WHITE),
-                    Piece(PieceType.KNIGHT, PieceColor.WHITE),
-                    Piece(PieceType.BISHOP, PieceColor.WHITE),
-                    Piece(PieceType.QUEEN, PieceColor.WHITE),
-                    Piece(PieceType.KING, PieceColor.WHITE),
-                    Piece(PieceType.BISHOP, PieceColor.WHITE),
-                    Piece(PieceType.KNIGHT, PieceColor.WHITE),
-                    Piece(PieceType.ROOK, PieceColor.WHITE)
+                    Piece(PieceType.ROOK, PieceColor.WHITE), Piece(PieceType.KNIGHT, PieceColor.WHITE),
+                    Piece(PieceType.BISHOP, PieceColor.WHITE), Piece(PieceType.QUEEN, PieceColor.WHITE),
+                    Piece(PieceType.KING, PieceColor.WHITE), Piece(PieceType.BISHOP, PieceColor.WHITE),
+                    Piece(PieceType.KNIGHT, PieceColor.WHITE), Piece(PieceType.ROOK, PieceColor.WHITE)
                 ),
             )
         )

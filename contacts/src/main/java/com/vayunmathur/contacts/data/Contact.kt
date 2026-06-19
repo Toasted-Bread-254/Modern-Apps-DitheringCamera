@@ -20,23 +20,15 @@ import kotlin.time.ExperimentalTime
 
 val LocalDate.hasYear: Boolean get() = year >= 1901
 
-fun LocalDate.formatDisplay(): String {
-    return if (hasYear) {
-        format(LocalDate.Format {
-            monthName(MonthNames.ENGLISH_FULL)
-            chars(" ")
-            day()
-            chars(", ")
-            year()
-        })
-    } else {
-        format(LocalDate.Format {
-            monthName(MonthNames.ENGLISH_FULL)
-            chars(" ")
-            day()
-        })
+fun LocalDate.formatDisplay(): String = format(LocalDate.Format {
+    monthName(MonthNames.ENGLISH_FULL)
+    chars(" ")
+    day()
+    if (hasYear) {
+        chars(", ")
+        year()
     }
-}
+})
 
 
 @Serializable
@@ -57,9 +49,10 @@ data class ContactDetails(
     }
 
     companion object {
-        fun empty(): ContactDetails {
-            return ContactDetails(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
-        }
+        fun empty() = ContactDetails(
+            emptyList(), emptyList(), emptyList(), emptyList(), emptyList(),
+            emptyList(), emptyList(), emptyList(), emptyList(), emptyList()
+        )
     }
 }
 
@@ -247,15 +240,10 @@ data class Contact(
     fun save(context: Context, newDetails: ContactDetails, oldDetails: ContactDetails) {
         val ops = ArrayList<ContentProviderOperation>()
         if (id == 0L) {
-            val builder = ContentProviderOperation.newInsert(ContactsContract.RawContacts.CONTENT_URI)
-            if (accountType != null && accountName != null) {
-                builder.withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, accountType)
-                builder.withValue(ContactsContract.RawContacts.ACCOUNT_NAME, accountName)
-            } else {
-                builder.withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, null)
-                builder.withValue(ContactsContract.RawContacts.ACCOUNT_NAME, null)
-            }
-            ops += builder.build()
+            ops += ContentProviderOperation.newInsert(ContactsContract.RawContacts.CONTENT_URI)
+                .withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, accountType)
+                .withValue(ContactsContract.RawContacts.ACCOUNT_NAME, accountName)
+                .build()
 
             ops += details.all().map { createInsertOperation(it) }
         } else {
@@ -381,28 +369,22 @@ data class Contact(
     companion object {
 
         private fun processDetails(details: ContactDetails, displayName: String?): ContactDetails? {
-            var details = details
-            if(details.names.isEmpty())
-                details = details.copy(names = listOf(Name(0, "", "", "", "", "")))
+            var d = if (details.names.isEmpty()) details.copy(names = listOf(Name(0, "", "", "", "", ""))) else details
 
-            if((details.names.first().firstName.isEmpty() && details.names.first().lastName.isEmpty())) {
-                if(displayName == null) return null
-                val firstName = displayName.split(" ").first()
-                val lastName = displayName.split(" ").last()
-                if(firstName.isEmpty() && lastName.isEmpty()) return null
-                details = details.copy(names = listOf(Name(details.names.first().id, "", firstName, "", lastName, "")))
+            val name = d.names.first()
+            if (name.firstName.isEmpty() && name.lastName.isEmpty()) {
+                displayName ?: return null
+                val parts = displayName.split(" ")
+                if (parts.first().isEmpty() && parts.last().isEmpty()) return null
+                d = d.copy(names = listOf(Name(name.id, "", parts.first(), "", parts.last(), "")))
             }
 
-            if(details.orgs.isEmpty())
-                details = details.copy(orgs = listOf(Organization(0, "")))
+            if (d.orgs.isEmpty()) d = d.copy(orgs = listOf(Organization(0, "")))
+            if (d.notes.isEmpty()) d = d.copy(notes = listOf(Note(0, "")))
+            if (d.nicknames.none { it.type == CDKNickname.TYPE_DEFAULT })
+                d = d.copy(nicknames = d.nicknames + Nickname(0, "", CDKNickname.TYPE_DEFAULT))
 
-            if(details.notes.isEmpty())
-                details = details.copy(notes = listOf(Note(0, "")))
-
-            if(details.nicknames.find { it.type == CDKNickname.TYPE_DEFAULT } == null)
-                details = details.copy(nicknames = details.nicknames + Nickname(0, "", CDKNickname.TYPE_DEFAULT))
-
-            return details
+            return d
         }
 
         private data class RawContactInfo(
@@ -415,7 +397,6 @@ data class Contact(
 
         private fun getContacts(context: Context, contactId: Long?): List<Contact> {
             val contentResolver = context.contentResolver
-            val uri = ContactsContract.RawContacts.CONTENT_URI
             val projection = arrayOf(
                 ContactsContract.RawContacts._ID,
                 ContactsContract.RawContacts.DISPLAY_NAME_PRIMARY,
@@ -423,28 +404,30 @@ data class Contact(
                 ContactsContract.RawContacts.ACCOUNT_NAME,
                 ContactsContract.RawContacts.ACCOUNT_TYPE,
             )
-            val contacts = mutableListOf<Contact>()
 
             val rawContacts = mutableListOf<RawContactInfo>()
             try {
-                val cursor = contentResolver.query(uri, projection, if(contactId == null) null else "${ContactsContract.Contacts._ID} = ?", listOfNotNull(contactId?.toString()).toTypedArray(), null)
+                contentResolver.query(
+                    ContactsContract.RawContacts.CONTENT_URI, projection,
+                    contactId?.let { "${ContactsContract.Contacts._ID} = ?" },
+                    contactId?.let { arrayOf(it.toString()) },
+                    null
+                )?.use { cursor ->
+                    val idIdx = cursor.getColumnIndexOrThrow(ContactsContract.RawContacts._ID)
+                    val nameIdx = cursor.getColumnIndexOrThrow(ContactsContract.RawContacts.DISPLAY_NAME_PRIMARY)
+                    val starredIdx = cursor.getColumnIndexOrThrow(ContactsContract.RawContacts.STARRED)
+                    val accountNameIdx = cursor.getColumnIndexOrThrow(ContactsContract.RawContacts.ACCOUNT_NAME)
+                    val accountTypeIdx = cursor.getColumnIndexOrThrow(ContactsContract.RawContacts.ACCOUNT_TYPE)
 
-                cursor?.use {
-                    val idIdx = it.getColumnIndexOrThrow(ContactsContract.RawContacts._ID)
-                    val nameIdx = it.getColumnIndexOrThrow(ContactsContract.RawContacts.DISPLAY_NAME_PRIMARY)
-                    val starredIdx = it.getColumnIndexOrThrow(ContactsContract.RawContacts.STARRED)
-                    val accountNameIdx = it.getColumnIndexOrThrow(ContactsContract.RawContacts.ACCOUNT_NAME)
-                    val accountTypeIdx = it.getColumnIndexOrThrow(ContactsContract.RawContacts.ACCOUNT_TYPE)
-
-                    while (it.moveToNext()) {
+                    while (cursor.moveToNext()) {
                         try {
-                            rawContacts.add(RawContactInfo(
-                                id = it.getLong(idIdx),
-                                displayName = it.getStringOrNull(nameIdx),
-                                isFavorite = it.getInt(starredIdx) == 1,
-                                accountName = it.getStringOrNull(accountNameIdx),
-                                accountType = it.getStringOrNull(accountTypeIdx)
-                            ))
+                            rawContacts += RawContactInfo(
+                                id = cursor.getLong(idIdx),
+                                displayName = cursor.getStringOrNull(nameIdx),
+                                isFavorite = cursor.getInt(starredIdx) == 1,
+                                accountName = cursor.getStringOrNull(accountNameIdx),
+                                accountType = cursor.getStringOrNull(accountTypeIdx)
+                            )
                         } catch (e: Exception) {
                             Log.e("Contact", "Error constructing raw contact info from cursor", e)
                         }
@@ -456,16 +439,11 @@ data class Contact(
 
             if (rawContacts.isEmpty()) return emptyList()
 
-            // Fetch details for all fetched raw contacts
             val allDetails = getDetailsInternal(context, contactId)
-
-            for (raw in rawContacts) {
-                var details = allDetails[raw.id] ?: ContactDetails.empty()
-                details = processDetails(details, raw.displayName) ?: continue
-
-                contacts += Contact(raw.id, raw.accountType, raw.accountName, raw.isFavorite, details)
+            return rawContacts.mapNotNull { raw ->
+                val details = processDetails(allDetails[raw.id] ?: ContactDetails.empty(), raw.displayName) ?: return@mapNotNull null
+                Contact(raw.id, raw.accountType, raw.accountName, raw.isFavorite, details)
             }
-            return contacts
         }
 
         fun getContact(context: Context, contactId: Long): Contact? = getContacts(context, contactId).firstOrNull()
@@ -524,8 +502,8 @@ fun getDetailsInternal(context: Context, id: Long? = null, isProfile: Boolean = 
         contentResolver.query(
             if (isProfile) Uri.withAppendedPath(Profile.CONTENT_URI, ContactsContract.Contacts.Data.CONTENT_DIRECTORY) else ContactsContract.Data.CONTENT_URI,
             projection,
-            if (id != null) "${ContactsContract.Data.RAW_CONTACT_ID} = ?" else null,
-            if (id != null) arrayOf(id.toString()) else null,
+            id?.let { "${ContactsContract.Data.RAW_CONTACT_ID} = ?" },
+            id?.let { arrayOf(it.toString()) },
             null
         )?.use { cursor ->
             val rawIdIdx = cursor.getColumnIndexOrThrow(ContactsContract.Data.RAW_CONTACT_ID)
@@ -642,16 +620,16 @@ fun getDetailsInternal(context: Context, id: Long? = null, isProfile: Boolean = 
 
     return rawContactIds.associateWith { rawId ->
         ContactDetails(
-            phoneNumbersMap[rawId]?.distinct() ?: emptyList(),
-            emailsMap[rawId]?.distinct() ?: emptyList(),
-            addressesMap[rawId]?.distinct() ?: emptyList(),
-            datesMap[rawId]?.distinct() ?: emptyList(),
-            photosMap[rawId]?.distinct() ?: emptyList(),
-            namesMap[rawId]?.distinct() ?: emptyList(),
-            orgsMap[rawId]?.distinct() ?: emptyList(),
-            notesMap[rawId]?.distinct() ?: emptyList(),
-            nicknamesMap[rawId]?.distinct() ?: emptyList(),
-            groupsMap[rawId]?.distinct() ?: emptyList()
+            phoneNumbersMap[rawId]?.distinct().orEmpty(),
+            emailsMap[rawId]?.distinct().orEmpty(),
+            addressesMap[rawId]?.distinct().orEmpty(),
+            datesMap[rawId]?.distinct().orEmpty(),
+            photosMap[rawId]?.distinct().orEmpty(),
+            namesMap[rawId]?.distinct().orEmpty(),
+            orgsMap[rawId]?.distinct().orEmpty(),
+            notesMap[rawId]?.distinct().orEmpty(),
+            nicknamesMap[rawId]?.distinct().orEmpty(),
+            groupsMap[rawId]?.distinct().orEmpty()
         )
     }
 }

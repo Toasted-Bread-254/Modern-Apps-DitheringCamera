@@ -89,22 +89,12 @@ fun SongScreen(backStack: NavBackStack<Route>, musicViewModel: MusicViewModel) {
                 actions = {
                     if (currentSource != null && currentSourceName != null) {
                         TextButton(onClick = {
+                            val source = currentSource ?: return@TextButton
                             when {
-                                currentSource == "all_songs" -> {
-                                    backStack.reset(Route.Home)
-                                }
-                                currentSource!!.startsWith("album_") -> {
-                                    val id = currentSource!!.removePrefix("album_").toLong()
-                                    backStack.reset(Route.Home, Route.AlbumDetail(id))
-                                }
-                                currentSource!!.startsWith("playlist_") -> {
-                                    val id = currentSource!!.removePrefix("playlist_").toLong()
-                                    backStack.reset(Route.Home, Route.PlaylistDetail(id))
-                                }
-                                currentSource!!.startsWith("artist_") -> {
-                                    val id = currentSource!!.removePrefix("artist_").toLong()
-                                    backStack.reset(Route.Home, Route.ArtistDetail(id))
-                                }
+                                source == "all_songs" -> backStack.reset(Route.Home)
+                                source.startsWith("album_") -> backStack.reset(Route.Home, Route.AlbumDetail(source.removePrefix("album_").toLong()))
+                                source.startsWith("playlist_") -> backStack.reset(Route.Home, Route.PlaylistDetail(source.removePrefix("playlist_").toLong()))
+                                source.startsWith("artist_") -> backStack.reset(Route.Home, Route.ArtistDetail(source.removePrefix("artist_").toLong()))
                             }
                         }) {
                             Text(
@@ -205,9 +195,11 @@ fun SongScreen(backStack: NavBackStack<Route>, musicViewModel: MusicViewModel) {
                 IconButton(onClick = { musicViewModel.toggleRepeat() }) {
                     Icon(
                         painter = painterResource(
-                            if (repeatMode == Player.REPEAT_MODE_ONE) R.drawable.ic_repeat_one_on
-                            else if (repeatMode == Player.REPEAT_MODE_ALL) R.drawable.ic_repeat_on
-                            else R.drawable.ic_repeat
+                            when (repeatMode) {
+                                Player.REPEAT_MODE_ONE -> R.drawable.ic_repeat_one_on
+                                Player.REPEAT_MODE_ALL -> R.drawable.ic_repeat_on
+                                else -> R.drawable.ic_repeat
+                            }
                         ),
                         contentDescription = stringResource(R.string.content_desc_repeat),
                         tint = if (repeatMode != Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
@@ -227,11 +219,7 @@ fun SongScreen(backStack: NavBackStack<Route>, musicViewModel: MusicViewModel) {
                             .clickable { musicViewModel.togglePlayPause() },
                         contentAlignment = Alignment.Center
                     ) {
-                        if(isPlaying) {
-                            IconPause()
-                        } else {
-                            IconPlay()
-                        }
+                        if (isPlaying) IconPause() else IconPlay()
                     }
                     Spacer(Modifier.width(16.dp))
                     IconButton(onClick = { musicViewModel.skipNext() }) {

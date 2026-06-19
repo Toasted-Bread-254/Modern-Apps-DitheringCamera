@@ -137,7 +137,7 @@ fun PasswordPage(
 
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = if (showPassword) password.password else password.password.replace(Regex("."), "•"),
+                            text = if (showPassword) password.password else "•".repeat(password.password.length),
                             style = MaterialTheme.typography.bodyLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,

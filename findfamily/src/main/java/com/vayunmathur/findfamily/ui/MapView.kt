@@ -203,10 +203,8 @@ private operator fun DpSize.contains(offset: DpOffset): Boolean {
     return offset.x in 0.dp..width && offset.y in 0.dp..height
 }
 
-private fun DpOffset.toOffset(density: Density): Offset {
-    with(density) {
-        return Offset(x.toPx(), y.toPx())
-    }
+private fun DpOffset.toOffset(density: Density): Offset = with(density) {
+    Offset(x.toPx(), y.toPx())
 }
 
 @Composable

@@ -21,7 +21,7 @@ fun EventDeleteConfirmDialog(
     val scope = rememberCoroutineScope()
 
     AlertDialog(
-        onDismissRequest = { onDismiss() },
+        onDismissRequest = onDismiss,
         title = { Text(text = stringResource(R.string.delete_contact_title)) },
         text = {
             Text(
@@ -45,7 +45,7 @@ fun EventDeleteConfirmDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = { onDismiss() }) {
+            TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.cancel))
             }
         }

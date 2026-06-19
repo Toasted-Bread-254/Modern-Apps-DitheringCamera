@@ -7,7 +7,7 @@ import com.vayunmathur.games.pipes.data.CellPos
 import com.vayunmathur.games.pipes.data.CompletedLevelsRepository
 import com.vayunmathur.games.pipes.data.LevelData
 import com.vayunmathur.games.pipes.data.LevelPack
-import com.vayunmathur.games.pipes.data.LevelStats
+import com.vayunmathur.library.util.LevelStats
 import com.vayunmathur.library.util.AchievementsManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -89,34 +89,27 @@ class PipesViewModel(application: Application) : AndroidViewModel(application) {
 
         if (endpointColor != null) {
             val currentPath = s.gameState.paths[endpointColor] ?: emptyList()
-            if (currentPath.isNotEmpty()) {
-                val ep = levelData.endpoints.find { it.colorIndex == endpointColor }
-                val isComplete = ep != null && currentPath.size >= 2 &&
-                    setOf(currentPath.first(), currentPath.last()) == ep.cells.toSet()
-
-                if (currentPath.first() == cell && !isComplete) return
-
-                if (currentPath.last() == cell) {
-                    _uiState.update { it.copy(activeColor = endpointColor, activePath = currentPath, preDrawState = it.gameState) }
-                } else if (currentPath.first() == cell) {
-                    _uiState.update { it.copy(activeColor = endpointColor, activePath = currentPath.reversed(), preDrawState = it.gameState) }
-                } else {
-                    _uiState.update { it.copy(activeColor = endpointColor, activePath = listOf(cell), preDrawState = it.gameState) }
+            val activePath = when {
+                currentPath.isEmpty() -> listOf(cell)
+                currentPath.last() == cell -> currentPath
+                currentPath.first() == cell -> {
+                    val ep = levelData.endpoints.find { it.colorIndex == endpointColor }
+                    val isComplete = ep != null && currentPath.size >= 2 &&
+                        setOf(currentPath.first(), currentPath.last()) == ep.cells.toSet()
+                    if (!isComplete) return
+                    currentPath.reversed()
                 }
-            } else {
-                _uiState.update { it.copy(activeColor = endpointColor, activePath = listOf(cell), preDrawState = it.gameState) }
+                else -> listOf(cell)
             }
+            _uiState.update { it.copy(activeColor = endpointColor, activePath = activePath, preDrawState = it.gameState) }
             return
         }
 
-        val ownerColor = s.gameState.cellOwner[cell]
-        if (ownerColor != null) {
-            val path = s.gameState.paths[ownerColor] ?: return
-            val idx = path.indexOf(cell)
-            if (idx >= 0) {
-                val truncated = path.take(idx + 1)
-                _uiState.update { it.copy(activeColor = ownerColor, activePath = truncated, preDrawState = it.gameState) }
-            }
+        val ownerColor = s.gameState.cellOwner[cell] ?: return
+        val path = s.gameState.paths[ownerColor] ?: return
+        val idx = path.indexOf(cell)
+        if (idx >= 0) {
+            _uiState.update { it.copy(activeColor = ownerColor, activePath = path.take(idx + 1), preDrawState = it.gameState) }
         }
     }
 
@@ -132,9 +125,11 @@ class PipesViewModel(application: Application) : AndroidViewModel(application) {
 
         val pairedEndpoint = levelData.endpoints.find { it.colorIndex == activeColor }
             ?.cells?.let { cells ->
-                if (currentPath.first() == cells[0]) cells[1]
-                else if (currentPath.first() == cells[1]) cells[0]
-                else null
+                when (currentPath.first()) {
+                    cells[0] -> cells[1]
+                    cells[1] -> cells[0]
+                    else -> null
+                }
             }
         if (pairedEndpoint != null && currentPath.last() == pairedEndpoint) return
 
@@ -217,12 +212,10 @@ class PipesViewModel(application: Application) : AndroidViewModel(application) {
 
         val newPaths = currentState.paths.toMutableMap()
         newPaths[activeColor] = newPath
+        val bridges = s.levelData?.bridges ?: emptySet()
         for (cell in newPath) {
-            if (cell in (s.levelData?.bridges ?: emptySet()) && cell in newCellOwner && newCellOwner[cell] != activeColor) {
-                // Bridge cell owned by another pipe - don't overwrite
-            } else {
-                newCellOwner[cell] = activeColor
-            }
+            if (cell in bridges && newCellOwner[cell] != null && newCellOwner[cell] != activeColor) continue
+            newCellOwner[cell] = activeColor
         }
 
         val newGameState = PipesGameState(newPaths, newCellOwner)
@@ -252,17 +245,12 @@ class PipesViewModel(application: Application) : AndroidViewModel(application) {
 
         if (gameState.cellOwner.size != levelData.cells.size) return
 
-        for (ep in levelData.endpoints) {
+        val allConnected = levelData.endpoints.all { ep ->
             val path = gameState.paths[ep.colorIndex] ?: return
-            if (path.size < 2) return
-            val start = ep.cells[0]
-            val end = ep.cells[1]
-            if (!((path.first() == start && path.last() == end) ||
-                        (path.first() == end && path.last() == start))
-            ) return
+            path.size >= 2 && setOf(path.first(), path.last()) == ep.cells.toSet()
         }
 
-        onLevelWon()
+        if (allConnected) onLevelWon()
     }
 
     private fun onLevelWon() {
@@ -275,10 +263,10 @@ class PipesViewModel(application: Application) : AndroidViewModel(application) {
         val moves = getCurrentMoves()
 
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
+            val refreshed = withContext(Dispatchers.IO) {
                 repository.updateBestScore(level.id, moves)
+                repository.getLevelStats()
             }
-            val refreshed = withContext(Dispatchers.IO) { repository.getLevelStats() }
             _levelStats.value = refreshed
 
             achievementsManager.onAchievementUnlocked("first_flow")

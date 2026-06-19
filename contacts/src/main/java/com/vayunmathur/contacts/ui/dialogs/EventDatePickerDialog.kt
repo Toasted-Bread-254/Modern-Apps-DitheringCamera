@@ -45,14 +45,9 @@ fun EventDatePickerDialog(id: String, initialDate: LocalDate?, onDismiss: () -> 
     var selectedDay by remember { mutableStateOf(baseDate.day) }
 
     val daysInMonth = remember(selectedMonth, selectedYear) {
-        try {
-            val nextMonth = if (selectedMonth == 12) 1 else selectedMonth + 1
-            val nextMonthYear = if (selectedMonth == 12) selectedYear + 1 else selectedYear
-            val firstOfNextMonth = LocalDate(nextMonthYear, nextMonth, 1)
-            firstOfNextMonth.minus(1, DateTimeUnit.DAY).day
-        } catch (_: Exception) {
-            31
-        }
+        val nextMonth = if (selectedMonth == 12) 1 else selectedMonth + 1
+        val nextYear = if (selectedMonth == 12) selectedYear + 1 else selectedYear
+        try { LocalDate(nextYear, nextMonth, 1).minus(1, DateTimeUnit.DAY).day } catch (_: Exception) { 31 }
     }
     
     LaunchedEffect(daysInMonth) {

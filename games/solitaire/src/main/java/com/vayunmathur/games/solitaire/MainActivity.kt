@@ -84,6 +84,13 @@ sealed interface Route : NavKey {
 }
 
 @Composable
+fun GameMode.displayName(): String = when (this) {
+    GameMode.KLONDIKE -> stringResource(R.string.klondike)
+    GameMode.SPIDER -> stringResource(R.string.spider)
+    GameMode.FREECELL -> stringResource(R.string.freecell)
+}
+
+@Composable
 fun Navigation(viewModel: SolitaireViewModel) {
     val backStack = rememberNavBackStack<Route>(Route.Home)
     val newAchievement by viewModel.achievementsManager.newAchievement.collectAsState()
@@ -163,11 +170,7 @@ fun HomeScreen(backStack: NavBackStack<Route>, viewModel: SolitaireViewModel) {
             ) {
                 GameMode.entries.forEach { mode ->
                     val stats = viewModel.getStats(mode)
-                    val modeName = when (mode) {
-                        GameMode.KLONDIKE -> stringResource(R.string.klondike)
-                        GameMode.SPIDER -> stringResource(R.string.spider)
-                        GameMode.FREECELL -> stringResource(R.string.freecell)
-                    }
+                    val modeName = mode.displayName()
                     Card(
                         Modifier.weight(1f),
                         colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surface)
@@ -209,53 +212,27 @@ fun HomeScreen(backStack: NavBackStack<Route>, viewModel: SolitaireViewModel) {
     }
 
     if (showModeDialog) {
+        val startGame = { mode: GameMode, draw: DrawMode ->
+            showModeDialog = false
+            if (viewModel.hasActiveGame()) viewModel.giveUp()
+            viewModel.selectMode(mode, draw)
+            backStack.add(Route.Game(mode))
+        }
         AlertDialog(
             onDismissRequest = { showModeDialog = false },
             title = { Text(stringResource(R.string.select_mode)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = {
-                            showModeDialog = false
-                            if (viewModel.hasActiveGame()) viewModel.giveUp()
-                            viewModel.selectMode(GameMode.KLONDIKE, DrawMode.DRAW_ONE)
-                            backStack.add(Route.Game(GameMode.KLONDIKE))
-                        },
-                        Modifier.fillMaxWidth()
-                    ) {
+                    Button(onClick = { startGame(GameMode.KLONDIKE, DrawMode.DRAW_ONE) }, Modifier.fillMaxWidth()) {
                         Text("${stringResource(R.string.klondike)} — ${stringResource(R.string.draw_one)}")
                     }
-                    Button(
-                        onClick = {
-                            showModeDialog = false
-                            if (viewModel.hasActiveGame()) viewModel.giveUp()
-                            viewModel.selectMode(GameMode.KLONDIKE, DrawMode.DRAW_THREE)
-                            backStack.add(Route.Game(GameMode.KLONDIKE))
-                        },
-                        Modifier.fillMaxWidth()
-                    ) {
+                    Button(onClick = { startGame(GameMode.KLONDIKE, DrawMode.DRAW_THREE) }, Modifier.fillMaxWidth()) {
                         Text("${stringResource(R.string.klondike)} — ${stringResource(R.string.draw_three)}")
                     }
-                    Button(
-                        onClick = {
-                            showModeDialog = false
-                            if (viewModel.hasActiveGame()) viewModel.giveUp()
-                            viewModel.selectMode(GameMode.SPIDER)
-                            backStack.add(Route.Game(GameMode.SPIDER))
-                        },
-                        Modifier.fillMaxWidth()
-                    ) {
+                    Button(onClick = { startGame(GameMode.SPIDER, DrawMode.DRAW_ONE) }, Modifier.fillMaxWidth()) {
                         Text(stringResource(R.string.spider))
                     }
-                    Button(
-                        onClick = {
-                            showModeDialog = false
-                            if (viewModel.hasActiveGame()) viewModel.giveUp()
-                            viewModel.selectMode(GameMode.FREECELL)
-                            backStack.add(Route.Game(GameMode.FREECELL))
-                        },
-                        Modifier.fillMaxWidth()
-                    ) {
+                    Button(onClick = { startGame(GameMode.FREECELL, DrawMode.DRAW_ONE) }, Modifier.fillMaxWidth()) {
                         Text(stringResource(R.string.freecell))
                     }
                 }
@@ -288,30 +265,16 @@ fun GameScreen(backStack: NavBackStack<Route>, viewModel: SolitaireViewModel, mo
         }
     }
 
-    val isWon = when (mode) {
-        GameMode.KLONDIKE -> uiState.klondike?.isWon == true
-        GameMode.SPIDER -> uiState.spider?.isWon == true
-        GameMode.FREECELL -> uiState.freeCell?.isWon == true
+    val activeGame = when (mode) {
+        GameMode.KLONDIKE -> uiState.klondike?.let { Triple(it.isWon, it.moveCount, it.elapsedSeconds) }
+        GameMode.SPIDER -> uiState.spider?.let { Triple(it.isWon, it.moveCount, it.elapsedSeconds) }
+        GameMode.FREECELL -> uiState.freeCell?.let { Triple(it.isWon, it.moveCount, it.elapsedSeconds) }
     }
-    val moveCount = when (mode) {
-        GameMode.KLONDIKE -> uiState.klondike?.moveCount ?: 0
-        GameMode.SPIDER -> uiState.spider?.moveCount ?: 0
-        GameMode.FREECELL -> uiState.freeCell?.moveCount ?: 0
-    }
-    val elapsed = when (mode) {
-        GameMode.KLONDIKE -> uiState.klondike?.elapsedSeconds ?: 0
-        GameMode.SPIDER -> uiState.spider?.elapsedSeconds ?: 0
-        GameMode.FREECELL -> uiState.freeCell?.elapsedSeconds ?: 0
-    }
-
-    val modeName = when (mode) {
-        GameMode.KLONDIKE -> stringResource(R.string.klondike)
-        GameMode.SPIDER -> stringResource(R.string.spider)
-        GameMode.FREECELL -> stringResource(R.string.freecell)
-    }
-    val minutes = elapsed / 60
-    val seconds = elapsed % 60
-    val timeText = "%02d:%02d".format(minutes, seconds)
+    val isWon = activeGame?.first == true
+    val moveCount = activeGame?.second ?: 0
+    val elapsed = activeGame?.third ?: 0
+    val modeName = mode.displayName()
+    val timeText = "%02d:%02d".format(elapsed / 60, elapsed % 60)
 
     Scaffold(topBar = {
         TopAppBar(

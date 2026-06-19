@@ -17,19 +17,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.atTime
-import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
-import kotlin.time.Duration.Companion.days
-import kotlin.time.Duration.Companion.milliseconds
 import com.vayunmathur.calendar.data.Event
 import com.vayunmathur.calendar.data.Calendar
 
-
 import com.vayunmathur.library.util.DataStoreUtils
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 
 class CalendarViewModel(application: Application) : AndroidViewModel(application) {
     val dataStore = DataStoreUtils.getInstance(application)
@@ -57,10 +50,10 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         FullWeekSummary("W7S", "Full Week Summary")
     }
 
-    private val _currentLayout = MutableStateFlow<CalendarLayout>(
-        dataStore.getString("default_calendar_layout")?.let { saved ->
-            try { CalendarLayout.valueOf(saved) } catch (e: Exception) { CalendarLayout.FullWeek }
-        } ?: CalendarLayout.FullWeek
+    private val _currentLayout = MutableStateFlow(
+        dataStore.getString("default_calendar_layout")
+            ?.let { runCatching { CalendarLayout.valueOf(it) }.getOrNull() }
+            ?: CalendarLayout.FullWeek
     )
     val currentLayout: StateFlow<CalendarLayout> = _currentLayout.asStateFlow()
 
@@ -133,51 +126,8 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 try {
-                    val valuesList = events.map { event ->
-                        ContentValues().apply {
-                            put(CalendarContract.Events.TITLE, event.title)
-                            put(CalendarContract.Events.DESCRIPTION, event.description)
-                            put(CalendarContract.Events.EVENT_LOCATION, event.location)
-                            put(CalendarContract.Events.CALENDAR_ID, calendarId)
-                            val startDate = event.startDateTimeDisplay.date
-                            val startTime = event.startDateTimeDisplay.time
-                            val endDate = event.endDateTimeDisplay.date
-                            val endTime = event.endDateTimeDisplay.time
-                            val tz = if (event.allDay) "UTC" else event.timezone
-                            val dtstart = startDate.atTime(startTime).toInstant(TimeZone.of(tz))
-                                .toEpochMilliseconds()
-                            val dtendActual = endDate.atTime(endTime).toInstant(TimeZone.of(tz))
-                                .toEpochMilliseconds()
-                            put(CalendarContract.Events.DTSTART, dtstart)
-                            if (event.rrule != null) {
-                                put(CalendarContract.Events.DTEND, null as Long?)
-                                var duration = (dtendActual - dtstart).milliseconds
-                                if (event.allDay) duration += 1.days
-                                put(CalendarContract.Events.DURATION, duration.toIsoString())
-                                put(
-                                    CalendarContract.Events.RRULE,
-                                    event.rrule.asString(startDate, TimeZone.of(tz)),
-                                )
-                            } else {
-                                put(CalendarContract.Events.DTEND, dtendActual)
-                                put(CalendarContract.Events.DURATION, null as String?)
-                                put(CalendarContract.Events.RRULE, null as String?)
-                            }
-                            put(CalendarContract.Events.ALL_DAY, if (event.allDay) 1 else 0)
-                            put(CalendarContract.Events.EVENT_TIMEZONE, tz)
-                            // Add EXDATE if present
-                            if (event.exdate.isNotEmpty()) {
-                                val exdateStr = event.exdate.joinToString(",") { date ->
-                                    String.format("%04d%02d%02d", date.year, date.monthNumber, date.day)
-                                }
-                                put(CalendarContract.Events.EXDATE, exdateStr)
-                            }
-                        }
-                    }
-                    app.contentResolver.bulkInsert(
-                        CalendarContract.Events.CONTENT_URI,
-                        valuesList.toTypedArray(),
-                    )
+                    val valuesList = events.map { it.toContentValues(calendarId) }.toTypedArray()
+                    app.contentResolver.bulkInsert(CalendarContract.Events.CONTENT_URI, valuesList)
                     _events.value = Event.getAllEvents(app)
                 } catch (e: Exception) {
                     Log.e("CalendarViewModel", "Error importing events", e)
@@ -206,10 +156,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         loadData()
         viewModelScope.launch {
             dataStore.stringFlow("default_calendar_layout").collect { saved ->
-                try {
-                    _currentLayout.value = CalendarLayout.valueOf(saved)
-                } catch (e: Exception) {
-                }
+                runCatching { CalendarLayout.valueOf(saved) }.onSuccess { _currentLayout.value = it }
             }
         }
     }
@@ -218,6 +165,14 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             CalendarGlanceWidget().updateAll(getApplication())
         }
+    }
+
+    private fun refreshCalendarsAndWidgets() {
+        val app = getApplication<Application>()
+        val loaded = Calendar.getAllCalendars(app)
+        _calendars.value = loaded
+        _calendarVisibility.value = loaded.associate { it.id to it.visible }
+        updateWidgets()
     }
 
     fun setCalendarVisibility(calendarId: Long, visible: Boolean) {
@@ -231,49 +186,25 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
             Log.e("CalendarViewModel", "Error setting calendar visibility", e)
         }
 
-        // refresh cached calendars and visibility map
-        val loaded = Calendar.getAllCalendars(app)
-        _calendars.value = loaded
-        _calendarVisibility.value = loaded.associate { cal -> cal.id to cal.visible }
-        updateWidgets()
+        refreshCalendarsAndWidgets()
     }
 
     fun deleteEventSeries(eventId: Long) {
-        viewModelScope.launch {
-            val app = getApplication<Application>()
-            upsertEvent(eventId, ContentValues().apply {
-                put(CalendarContract.Events.DELETED, 1)
-            })
-            _events.value = Event.getAllEvents(app)
-            updateWidgets()
-        }
+        upsertEvent(eventId, ContentValues().apply {
+            put(CalendarContract.Events.DELETED, 1)
+        })
     }
 
     fun deleteEventInstance(eventId: Long, instanceBeginTime: Long) {
-        viewModelScope.launch {
-            val app = getApplication<Application>()
-            // Get the event to find its timezone and current exdate
-            val event = _events.value.find { it.id == eventId }
-            if (event != null) {
-                // Convert instanceBeginTime to LocalDate in event's timezone
-                val instanceDate = kotlinx.datetime.Instant.fromEpochMilliseconds(instanceBeginTime)
-                    .toLocalDateTime(kotlinx.datetime.TimeZone.of(event.timezone)).date
-                
-                // Add date to exdate list (avoid duplicates)
-                val newExdate = (event.exdate + instanceDate).distinct()
-                
-                // Format as comma-separated RFC 5545 dates (YYYYMMDD)
-                val exdateStr = newExdate.joinToString(",") { date ->
-                    String.format("%04d%02d%02d", date.year, date.monthNumber, date.day)
-                }
-                
-                upsertEvent(eventId, ContentValues().apply {
-                    put(CalendarContract.Events.EXDATE, exdateStr)
-                })
-                _events.value = Event.getAllEvents(app)
-                updateWidgets()
-            }
+        val event = _events.value.find { it.id == eventId } ?: return
+        val instanceDate = kotlinx.datetime.Instant.fromEpochMilliseconds(instanceBeginTime)
+            .toLocalDateTime(kotlinx.datetime.TimeZone.of(event.timezone)).date
+        val exdateStr = (event.exdate + instanceDate).distinct().joinToString(",") { date ->
+            "%04d%02d%02d".format(date.year, date.monthNumber, date.day)
         }
+        upsertEvent(eventId, ContentValues().apply {
+            put(CalendarContract.Events.EXDATE, exdateStr)
+        })
     }
 
     // Insert or update event using ContentValues. If eventId is null -> insert, otherwise update.
@@ -315,12 +246,10 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
             Log.e("CalendarViewModel", "Error setting calendar color", e)
         }
 
-        // refresh cached calendars and visibility map (color is read from provider)
-        val loaded = Calendar.getAllCalendars(app)
-        _calendars.value = loaded
-        _calendarVisibility.value = loaded.associate { cal -> cal.id to cal.visible }
-        updateWidgets()
+        refreshCalendarsAndWidgets()
     }
+
+    // rename
 
     // rename a calendar's display name
     fun renameCalendar(calendarId: Long, newDisplayName: String) {
@@ -340,11 +269,7 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         } catch (e: Exception) {
             Log.e("CalendarViewModel", "Error renaming calendar", e)
         }
-
-        val loaded = Calendar.getAllCalendars(app)
-        _calendars.value = loaded
-        _calendarVisibility.value = loaded.associate { cal -> cal.id to cal.visible }
-        updateWidgets()
+        refreshCalendarsAndWidgets()
     }
 
     // delete a calendar and refresh caches
@@ -359,14 +284,9 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
         try {
             app.contentResolver.delete(uri, "${CalendarContract.Calendars._ID} = ?", arrayOf(calendarId.toString()))
         } catch (e: Exception) {
-            // ignore deletion errors, we'll refresh list anyway
             Log.e("CalendarViewModel", "Error deleting calendar", e)
         }
-
-        val loaded = Calendar.getAllCalendars(app)
-        _calendars.value = loaded
-        _calendarVisibility.value = loaded.associate { cal -> cal.id to cal.visible }
-        updateWidgets()
+        refreshCalendarsAndWidgets()
     }
 
     // create a new local/offline calendar in the provider and refresh caches
@@ -395,20 +315,11 @@ class CalendarViewModel(application: Application) : AndroidViewModel(application
             }
 
             try {
-                val newUri = app.contentResolver.insert(uri, values)
-                if (newUri != null) {
-                    val loaded = Calendar.getAllCalendars(app)
-                    _calendars.value = loaded
-                    _calendarVisibility.value = loaded.associate { cal -> cal.id to cal.visible }
-                    updateWidgets()
-                }
+                app.contentResolver.insert(uri, values)
             } catch (_: Exception) {
-                // some providers reject inserts; refresh list anyway
-                val loaded = Calendar.getAllCalendars(app)
-                _calendars.value = loaded
-                _calendarVisibility.value = loaded.associate { cal -> cal.id to cal.visible }
-                updateWidgets()
+                // some providers reject inserts
             }
+            refreshCalendarsAndWidgets()
         }
     }
 

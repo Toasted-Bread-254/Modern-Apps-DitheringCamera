@@ -1,4 +1,5 @@
 package com.vayunmathur.calendar.data
+import android.content.ContentValues
 import android.content.Context
 import android.provider.CalendarContract
 import android.util.Log
@@ -7,11 +8,14 @@ import androidx.core.database.getStringOrNull
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import com.vayunmathur.calendar.util.RRule
 import kotlinx.serialization.Serializable
 import java.time.DateTimeException
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
 
 @Serializable
@@ -36,6 +40,38 @@ data class Event(
 
     val endDateTimeDisplay: LocalDateTime
         get() = Instant.fromEpochMilliseconds(end).toLocalDateTime(TimeZone.of(timezone))
+
+    fun toContentValues(calendarId: Long): ContentValues {
+        val tz = if (allDay) "UTC" else timezone
+        val tzObj = TimeZone.of(tz)
+        val dtstart = startDateTimeDisplay.toInstant(tzObj).toEpochMilliseconds()
+        val dtendActual = endDateTimeDisplay.toInstant(tzObj).toEpochMilliseconds()
+        return ContentValues().apply {
+            put(CalendarContract.Events.TITLE, title)
+            put(CalendarContract.Events.DESCRIPTION, description)
+            put(CalendarContract.Events.EVENT_LOCATION, location)
+            put(CalendarContract.Events.CALENDAR_ID, calendarId)
+            put(CalendarContract.Events.DTSTART, dtstart)
+            if (rrule != null) {
+                put(CalendarContract.Events.DTEND, null as Long?)
+                var duration = (dtendActual - dtstart).milliseconds
+                if (allDay) duration += 1.days
+                put(CalendarContract.Events.DURATION, duration.toIsoString())
+                put(CalendarContract.Events.RRULE, rrule.asString(startDateTimeDisplay.date, tzObj))
+            } else {
+                put(CalendarContract.Events.DTEND, dtendActual)
+                put(CalendarContract.Events.DURATION, null as String?)
+                put(CalendarContract.Events.RRULE, null as String?)
+            }
+            put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
+            put(CalendarContract.Events.EVENT_TIMEZONE, tz)
+            if (exdate.isNotEmpty()) {
+                put(CalendarContract.Events.EXDATE, exdate.joinToString(",") { d ->
+                    "%04d%02d%02d".format(d.year, d.monthNumber, d.day)
+                })
+            }
+        }
+    }
 
     companion object {
         fun getAllEvents(context: Context): List<Event> {

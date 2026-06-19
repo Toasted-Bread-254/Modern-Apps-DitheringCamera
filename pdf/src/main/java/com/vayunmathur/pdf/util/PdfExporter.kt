@@ -38,11 +38,7 @@ suspend fun savePdfToUri(context: Context, images: List<CapturedImage>, targetUr
 
                 // Scale the image so its longest side matches the longest side of A4 (842 points).
                 val a4LongSide = 842f
-                val scale = if (cropWidth > cropHeight) {
-                    a4LongSide / cropWidth
-                } else {
-                    a4LongSide / cropHeight
-                }
+                val scale = a4LongSide / maxOf(cropWidth, cropHeight)
                 
                 val targetWidth = (cropWidth * scale).toInt().coerceAtLeast(1)
                 val targetHeight = (cropHeight * scale).toInt().coerceAtLeast(1)
@@ -54,16 +50,7 @@ suspend fun savePdfToUri(context: Context, images: List<CapturedImage>, targetUr
                     quadrilateral != null -> {
                         // Apply perspective transform using Matrix.setPolyToPoly
                         // This maps the 4 corners of the quadrilateral to the 4 corners of the output rectangle
-                        val srcPoints = floatArrayOf(
-                            quadrilateral.topLeft.x * bitmap.width,
-                            quadrilateral.topLeft.y * bitmap.height,
-                            quadrilateral.topRight.x * bitmap.width,
-                            quadrilateral.topRight.y * bitmap.height,
-                            quadrilateral.bottomRight.x * bitmap.width,
-                            quadrilateral.bottomRight.y * bitmap.height,
-                            quadrilateral.bottomLeft.x * bitmap.width,
-                            quadrilateral.bottomLeft.y * bitmap.height
-                        )
+                        val srcPoints = quadrilateral.toSrcPoints(bitmap.width, bitmap.height)
                         val dstPoints = floatArrayOf(
                             0f, 0f,
                             targetWidth.toFloat(), 0f,

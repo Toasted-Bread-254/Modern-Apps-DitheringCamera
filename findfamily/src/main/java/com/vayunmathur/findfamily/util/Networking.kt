@@ -38,9 +38,9 @@ object Networking {
     suspend fun init(userDao: UserDao, dataStoreUtils: DataStoreUtils, meName: String) {
         Networking.dataStoreUtils = dataStoreUtils
         Networking.userDao = userDao
-        val (privateKey, publicKey) = crypto.keyPairGenerator(digest = SHA512).generateKey().let { Pair(it.privateKey, it.publicKey) }
-        dataStoreUtils.setByteArray("privateKey", privateKey.encodeToByteArray(RSA.PrivateKey.Format.PEM), true)
-        dataStoreUtils.setByteArray("publicKey", publicKey.encodeToByteArray(RSA.PublicKey.Format.PEM), true)
+        val keyPair = crypto.keyPairGenerator(digest = SHA512).generateKey()
+        dataStoreUtils.setByteArray("privateKey", keyPair.privateKey.encodeToByteArray(RSA.PrivateKey.Format.PEM), true)
+        dataStoreUtils.setByteArray("publicKey", keyPair.publicKey.encodeToByteArray(RSA.PublicKey.Format.PEM), true)
         dataStoreUtils.setLong("userid", Random.nextLong(), true)
 
         publickey = crypto.publicKeyDecoder(SHA512).decodeFromByteArray(RSA.PublicKey.Format.PEM, dataStoreUtils.getByteArray("publicKey")!!)

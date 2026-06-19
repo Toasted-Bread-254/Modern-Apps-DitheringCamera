@@ -14,18 +14,11 @@ import kotlinx.serialization.serializer
 class InsertIntent: AssistantIntent<ContactData, Unit>(serializer<ContactData>(), serializer<Unit>()) {
 
     override suspend fun performCalculation(input: ContactData) {
-        val contact = Contact(0L, null, null, false, ContactDetails(
+        val details = ContactDetails.empty().copy(
             phoneNumbers = listOf(PhoneNumber(0, input.phoneNumber, CDKPhone.TYPE_MOBILE)),
-            emails = emptyList(),
-            addresses = emptyList(),
-            dates = emptyList(),
-            photos = emptyList(),
-            names = listOf(Name(0, "", input.name, "", "", "")),
-            orgs = emptyList(),
-            notes = emptyList(),
-            nicknames = emptyList(),
-            groups = emptyList()
-        ))
+            names = listOf(Name(0, "", input.name, "", "", ""))
+        )
+        val contact = Contact(0L, null, null, false, details)
         contact.save(this, contact.details, ContactDetails.empty())
     }
 }

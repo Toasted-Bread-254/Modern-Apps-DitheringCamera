@@ -1,7 +1,7 @@
 package com.vayunmathur.launcher.ui
 
-import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
+import com.vayunmathur.launcher.util.toImageBitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -21,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,15 +38,7 @@ fun AppIcon(
     labelColor: Color = Color.White,
     badgeCount: Int = 0
 ) {
-    val bitmap = remember(icon) {
-        val w = icon.intrinsicWidth.coerceAtLeast(1)
-        val h = icon.intrinsicHeight.coerceAtLeast(1)
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(bmp)
-        icon.setBounds(0, 0, w, h)
-        icon.draw(canvas)
-        bmp.asImageBitmap()
-    }
+    val bitmap = remember(icon) { icon.toImageBitmap() }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,

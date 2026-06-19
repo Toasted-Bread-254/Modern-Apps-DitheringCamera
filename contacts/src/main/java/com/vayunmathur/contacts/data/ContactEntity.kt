@@ -17,26 +17,22 @@ data class ContactEntity(
     val isFavorite: Boolean,
     val detailsJson: String // Serialized ContactDetails
 ) : DatabaseItem {
-    fun toContact(): Contact {
-        return Contact(
-            id = id,
-            accountType = accountType,
-            accountName = accountName,
-            isFavorite = isFavorite,
-            details = Json.decodeFromString(detailsJson)
-        )
-    }
+    fun toContact() = Contact(
+        id = id,
+        accountType = accountType,
+        accountName = accountName,
+        isFavorite = isFavorite,
+        details = Json.decodeFromString(detailsJson)
+    )
 
     companion object {
-        fun fromContact(contact: Contact): ContactEntity {
-            return ContactEntity(
-                id = contact.id,
-                accountType = contact.accountType,
-                accountName = contact.accountName,
-                isFavorite = contact.isFavorite,
-                detailsJson = Json.encodeToString(contact.details)
-            )
-        }
+        fun fromContact(contact: Contact) = ContactEntity(
+            id = contact.id,
+            accountType = contact.accountType,
+            accountName = contact.accountName,
+            isFavorite = contact.isFavorite,
+            detailsJson = Json.encodeToString(contact.details)
+        )
     }
 }
 

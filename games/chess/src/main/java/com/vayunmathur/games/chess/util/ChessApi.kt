@@ -3,18 +3,16 @@ import com.vayunmathur.games.chess.data.Board
 import com.vayunmathur.games.chess.data.Move
 import com.vayunmathur.games.chess.data.Position
 import com.vayunmathur.games.chess.data.PieceType
+
 class ChessApi {
     suspend fun getBestMove(board: Board): Move {
         StockfishEngine.nextMove(board)
         while (true) {
-            val lineSplit =
-                (StockfishEngine.outputChannel.tryReceive().getOrNull() ?: continue).split(" ")
+            val lineSplit = StockfishEngine.outputChannel.receive().split(" ")
             if (lineSplit[0] == "bestmove") {
                 val moveString = lineSplit[1]
-                val startPosition = Position(8-(moveString[1] - '0'), moveString[0] - 'a')
-                val endPosition = Position(8-(moveString[3] - '0'),moveString[2] - 'a')
-                println(startPosition)
-                println(endPosition)
+                val startPosition = Position(8 - (moveString[1] - '0'), moveString[0] - 'a')
+                val endPosition = Position(8 - (moveString[3] - '0'), moveString[2] - 'a')
                 val promotedTo = when (moveString.getOrNull(4)) {
                     'q' -> PieceType.QUEEN
                     'r' -> PieceType.ROOK

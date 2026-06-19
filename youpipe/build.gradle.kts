@@ -10,6 +10,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":library:ui"))
     implementation(libs.coil.compose)
     implementation(libs.newpipeextractor)
 

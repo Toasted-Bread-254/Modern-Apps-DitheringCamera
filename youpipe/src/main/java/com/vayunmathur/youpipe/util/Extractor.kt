@@ -40,11 +40,7 @@ fun decodeVideoID(id: Long): String {
     return Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT).encode(buffer.array())
 }
 
-fun videoIDtoURL(id: Long): String {
-    val buffer = ByteBuffer.allocate(java.lang.Long.BYTES)
-    buffer.putLong(id)
-    return "https://www.youtube.com/watch?v="+Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT).encode(buffer.array())
-}
+fun videoIDtoURL(id: Long): String = "https://www.youtube.com/watch?v=${decodeVideoID(id)}"
 
 fun channelIDtoURL(id: String): String {
     return if (id.startsWith("@")) {

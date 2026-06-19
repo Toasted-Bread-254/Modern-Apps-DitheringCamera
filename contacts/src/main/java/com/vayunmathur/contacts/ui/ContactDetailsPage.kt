@@ -156,9 +156,7 @@ fun ContactDetailsPage(
                     }) {
                         IconShare()
                     }
-                    IconButton(onClick = {
-                        onDelete()
-                    }) {
+                    IconButton(onClick = onDelete) {
                         IconDelete()
                     }
                 },
@@ -386,17 +384,14 @@ fun ProfileHeader(contact: Contact, viewModel: ContactViewModel) {
                 .clip(CircleShape),
             contentAlignment = androidx.compose.ui.Alignment.Center
         ) {
-            contact.photo?.let {
-                val bitmap = remember(it.photo) { viewModel.decodePhoto(it.photo) }
-                if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = stringResource(R.string.contact_photo_description, contact.name.value),
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-            }
-            if (contact.photo == null) {
+            val bitmap = contact.photo?.let { remember(it.photo) { viewModel.decodePhoto(it.photo) } }
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = stringResource(R.string.contact_photo_description, contact.name.value),
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -404,7 +399,7 @@ fun ProfileHeader(contact: Contact, viewModel: ContactViewModel) {
                     contentAlignment = androidx.compose.ui.Alignment.Center
                 ) {
                     Text(
-                        text = contact.name.value.firstOrNull()?.uppercase()?:"",
+                        text = contact.name.value.firstOrNull()?.uppercase() ?: "",
                         color = Color.White,
                         style = MaterialTheme.typography.headlineLarge,
                         fontWeight = FontWeight.Bold
@@ -658,22 +653,9 @@ fun DetailItem(
         color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier
             .fillMaxWidth()
-            .then(
-                if (onClick != null) {
-                    Modifier.combinedClickable(
-                        onClick = onClick,
-                        onLongClick = {
-                            clipboardManager.setText(AnnotatedString(data))
-                        }
-                    )
-                } else {
-                    Modifier.combinedClickable(
-                        onClick = { },
-                        onLongClick = {
-                            clipboardManager.setText(AnnotatedString(data))
-                        }
-                    )
-                }
+            .combinedClickable(
+                onClick = onClick ?: { },
+                onLongClick = { clipboardManager.setText(AnnotatedString(data)) }
             )
     ) {
         ListItem(
@@ -778,27 +760,13 @@ private fun handleCommunication(
     packageName: String?
 ) {
     if (type == CommunicationType.CALL) {
-        if (packageName != null) {
-            placePlatformCall(context, number, packageName)
-        } else {
-            placeCall(context, number)
-        }
+        if (packageName != null) placePlatformCall(context, number, packageName) else placeCall(context, number)
         return
     }
     val intent = when (packageName) {
-        PackageUtils.SIGNAL_PACKAGE -> {
-            Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$number")).apply {
-                setPackage(PackageUtils.SIGNAL_PACKAGE)
-            }
-        }
-        PackageUtils.WHATSAPP_PACKAGE -> {
-            val formattedNumber = number.filter { it.isDigit() }
-            Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$formattedNumber"))
-        }
-        PackageUtils.TELEGRAM_PACKAGE -> {
-            val formattedNumber = number.filter { it.isDigit() || it == '+' }
-            Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/+$formattedNumber"))
-        }
+        PackageUtils.SIGNAL_PACKAGE -> Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$number")).apply { setPackage(PackageUtils.SIGNAL_PACKAGE) }
+        PackageUtils.WHATSAPP_PACKAGE -> Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${number.filter { it.isDigit() }}"))
+        PackageUtils.TELEGRAM_PACKAGE -> Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/+${number.filter { it.isDigit() || it == '+' }}"))
         else -> Intent(Intent.ACTION_SENDTO, Uri.parse("sms:$number"))
     }
     try {

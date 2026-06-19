@@ -64,10 +64,10 @@ object ImageLoader {
         val context = LocalContext.current
         val isVideo = photo.videoData != null
 
-        val modifier = if(onClick != null) modifier.invisibleClickable(onClick) else modifier
+        val clickableModifier = if(onClick != null) modifier.invisibleClickable(onClick) else modifier
 
         Box(
-            modifier = modifier
+            modifier = clickableModifier
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color.DarkGray),
             contentAlignment = Alignment.Center

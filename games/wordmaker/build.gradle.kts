@@ -9,5 +9,6 @@ android {
 }
 
 dependencies {
+    implementation(project(":library:ui"))
     implementation(libs.androidx.datastore.preferences)
 }

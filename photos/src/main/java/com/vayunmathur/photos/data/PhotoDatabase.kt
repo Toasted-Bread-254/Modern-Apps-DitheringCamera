@@ -2,17 +2,20 @@ package com.vayunmathur.photos.data
 
 import androidx.room.Dao
 import androidx.room.Database
+import androidx.room.Delete
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import androidx.room.Upsert
 import androidx.room.migration.Migration
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PhotoDao {
     @Query("SELECT * FROM Photo")
-    fun getAllFlow(): kotlinx.coroutines.flow.Flow<List<Photo>>
+    fun getAllFlow(): Flow<List<Photo>>
 
     @Query("SELECT * FROM Photo WHERE id = :id")
-    fun getByIdFlow(id: Long): kotlinx.coroutines.flow.Flow<Photo?>
+    fun getByIdFlow(id: Long): Flow<Photo?>
 
     @Query("SELECT * FROM Photo")
     suspend fun getAll(): List<Photo>
@@ -20,10 +23,10 @@ interface PhotoDao {
     @Query("SELECT * FROM Photo WHERE uri = :uri")
     suspend fun getByUri(uri: String): List<Photo>
 
-    @androidx.room.Upsert
+    @Upsert
     suspend fun upsertAll(photos: List<Photo>)
 
-    @androidx.room.Delete
+    @Delete
     suspend fun delete(value: Photo): Int
 
     @Query("DELETE FROM Photo WHERE id IN (:ids)")
@@ -32,17 +35,17 @@ interface PhotoDao {
     @Query("SELECT Photo.* FROM Photo JOIN PhotoOCR ON Photo.id = PhotoOCR.rowid WHERE PhotoOCR MATCH :query AND Photo.isTrashed = 0")
     suspend fun searchPhotos(query: String): List<Photo>
 
-    @androidx.room.Upsert
+    @Upsert
     suspend fun upsertOCR(ocr: PhotoOCR)
 
     @Query("DELETE FROM PhotoOCR WHERE rowid IN (:ids)")
     suspend fun deleteOCRByIds(ids: List<Long>)
 
     @Query("SELECT count(*) FROM PhotoOCR")
-    fun getOCRCountFlow(): kotlinx.coroutines.flow.Flow<Int>
+    fun getOCRCountFlow(): Flow<Int>
 
     @Query("SELECT count(*) FROM Photo WHERE isTrashed = 0 AND duration IS NULL")
-    fun getOCRTargetCountFlow(): kotlinx.coroutines.flow.Flow<Int>
+    fun getOCRTargetCountFlow(): Flow<Int>
 }
 
 @Database(entities = [Photo::class, PhotoOCR::class], version = 6, exportSchema = false)

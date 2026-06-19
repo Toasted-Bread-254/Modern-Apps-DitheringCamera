@@ -8,48 +8,43 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.Upsert
 import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
 import com.vayunmathur.library.util.DefaultConverters
 import kotlinx.coroutines.flow.Flow
 
-val MIGRATION_1_2 = object : Migration(1, 2) {
-    override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("""
-            CREATE TABLE IF NOT EXISTS `DownloadedVideo` (
-                `id` INTEGER NOT NULL, 
-                `name` TEXT NOT NULL, 
-                `videoID` INTEGER NOT NULL, 
-                `duration` INTEGER NOT NULL, 
-                `views` INTEGER NOT NULL, 
-                `uploadDate` INTEGER NOT NULL, 
-                `thumbnailURL` TEXT NOT NULL, 
-                `author` TEXT NOT NULL, 
-                `filePath` TEXT NOT NULL, 
-                `audioPath` TEXT, 
-                `timestamp` INTEGER NOT NULL, 
-                PRIMARY KEY(`id`)
-            )
-        """.trimIndent())
-    }
+val MIGRATION_1_2 = Migration(1, 2) {
+    it.execSQL("""
+        CREATE TABLE IF NOT EXISTS `DownloadedVideo` (
+            `id` INTEGER NOT NULL, 
+            `name` TEXT NOT NULL, 
+            `videoID` INTEGER NOT NULL, 
+            `duration` INTEGER NOT NULL, 
+            `views` INTEGER NOT NULL, 
+            `uploadDate` INTEGER NOT NULL, 
+            `thumbnailURL` TEXT NOT NULL, 
+            `author` TEXT NOT NULL, 
+            `filePath` TEXT NOT NULL, 
+            `audioPath` TEXT, 
+            `timestamp` INTEGER NOT NULL, 
+            PRIMARY KEY(`id`)
+        )
+    """.trimIndent())
 }
 
-val MIGRATION_2_3 = object : Migration(2, 3) {
-    override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("""
-            CREATE TABLE IF NOT EXISTS `CachedRelatedVideo` (
-                `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                `sourceVideoID` INTEGER NOT NULL,
-                `name` TEXT NOT NULL,
-                `videoID` INTEGER NOT NULL,
-                `duration` INTEGER NOT NULL,
-                `views` INTEGER NOT NULL,
-                `uploadDate` INTEGER NOT NULL,
-                `thumbnailURL` TEXT NOT NULL,
-                `author` TEXT NOT NULL,
-                `cachedAt` INTEGER NOT NULL
-            )
-        """.trimIndent())
-    }
+val MIGRATION_2_3 = Migration(2, 3) {
+    it.execSQL("""
+        CREATE TABLE IF NOT EXISTS `CachedRelatedVideo` (
+            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            `sourceVideoID` INTEGER NOT NULL,
+            `name` TEXT NOT NULL,
+            `videoID` INTEGER NOT NULL,
+            `duration` INTEGER NOT NULL,
+            `views` INTEGER NOT NULL,
+            `uploadDate` INTEGER NOT NULL,
+            `thumbnailURL` TEXT NOT NULL,
+            `author` TEXT NOT NULL,
+            `cachedAt` INTEGER NOT NULL
+        )
+    """.trimIndent())
 }
 
 @Dao

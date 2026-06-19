@@ -67,16 +67,12 @@ abstract class ContactDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: ContactDatabase? = null
 
-        fun getInstance(context: Context): ContactDatabase {
-            return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    ContactDatabase::class.java,
-                    "contacts_database"
-                ).build()
-                INSTANCE = instance
-                instance
-            }
+        fun getInstance(context: Context): ContactDatabase = INSTANCE ?: synchronized(this) {
+            INSTANCE ?: Room.databaseBuilder(
+                context.applicationContext,
+                ContactDatabase::class.java,
+                "contacts_database"
+            ).build().also { INSTANCE = it }
         }
     }
 }

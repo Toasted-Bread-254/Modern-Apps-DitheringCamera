@@ -127,60 +127,54 @@ fun PlayingBottomBar(
 
     val progressFactor = if (duration > 0) progress.toFloat() / duration.toFloat() else 0f
 
-    if (currentItem != null) {
-        val metadata = currentItem!!.mediaMetadata
+    val item = currentItem ?: return
+    val metadata = item.mediaMetadata
 
-        BottomAppBar(
-            Modifier.height(100.dp).invisibleClickable{
-                backStack.add(Route.Song)
-            }
-        ) {
-            Column {
-                // Progress bar pinned to the top of the bar
-                LinearProgressIndicator(
-                    progress = { progressFactor },
-                    modifier = Modifier.fillMaxWidth().height(2.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = Color.Transparent
-                )
+    BottomAppBar(
+        Modifier.height(100.dp).invisibleClickable{
+            backStack.add(Route.Song)
+        }
+    ) {
+        Column {
+            // Progress bar pinned to the top of the bar
+            LinearProgressIndicator(
+                progress = { progressFactor },
+                modifier = Modifier.fillMaxWidth().height(2.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = Color.Transparent
+            )
 
-                ListItem(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    // Leading: The Album Art
-                    headlineContent = {
-                        Text(
-                            text = metadata.title?.toString() ?: stringResource(R.string.unknown_title),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    supportingContent = {
-                        Text(
-                            text = metadata.artist?.toString() ?: stringResource(R.string.unknown_artist),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    leadingContent = {
-                        AlbumArt(metadata.artworkUri!!, Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)))
-                    },
-                    trailingContent = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { musicViewModel.togglePlayPause() }) {
-                                if(isPlaying) {
-                                    IconPause()
-                                } else {
-                                    IconPlay()
-                                }
-                            }
-                            IconButton(onClick = { musicViewModel.skipNext() }) {
-                                Icon(painterResource(R.drawable.ic_skip_next), contentDescription = null)
-                            }
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                headlineContent = {
+                    Text(
+                        text = metadata.title?.toString() ?: stringResource(R.string.unknown_title),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                supportingContent = {
+                    Text(
+                        text = metadata.artist?.toString() ?: stringResource(R.string.unknown_artist),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                leadingContent = {
+                    AlbumArt(metadata.artworkUri!!, Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)))
+                },
+                trailingContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { musicViewModel.togglePlayPause() }) {
+                            if (isPlaying) IconPause() else IconPlay()
+                        }
+                        IconButton(onClick = { musicViewModel.skipNext() }) {
+                            Icon(painterResource(R.drawable.ic_skip_next), contentDescription = null)
                         }
                     }
-                )
-            }
+                }
+            )
         }
     }
 }

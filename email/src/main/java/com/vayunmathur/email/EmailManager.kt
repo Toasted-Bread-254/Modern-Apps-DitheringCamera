@@ -9,10 +9,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.Properties
 import javax.activation.DataHandler
-import javax.activation.FileDataSource
 import javax.mail.*
 import javax.mail.internet.*
-import javax.mail.search.*
 import java.util.*
 
 /**
@@ -53,41 +51,36 @@ class EmailManager {
     }
 
     private fun getImapSession(auth: AuthType, server: ServerConfig): Session {
-        val properties = Properties()
-        if (server.useSsl) {
-            properties["mail.store.protocol"] = "imaps"
-            properties["mail.imaps.host"] = server.host
-            properties["mail.imaps.port"] = server.port.toString()
-            properties["mail.imaps.ssl.enable"] = "true"
-            properties["mail.imaps.fetchsize"] = "1048576"
-            properties["mail.imaps.partialfetch"] = "true"
-        } else {
-            properties["mail.store.protocol"] = "imap"
-            properties["mail.imap.host"] = server.host
-            properties["mail.imap.port"] = server.port.toString()
-            properties["mail.imap.starttls.enable"] = "true"
-            properties["mail.imap.starttls.required"] = "true"
-            properties["mail.imap.fetchsize"] = "1048576"
-            properties["mail.imap.partialfetch"] = "true"
+        val proto = server.imapProtocol
+        val properties = Properties().apply {
+            this["mail.store.protocol"] = proto
+            this["mail.$proto.host"] = server.host
+            this["mail.$proto.port"] = server.port.toString()
+            this["mail.$proto.fetchsize"] = "1048576"
+            this["mail.$proto.partialfetch"] = "true"
+            if (server.useSsl) {
+                this["mail.$proto.ssl.enable"] = "true"
+            } else {
+                this["mail.$proto.starttls.enable"] = "true"
+                this["mail.$proto.starttls.required"] = "true"
+            }
         }
         return Session.getInstance(properties).also { registerProviders(it) }
     }
 
     private fun getSmtpSession(auth: AuthType, server: ServerConfig): Session {
-        val properties = Properties()
-        if (server.useSsl) {
-            properties["mail.transport.protocol"] = "smtps"
-            properties["mail.smtps.host"] = server.host
-            properties["mail.smtps.port"] = server.port.toString()
-            properties["mail.smtps.ssl.enable"] = "true"
-            properties["mail.smtps.auth"] = "true"
-        } else {
-            properties["mail.transport.protocol"] = "smtp"
-            properties["mail.smtp.host"] = server.host
-            properties["mail.smtp.port"] = server.port.toString()
-            properties["mail.smtp.starttls.enable"] = "true"
-            properties["mail.smtp.starttls.required"] = "true"
-            properties["mail.smtp.auth"] = "true"
+        val proto = server.smtpProtocol
+        val properties = Properties().apply {
+            this["mail.transport.protocol"] = proto
+            this["mail.$proto.host"] = server.host
+            this["mail.$proto.port"] = server.port.toString()
+            this["mail.$proto.auth"] = "true"
+            if (server.useSsl) {
+                this["mail.$proto.ssl.enable"] = "true"
+            } else {
+                this["mail.$proto.starttls.enable"] = "true"
+                this["mail.$proto.starttls.required"] = "true"
+            }
         }
         return Session.getInstance(properties).also { registerProviders(it) }
     }
@@ -229,7 +222,7 @@ class EmailManager {
         val gmailThreadId = (msg as? javax.mail.internet.MimeMessage)?.getHeader("X-GM-THRID")?.firstOrNull()
         val serverId = msg.getHeader("Message-ID")?.firstOrNull()
         val refs = msg.getHeader("References")?.firstOrNull()
-        val isRead = !msg.isSet(javax.mail.Flags.Flag.SEEN).not() && msg.isSet(javax.mail.Flags.Flag.SEEN)
+        val isRead = msg.isSet(javax.mail.Flags.Flag.SEEN)
         val whenMillis = msg.sentDate?.time ?: msg.receivedDate?.time ?: 0L
         return EmailMessage(
             accountEmail = user,
@@ -287,17 +280,7 @@ class EmailManager {
     }
 
     suspend fun fetchFolders(server: ServerConfig, user: String, auth: AuthType): List<EmailFolder> = withStore(server, user, auth) { store ->
-        val folders = store.defaultFolder.list("*")
-        folders.map { folder ->
-            EmailFolder(
-                accountEmail = user,
-                fullName = folder.fullName,
-                name = folder.name,
-                parentFullName = folder.parent?.fullName?.takeIf { it.isNotEmpty() },
-                holdsMessages = (folder.type and Folder.HOLDS_MESSAGES) != 0,
-                delimiter = folder.separator.toString()
-            )
-        }
+        fetchFoldersInStore(store, user)
     }
 
     suspend fun fetchMessages(
@@ -308,97 +291,17 @@ class EmailManager {
         limit: Int,
         offset: Int,
         fetchBodies: Boolean = false,
-        /**
-         * Set of IMAP UIDs we already have stored locally. Messages whose UID is in
-         * this set are skipped entirely — no envelope, no body, no attachments are
-         * returned for them. Saves a lot of network on repeated syncs.
-         */
         skipUids: Set<Long> = emptySet(),
     ): Pair<List<EmailMessage>, List<Attachment>> = withStore(server, user, auth) { store ->
-        val folder = store.getFolder(folderName)
-        if ((folder.type and Folder.HOLDS_MESSAGES) == 0) return@withStore emptyList<EmailMessage>() to emptyList()
-
-        folder.open(Folder.READ_ONLY)
-        try {
-            val totalMessages = folder.messageCount
-            if (totalMessages == 0) return@withStore emptyList<EmailMessage>() to emptyList()
-
-            val end = (totalMessages - offset).coerceAtLeast(1)
-            val start = (end - limit + 1).coerceAtLeast(1)
-            if (end < 1) return@withStore emptyList<EmailMessage>() to emptyList()
-
-            val messages = folder.getMessages(start, end)
-            // First fetch just UIDs so we can decide what to skip before doing the
-            // (much heavier) envelope + body fetches.
-            val uidOnly = FetchProfile().apply {
-                add(UIDFolder.FetchProfileItem.UID)
-            }
-            folder.fetch(messages, uidOnly)
-
-            val uidFolder = folder as? UIDFolder
-            val novel = messages.filter { msg ->
-                val uid = uidFolder?.getUID(msg) ?: -1L
-                uid !in skipUids
-            }.toTypedArray()
-
-            if (novel.isEmpty()) return@withStore emptyList<EmailMessage>() to emptyList()
-
-            val fp = FetchProfile().apply {
-                add(FetchProfile.Item.ENVELOPE)
-                add(UIDFolder.FetchProfileItem.UID)
-                add(FetchProfile.Item.CONTENT_INFO)
-                add("X-GM-THRID")
-            }
-            folder.fetch(novel, fp)
-
-            val emailMessages = mutableListOf<EmailMessage>()
-            val allAttachments = mutableListOf<Attachment>()
-
-            novel.reversedArray().forEach { msg ->
-                val uid = uidFolder?.getUID(msg) ?: -1L
-                val (body, isHtml, attachments) = if (fetchBodies) {
-                    processMessageContent(user, folderName, uid, msg)
-                } else {
-                    Triple(null, false, emptyList<Attachment>())
-                }
-                
-                allAttachments.addAll(attachments)
-
-                emailMessages.add(EmailMessage(
-                    accountEmail = user,
-                    id = uid,
-                    folderName = folderName,
-                    serverId = (msg as? MimeMessage)?.messageID,
-                    threadId = msg.getHeader("X-GM-THRID")?.firstOrNull() ?: uid.toString(),
-                    subject = msg.subject ?: "(No Subject)",
-                    from = msg.from?.firstOrNull()?.toString() ?: "Unknown",
-                    to = msg.getRecipients(Message.RecipientType.TO)?.joinToString { it.toString() },
-                    cc = msg.getRecipients(Message.RecipientType.CC)?.joinToString { it.toString() },
-                    date = msg.sentDate?.toString() ?: "",
-                    body = body,
-                    isHtml = isHtml,
-                    isRead = msg.isSet(Flags.Flag.SEEN),
-                    references = msg.getHeader("References")?.joinToString(" "),
-                    hasAttachments = attachments.isNotEmpty() || hasAttachmentsInfo(msg)
-                ))
-            }
-            emailMessages to allAttachments
-        } finally {
-            folder.close(false)
-        }
+        fetchMessagesInStore(store, user, folderName, limit, offset, fetchBodies, skipUids)
     }
 
     private fun hasAttachmentsInfo(message: Message): Boolean {
-        val content = message.content
-        return if (content is MimeMultipart) {
-            for (i in 0 until content.count) {
-                val part = content.getBodyPart(i)
-                if (Part.ATTACHMENT.equals(part.disposition, ignoreCase = true) || !part.fileName.isNullOrBlank()) {
-                    return true
-                }
-            }
-            false
-        } else false
+        val content = message.content as? MimeMultipart ?: return false
+        return (0 until content.count).any { i ->
+            val part = content.getBodyPart(i)
+            Part.ATTACHMENT.equals(part.disposition, ignoreCase = true) || !part.fileName.isNullOrBlank()
+        }
     }
 
     suspend fun sendMessage(
@@ -551,11 +454,10 @@ class EmailManager {
     }
 
     private fun processMessageContent(user: String, folderName: String, uid: Long, part: Part, partId: String = ""): Triple<String?, Boolean, List<Attachment>> {
-        if (part.isMimeType("text/plain")) {
-            return Triple(part.content.toString(), false, emptyList())
-        } else if (part.isMimeType("text/html")) {
-            return Triple(part.content.toString(), true, emptyList())
-        } else if (part.isMimeType("multipart/*")) {
+        when {
+            part.isMimeType("text/plain") -> return Triple(part.content.toString(), false, emptyList())
+            part.isMimeType("text/html") -> return Triple(part.content.toString(), true, emptyList())
+            part.isMimeType("multipart/*") -> {
             val mp = part.content as MimeMultipart
             var finalBody: String? = null
             var finalIsHtml = false
@@ -585,42 +487,8 @@ class EmailManager {
                 }
             }
             return Triple(finalBody, finalIsHtml, attachments)
+            }
         }
         return Triple(null, false, emptyList())
-    }
-
-    private fun getTextFromMessage(message: Message): Pair<String, Boolean> {
-        // Fallback for simple calls, but preferably use processMessageContent
-        return try {
-            if (message.isMimeType("text/plain")) {
-                message.content.toString() to false
-            } else if (message.isMimeType("text/html")) {
-                message.content.toString() to true
-            } else if (message.isMimeType("multipart/*")) {
-                getTextFromMimeMultipart(message.content as MimeMultipart)
-            } else {
-                "" to false
-            }
-        } catch (e: Exception) {
-            "Error loading content: ${e.message}" to false
-        }
-    }
-
-    private fun getTextFromMimeMultipart(mimeMultipart: MimeMultipart): Pair<String, Boolean> {
-        var plainText = ""
-        var htmlText = ""
-        val count = mimeMultipart.count
-        for (i in 0 until count) {
-            val bodyPart = mimeMultipart.getBodyPart(i)
-            if (bodyPart.isMimeType("text/plain")) {
-                plainText += bodyPart.content
-            } else if (bodyPart.isMimeType("text/html")) {
-                htmlText += bodyPart.content
-            } else if (bodyPart.content is MimeMultipart) {
-                val (nestedText, nestedIsHtml) = getTextFromMimeMultipart(bodyPart.content as MimeMultipart)
-                if (nestedIsHtml) htmlText += nestedText else plainText += nestedText
-            }
-        }
-        return if (htmlText.isNotEmpty()) htmlText to true else plainText to false
     }
 }

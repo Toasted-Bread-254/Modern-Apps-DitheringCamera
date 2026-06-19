@@ -39,6 +39,7 @@ import com.vayunmathur.library.widgets.DynamicThemeGlance
 import com.vayunmathur.weather.MainActivity
 import com.vayunmathur.weather.data.WeatherDatabase
 import com.vayunmathur.weather.network.ForecastResponse
+import com.vayunmathur.weather.util.roundCoord
 import com.vayunmathur.weather.util.weatherConditionForCode
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
@@ -102,54 +103,24 @@ class WeatherGlanceWidget : GlanceAppWidget() {
         }
     }
 
-    private fun roundCoord(value: Double): Double =
-        (value * 10000.0).let { kotlin.math.round(it) } / 10000.0
 }
 
-/**
- * Intent that opens the Clock app. Tries to open the app from this project
- * first (com.vayunmathur.clock), falls back to the system clock app.
- */
-private fun clockIntent(context: Context): Intent {
-    // Try to launch the clock app from this project
-    val explicitIntent = Intent().apply {
-        setClassName("com.vayunmathur.clock", "com.vayunmathur.clock.MainActivity")
+private fun resolveOrFallback(context: Context, pkg: String, cls: String, fallback: () -> Intent): Intent {
+    val explicit = Intent().apply {
+        setClassName(pkg, cls)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
-    
-    // Check if the explicit intent can be resolved
-    return if (explicitIntent.resolveActivity(context.packageManager) != null) {
-        explicitIntent
-    } else {
-        // Fall back to generic alarm clock intent
-        Intent(AlarmClock.ACTION_SHOW_ALARMS).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-    }
+    return if (explicit.resolveActivity(context.packageManager) != null) explicit
+    else fallback().apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
 }
 
-/**
- * Intent that opens the Calendar app. Tries to open the app from this project
- * first (com.vayunmathur.calendar), falls back to the system calendar app.
- */
-private fun calendarIntent(context: Context): Intent {
-    // Try to launch the calendar app from this project
-    val explicitIntent = Intent().apply {
-        setClassName("com.vayunmathur.calendar", "com.vayunmathur.calendar.MainActivity")
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    
-    // Check if the explicit intent can be resolved
-    return if (explicitIntent.resolveActivity(context.packageManager) != null) {
-        explicitIntent
-    } else {
-        // Fall back to generic calendar intent
-        Intent(Intent.ACTION_MAIN).apply {
-            addCategory(Intent.CATEGORY_APP_CALENDAR)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-    }
-}
+private fun clockIntent(context: Context) = resolveOrFallback(
+    context, "com.vayunmathur.clock", "com.vayunmathur.clock.MainActivity",
+) { Intent(AlarmClock.ACTION_SHOW_ALARMS) }
+
+private fun calendarIntent(context: Context) = resolveOrFallback(
+    context, "com.vayunmathur.calendar", "com.vayunmathur.calendar.MainActivity",
+) { Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_APP_CALENDAR) } }
 
 @Composable
 private fun Content(weather: WidgetWeather?) {

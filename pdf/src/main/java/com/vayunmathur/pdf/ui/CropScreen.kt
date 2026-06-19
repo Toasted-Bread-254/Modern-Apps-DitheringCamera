@@ -215,12 +215,7 @@ fun CropOverlay(
 
         var activeDragCorner by remember { mutableStateOf<Int?>(null) }
 
-        val corners = listOf(
-            quadrilateral.topLeft,
-            quadrilateral.topRight,
-            quadrilateral.bottomRight,
-            quadrilateral.bottomLeft
-        )
+        val corners = quadrilateral.corners()
         val screenCorners = corners.map { Offset(it.x * width, it.y * height) }
 
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -245,26 +240,15 @@ fun CropOverlay(
             drawPath(borderPath, Color.White, style = Stroke(width = 2.dp.toPx()))
         }
 
-        // Corner index: 0=TL, 1=TR, 2=BR, 3=BL
-        CropHandle(offset = screenCorners[0], onDragStart = { activeDragCorner = 0 }, onDragEnd = { activeDragCorner = null }) { delta ->
-            val newX = (quadrilateral.topLeft.x + delta.x / width).coerceIn(0f, 1f)
-            val newY = (quadrilateral.topLeft.y + delta.y / height).coerceIn(0f, 1f)
-            onQuadrilateralChange(quadrilateral.copy(topLeft = Offset(newX, newY)))
-        }
-        CropHandle(offset = screenCorners[1], onDragStart = { activeDragCorner = 1 }, onDragEnd = { activeDragCorner = null }) { delta ->
-            val newX = (quadrilateral.topRight.x + delta.x / width).coerceIn(0f, 1f)
-            val newY = (quadrilateral.topRight.y + delta.y / height).coerceIn(0f, 1f)
-            onQuadrilateralChange(quadrilateral.copy(topRight = Offset(newX, newY)))
-        }
-        CropHandle(offset = screenCorners[2], onDragStart = { activeDragCorner = 2 }, onDragEnd = { activeDragCorner = null }) { delta ->
-            val newX = (quadrilateral.bottomRight.x + delta.x / width).coerceIn(0f, 1f)
-            val newY = (quadrilateral.bottomRight.y + delta.y / height).coerceIn(0f, 1f)
-            onQuadrilateralChange(quadrilateral.copy(bottomRight = Offset(newX, newY)))
-        }
-        CropHandle(offset = screenCorners[3], onDragStart = { activeDragCorner = 3 }, onDragEnd = { activeDragCorner = null }) { delta ->
-            val newX = (quadrilateral.bottomLeft.x + delta.x / width).coerceIn(0f, 1f)
-            val newY = (quadrilateral.bottomLeft.y + delta.y / height).coerceIn(0f, 1f)
-            onQuadrilateralChange(quadrilateral.copy(bottomLeft = Offset(newX, newY)))
+        for (i in 0..3) {
+            CropHandle(offset = screenCorners[i], onDragStart = { activeDragCorner = i }, onDragEnd = { activeDragCorner = null }) { delta ->
+                val c = quadrilateral.corner(i)
+                val newPos = Offset(
+                    (c.x + delta.x / width).coerceIn(0f, 1f),
+                    (c.y + delta.y / height).coerceIn(0f, 1f)
+                )
+                onQuadrilateralChange(quadrilateral.withCorner(i, newPos))
+            }
         }
 
         activeDragCorner?.let { cornerIdx ->

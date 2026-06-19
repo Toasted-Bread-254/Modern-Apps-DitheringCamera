@@ -4,8 +4,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -35,9 +33,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.changedToUp
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -113,21 +108,7 @@ fun SecureFolderPage(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                if (event.changes.size > 1) {
-                                    val zoom = event.calculateZoom()
-                                    if (zoom != 1f) {
-                                        columnCount = (columnCount / zoom).coerceIn(2f, 8f)
-                                        event.changes.forEach { it.consume() }
-                                    }
-                                }
-                                if (event.changes.all { it.changedToUp() }) break
-                            }
-                        }
-                    }
+                    .pinchToZoomColumns({ columnCount }, { columnCount = it })
             ) {
                 LazyVerticalGrid(
                     GridCells.Fixed(columnCount.roundToInt().coerceIn(2, 8)),

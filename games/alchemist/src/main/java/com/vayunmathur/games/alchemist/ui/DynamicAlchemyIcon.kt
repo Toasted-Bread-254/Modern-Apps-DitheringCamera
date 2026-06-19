@@ -25,23 +25,11 @@ import com.vayunmathur.games.alchemist.R
 fun DynamicAlchemyIcon(iconId: Long, undiscovered: Boolean = false, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val resources = LocalResources.current
-    // 1. Construct the resource name string (e.g., "icon_001")
     val name = "icon_${iconId.toString().padStart(3, '0')}"
-    // 2. Look up the internal Android resource ID
     val resId = remember(iconId) {
-        val id = resources.getIdentifier(
-            name,
-            "drawable",
-            context.packageName
-        )
-        if (id == 0) {
-            // Fallback to explicit package name
-            resources.getIdentifier(
-                name,
-                "drawable",
-                "com.vayunmathur.games.alchemist"
-            )
-        } else id
+        resources.getIdentifier(name, "drawable", context.packageName)
+            .takeIf { it != 0 }
+            ?: resources.getIdentifier(name, "drawable", "com.vayunmathur.games.alchemist")
     }
 
     if (resId != 0) {
@@ -67,7 +55,6 @@ fun DynamicAlchemyIcon(iconId: Long, undiscovered: Boolean = false, modifier: Mo
             }
         }
     } else {
-        // Fallback if the icon ID doesn't exist
         Box(modifier = modifier.fillMaxSize().background(Color.Gray)) {
             Text(
                 text = "???",

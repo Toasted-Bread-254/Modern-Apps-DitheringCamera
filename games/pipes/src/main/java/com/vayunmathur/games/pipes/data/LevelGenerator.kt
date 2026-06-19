@@ -10,16 +10,6 @@ object LevelGenerator {
         }
     }
 
-    private fun computeAdjacency(cells: Set<CellPos>): Map<CellPos, List<CellPos>> {
-        val dirs = listOf(-1 to 0, 1 to 0, 0 to -1, 0 to 1)
-        return cells.associateWith { cell ->
-            dirs.mapNotNull { (dr, dc) ->
-                val n = CellPos(cell.row + dr, cell.col + dc)
-                if (n in cells) n else null
-            }
-        }
-    }
-
     fun generateLevel(
         cells: Set<CellPos>,
         adjacency: Map<CellPos, List<CellPos>>,
@@ -27,26 +17,22 @@ object LevelGenerator {
         seed: Long,
         id: String
     ): LevelData? {
-        val random = Random(seed)
         val rows = cells.maxOf { it.row } + 1
         val cols = cells.maxOf { it.col } + 1
 
         for (attempt in 0 until 50) {
-            val result = tryGenerate(cells, adjacency, numFlows, Random(seed + attempt))
-            if (result != null) {
-                val (paths, endpoints) = result
-                return LevelData(
-                    id = id,
-                    rows = rows,
-                    cols = cols,
-                    cells = cells,
-                    adjacency = adjacency,
-                    renderPositions = null,
-                    endpoints = endpoints,
-                    bridges = emptySet(),
-                    optimalMoves = cells.size
-                )
-            }
+            val (_, endpoints) = tryGenerate(cells, adjacency, numFlows, Random(seed + attempt)) ?: continue
+            return LevelData(
+                id = id,
+                rows = rows,
+                cols = cols,
+                cells = cells,
+                adjacency = adjacency,
+                renderPositions = null,
+                endpoints = endpoints,
+                bridges = emptySet(),
+                optimalMoves = cells.size
+            )
         }
         return null
     }
@@ -129,18 +115,10 @@ object LevelGenerator {
         levelCount: Int,
         flowRange: IntRange,
         seed: Long
-    ): List<LevelData> {
-        val levels = mutableListOf<LevelData>()
-        var currentSeed = seed
-        for (i in 0 until levelCount) {
-            val numFlows = flowRange.random(Random(currentSeed))
-            val id = "${name.replace("×", "x").replace(" ", "_")}_${String.format("%03d", i + 1)}"
-            val level = generateLevel(cells, adjacency, numFlows, currentSeed, id)
-            if (level != null) {
-                levels.add(level)
-            }
-            currentSeed += 100
-        }
-        return levels
+    ): List<LevelData> = (0 until levelCount).mapNotNull { i ->
+        val currentSeed = seed + i * 100
+        val numFlows = flowRange.random(Random(currentSeed))
+        val id = "${name.replace("×", "x").replace(" ", "_")}_${String.format("%03d", i + 1)}"
+        generateLevel(cells, adjacency, numFlows, currentSeed, id)
     }
 }

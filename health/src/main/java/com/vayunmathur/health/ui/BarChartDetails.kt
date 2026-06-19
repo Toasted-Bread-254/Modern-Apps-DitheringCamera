@@ -313,6 +313,13 @@ fun BarChartDetails(
     var anchorDate by remember { mutableStateOf(Clock.System.todayIn(TimeZone.currentSystemDefault())) }
     val dataState by viewModel.barChartData.collectAsState()
 
+    val dateUnit = when (selectedTab) {
+        0 -> DateTimeUnit.DAY
+        1 -> DateTimeUnit.WEEK
+        2 -> DateTimeUnit.MONTH
+        else -> DateTimeUnit.YEAR
+    }
+
     LaunchedEffect(selectedTab, anchorDate, config) {
         viewModel.loadBarChartData(config, anchorDate, selectedTab)
     }
@@ -387,12 +394,7 @@ fun BarChartDetails(
                     horizontalArrangement = Arrangement.Center
                 ) {
                     IconButton(onClick = {
-                        anchorDate = when (selectedTab) {
-                            0 -> anchorDate.minus(1, DateTimeUnit.DAY)
-                            1 -> anchorDate.minus(1, DateTimeUnit.WEEK)
-                            2 -> anchorDate.minus(1, DateTimeUnit.MONTH)
-                            else -> anchorDate.minus(1, DateTimeUnit.YEAR)
-                        }
+                        anchorDate = anchorDate.minus(1, dateUnit)
                     }) {
                         Icon(
                             painterResource(R.drawable.baseline_arrow_back_24),
@@ -407,22 +409,10 @@ fun BarChartDetails(
                         textAlign = TextAlign.Center
                     )
 
-                    val nextDate = when (selectedTab) {
-                        0 -> anchorDate.plus(1, DateTimeUnit.DAY)
-                        1 -> anchorDate.plus(1, DateTimeUnit.WEEK)
-                        2 -> anchorDate.plus(1, DateTimeUnit.MONTH)
-                        else -> anchorDate.plus(1, DateTimeUnit.YEAR)
-                    }
+                    val nextDate = anchorDate.plus(1, dateUnit)
 
                     IconButton(
-                        onClick = {
-                            anchorDate = when (selectedTab) {
-                                0 -> anchorDate.plus(1, DateTimeUnit.DAY)
-                                1 -> anchorDate.plus(1, DateTimeUnit.WEEK)
-                                2 -> anchorDate.plus(1, DateTimeUnit.MONTH)
-                                else -> anchorDate.plus(1, DateTimeUnit.YEAR)
-                            }
-                        },
+                        onClick = { anchorDate = nextDate },
                         enabled = nextDate <= Clock.System.todayIn(TimeZone.currentSystemDefault())
                     ) {
                         Icon(

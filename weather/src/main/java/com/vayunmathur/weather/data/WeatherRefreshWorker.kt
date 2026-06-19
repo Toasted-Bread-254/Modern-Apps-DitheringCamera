@@ -11,9 +11,9 @@ import androidx.work.WorkerParameters
 import com.vayunmathur.library.util.buildDatabase
 import com.vayunmathur.weather.glance.WeatherGlanceWidget
 import com.vayunmathur.weather.network.WeatherApi
+import com.vayunmathur.weather.util.roundCoord
 import kotlinx.serialization.json.Json
 import java.util.concurrent.TimeUnit
-import kotlin.math.round
 
 class WeatherRefreshWorker(
     private val context: Context,
@@ -51,8 +51,6 @@ class WeatherRefreshWorker(
             Result.retry()
         }
     }
-
-    private fun roundCoord(value: Double): Double = round(value * 10000.0) / 10000.0
 
     companion object {
         private const val TAG = "WeatherRefresh"

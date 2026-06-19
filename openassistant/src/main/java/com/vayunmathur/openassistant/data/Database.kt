@@ -11,7 +11,6 @@ import androidx.room.TypeConverters
 import androidx.room.Upsert
 import com.vayunmathur.library.util.DefaultConverters
 import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity
@@ -22,9 +21,6 @@ data class Conversation(
     override val id: Long = 0,
 ): DatabaseItem
 
-/**
- * Data class representing a persistent Message within a conversation.
- */
 @Entity
 data class Message(
     val conversationId: Long,
@@ -44,7 +40,6 @@ data class Memory(
     @PrimaryKey(autoGenerate = true)
     override val id: Long = 0,
 ): DatabaseItem
-
 
 @Dao
 interface ConversationDao {
@@ -111,17 +106,9 @@ abstract class AppDatabase: RoomDatabase() {
     abstract fun memoryDao(): MemoryDao
 
     companion object : com.vayunmathur.library.util.DatabaseMigrations {
-        override val migrations: List<Migration> = listOf(
-            object : Migration(1, 2) {
-                override fun migrate(db: SupportSQLiteDatabase) {
-                    db.execSQL("ALTER TABLE Message ADD COLUMN missingAppPackage TEXT")
-                }
-            },
-            object : Migration(2, 3) {
-                override fun migrate(db: SupportSQLiteDatabase) {
-                    db.execSQL("CREATE TABLE IF NOT EXISTS `Memory` (`content` TEXT NOT NULL, `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL)")
-                }
-            }
+        override val migrations = listOf(
+            Migration(1, 2) { it.execSQL("ALTER TABLE Message ADD COLUMN missingAppPackage TEXT") },
+            Migration(2, 3) { it.execSQL("CREATE TABLE IF NOT EXISTS `Memory` (`content` TEXT NOT NULL, `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL)") },
         )
     }
 }

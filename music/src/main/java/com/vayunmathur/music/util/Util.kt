@@ -52,22 +52,20 @@ fun getThumbnail(context: Context, uri: Uri): Bitmap? {
 }
 
 fun albumArtistPairs(music: List<Music>, artists: List<Artist>, albums: List<Album>): List<Pair<Album, Artist>> {
-    val albumArtistPairs = mutableListOf<Pair<Album, Artist>>()
-    for(song in music) {
-        val album = albums.find { it.id == song.albumId }
-        val artist = artists.find { it.id == song.artistId }
-        
-        if (album != null && artist != null) {
-            albumArtistPairs += Pair(album, artist)
-        } else {
-            // Detailed logging for failures
+    val albumMap = albums.associateBy { it.id }
+    val artistMap = artists.associateBy { it.id }
+    return music.mapNotNull { song ->
+        val album = albumMap[song.albumId]
+        val artist = artistMap[song.artistId]
+        if (album != null && artist != null) album to artist
+        else {
             if (album == null) Log.w("MusicUtil", "Song '${song.title}' has albumId ${song.albumId} but no matching album found")
             if (artist == null) Log.w("MusicUtil", "Song '${song.title}' has artistId ${song.artistId} but no matching artist found")
+            null
         }
+    }.distinct().also {
+        Log.d("MusicUtil", "Computed ${it.size} unique album-artist pairs from ${music.size} songs")
     }
-    val distinctPairs = albumArtistPairs.distinct()
-    Log.d("MusicUtil", "Computed ${distinctPairs.size} unique album-artist pairs from ${music.size} songs")
-    return distinctPairs
 }
 
 suspend fun getAlbums(context: Context): List<Album> = withContext(Dispatchers.IO) {
@@ -116,9 +114,8 @@ suspend fun getAlbums(context: Context): List<Album> = withContext(Dispatchers.I
     return@withContext musicList
 }
 
-
 suspend fun getArtists(context: Context): List<Artist> = withContext(Dispatchers.IO) {
-    val musicList = mutableListOf<Artist>()
+    val artistList = mutableListOf<Artist>()
     val projection = arrayOf(
         MediaStore.Audio.Artists._ID,
         MediaStore.Audio.Artists.ARTIST,
@@ -149,7 +146,7 @@ suspend fun getArtists(context: Context): List<Artist> = withContext(Dispatchers
                         id
                     ).toString()
 
-                    musicList.add(Artist(id, title, contentUri))
+                    artistList.add(Artist(id, title, contentUri))
                 } catch (e: Exception) {
                     Log.e("MusicUtil", "Error constructing artist from cursor", e)
                 }
@@ -158,7 +155,7 @@ suspend fun getArtists(context: Context): List<Artist> = withContext(Dispatchers
     } catch (e: Exception) {
         Log.e("MusicUtil", "Error querying artists", e)
     }
-    return@withContext musicList
+    return@withContext artistList
 }
 
 @Composable

@@ -1,46 +1,12 @@
 package com.vayunmathur.games.unblockjam.data
+
 import android.content.Context
-import android.content.SharedPreferences
-import androidx.core.content.edit
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import com.vayunmathur.library.util.LevelStatsRepository
 
-@Serializable
-data class LevelStats(val bestScore: Int)
+class CompletedLevelsRepository(context: Context) : LevelStatsRepository(context) {
+    fun incrementTotalMoves() = incrementCounter("total_moves")
+    fun getTotalMoves(): Int = getCounter("total_moves")
 
-class CompletedLevelsRepository(context: Context) {
-
-    private val prefs: SharedPreferences = context.getSharedPreferences("level_stats", Context.MODE_PRIVATE)
-    private val levelStatsKey = "level_stats_map"
-
-    fun getLevelStats(): Map<String, LevelStats> {
-        val jsonString = prefs.getString(levelStatsKey, "{}") ?: "{}"
-        return Json.decodeFromString<Map<String, LevelStats>>(jsonString)
-    }
-
-    fun updateBestScore(levelId: String, score: Int) {
-        val allStats = getLevelStats().toMutableMap()
-        val currentStats = allStats[levelId]
-        if (currentStats == null || score < currentStats.bestScore) {
-            allStats[levelId] = LevelStats(bestScore = score)
-            val jsonString = Json.encodeToString(allStats)
-            prefs.edit {
-                putString(levelStatsKey, jsonString)
-            }
-        }
-    }
-
-    fun incrementTotalMoves() {
-        val current = prefs.getInt("total_moves", 0)
-        prefs.edit { putInt("total_moves", current + 1) }
-    }
-
-    fun getTotalMoves(): Int = prefs.getInt("total_moves", 0)
-
-    fun incrementUndoCount() {
-        val current = prefs.getInt("undo_count", 0)
-        prefs.edit { putInt("undo_count", current + 1) }
-    }
-
-    fun getUndoCount(): Int = prefs.getInt("undo_count", 0)
+    fun incrementUndoCount() = incrementCounter("undo_count")
+    fun getUndoCount(): Int = getCounter("undo_count")
 }

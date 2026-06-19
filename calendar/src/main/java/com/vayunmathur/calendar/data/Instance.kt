@@ -46,12 +46,7 @@ data class Instance(
     val spanDays: List<LocalDate>
         get() {
             val startDate = startDateTime.date
-            val endDate = if (endDateTime.time == LocalTime(
-                    0,
-                    0,
-                    0
-                )
-            ) (endDateTime.date - DatePeriod(days = 1)) else endDateTime.date
+            val endDate = if (endDateTime.time == LocalTime(0, 0)) (endDateTime.date - DatePeriod(days = 1)) else endDateTime.date
             return (startDate..endDate).toList()
         }
 

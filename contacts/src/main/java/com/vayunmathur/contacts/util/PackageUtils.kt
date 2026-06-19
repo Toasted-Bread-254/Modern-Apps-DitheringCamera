@@ -13,13 +13,11 @@ object PackageUtils {
 
     private const val TAG = "ContactPlatforms"
 
-    fun isAppInstalled(context: Context, packageName: String): Boolean {
-        return try {
-            context.packageManager.getPackageInfo(packageName, 0)
-            true
-        } catch (_: PackageManager.NameNotFoundException) {
-            false
-        }
+    fun isAppInstalled(context: Context, packageName: String): Boolean = try {
+        context.packageManager.getPackageInfo(packageName, 0)
+        true
+    } catch (_: PackageManager.NameNotFoundException) {
+        false
     }
 
     fun isSignalInstalled(context: Context) = isAppInstalled(context, SIGNAL_PACKAGE)

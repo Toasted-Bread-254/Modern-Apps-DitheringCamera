@@ -4,7 +4,6 @@ import android.app.Application
 import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
-import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.core.text.HtmlCompat
@@ -15,16 +14,13 @@ import com.vayunmathur.email.data.EmailSyncState
 import com.vayunmathur.email.data.EmailSyncWorker
 import com.vayunmathur.email.data.OutboxManager
 import com.vayunmathur.email.data.OutboxSendWorker
-import com.vayunmathur.email.widget.EmailWidget
 import com.vayunmathur.library.util.SecureResultReceiver
-import com.vayunmathur.library.widgets.updateWidget
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class EmailViewModel(application: Application) : AndroidViewModel(application) {
@@ -166,12 +162,7 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleMessageSelection(uid: Long) {
-        val current = _selectedMessageUids.value
-        if (uid in current) {
-            _selectedMessageUids.value = current - uid
-        } else {
-            _selectedMessageUids.value = current + uid
-        }
+        _selectedMessageUids.update { if (uid in it) it - uid else it + uid }
     }
 
     fun clearSelection() {
@@ -224,19 +215,16 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
     fun logout(context: android.content.Context) {
         val currentEmail = _selectedAccountEmail.value ?: return
         viewModelScope.launch {
-            val account = dao.getAccounts().find { it.email == currentEmail }
-            if (account != null) {
+            dao.getAccounts().find { it.email == currentEmail }?.let { account ->
                 dao.deleteAccount(account)
                 dao.clearFolders(currentEmail)
                 dao.clearMessages(currentEmail)
             }
             val remaining = dao.getAccounts()
+            _selectedAccountEmail.value = remaining.firstOrNull()?.email
             if (remaining.isEmpty()) {
-                _selectedAccountEmail.value = null
                 EmailSyncWorker.cancelSync(context)
                 com.vayunmathur.email.data.ImapIdleService.stop(context)
-            } else {
-                _selectedAccountEmail.value = remaining.first().email
             }
         }
     }
@@ -251,21 +239,15 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
         inReplyTo: String? = null,
         references: String? = null,
         onSuccess: () -> Unit,
-        /**
-         * Called after the message has been queued to the outbox because the
-         * immediate send failed. The supplied string is the underlying error
-         * message — the UI typically surfaces it via a Snackbar like
-         * "Saved to Outbox: …" and then pops the composer.
-         */
         onError: (String) -> Unit,
     ) {
         viewModelScope.launch {
-            suspend fun attemptSend(acct: EmailAccount) {
+            try {
                 emailManager.sendMessage(
                     context = getApplication(),
-                    server = acct.smtpServer(),
-                    user = acct.loginUser(),
-                    auth = acct.authType(),
+                    server = account.smtpServer(),
+                    user = account.loginUser(),
+                    auth = account.authType(),
                     to = to,
                     subject = subject,
                     body = body,
@@ -273,17 +255,11 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
                     attachments = attachments,
                     inReplyTo = inReplyTo,
                     references = references,
-                    from = acct.email,
+                    from = account.email,
                 )
-            }
-
-            try {
-                attemptSend(account)
                 onSuccess()
             } catch (e: Exception) {
                 val msg = e.message ?: e::class.simpleName ?: "Unknown error"
-                // Persist to outbox so it survives app death; the worker will
-                // retry every 5 minutes until it lands.
                 try {
                     OutboxManager.enqueue(
                         context = getApplication(),
@@ -298,8 +274,6 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
                         initialError = msg,
                     )
                 } catch (queueError: Exception) {
-                    // If even queueing fails, fall through to the error callback so
-                    // the user sees *something* instead of silently losing the draft.
                     onError("$msg (and outbox save failed: ${queueError.message})")
                     return@launch
                 }
@@ -318,17 +292,14 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
         if (message.body != null) return
         viewModelScope.launch {
             val account = dao.getAccountByEmail(message.accountEmail) ?: return@launch
-            suspend fun attempt(acct: EmailAccount): Triple<String?, Boolean, List<Attachment>> {
-                return emailManager.fetchMessageBody(
-                    server = acct.imapServer(),
-                    user = acct.loginUser(),
-                    auth = acct.authType(),
+            try {
+                val (body, isHtml, attachments) = emailManager.fetchMessageBody(
+                    server = account.imapServer(),
+                    user = account.loginUser(),
+                    auth = account.authType(),
                     folderName = message.folderName,
                     uid = message.id,
                 )
-            }
-            try {
-                val (body, isHtml, attachments) = attempt(account)
                 if (body != null || attachments.isNotEmpty()) {
                     dao.insertMessages(listOf(message.copy(body = body, isHtml = isHtml, hasAttachments = attachments.isNotEmpty())))
                     if (attachments.isNotEmpty()) dao.insertAttachments(attachments)

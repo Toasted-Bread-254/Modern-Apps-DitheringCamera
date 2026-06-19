@@ -22,7 +22,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import kotlin.math.round
 
 /** Per-location forecast state held in [WeatherViewModel.forecasts]. */
 data class ForecastUiState(
@@ -180,7 +179,6 @@ class WeatherViewModel(
         }
     }
 
-    private fun roundCoord(value: Double): Double = round(value * 10000.0) / 10000.0
 }
 
 class WeatherViewModelFactory(

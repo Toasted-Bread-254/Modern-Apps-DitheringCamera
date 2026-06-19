@@ -24,6 +24,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":library:ui"))
     implementation(libs.jakarta.mail)
     implementation(libs.jakarta.activation)
     implementation(libs.ktor.client.core)

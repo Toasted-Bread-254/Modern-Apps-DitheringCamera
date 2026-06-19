@@ -13,6 +13,7 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import androidx.room.Update
 import androidx.room.Delete
+import androidx.room.migration.Migration
 import kotlinx.serialization.Serializable
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
@@ -446,15 +447,13 @@ abstract class HealthDatabase : RoomDatabase() {
 
     companion object : com.vayunmathur.library.util.DatabaseMigrations {
         override val migrations = listOf(
-            object : androidx.room.migration.Migration(4, 5) {
-                override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
-                    db.execSQL("ALTER TABLE Record ADD COLUMN exercise_exerciseType INTEGER NOT NULL DEFAULT 0")
-                    db.execSQL("ALTER TABLE Record ADD COLUMN exercise_title TEXT")
-                    db.execSQL("ALTER TABLE Record ADD COLUMN exercise_notes TEXT")
-                    db.execSQL("ALTER TABLE Record ADD COLUMN exercise_segmentsJson TEXT")
-                    db.execSQL("ALTER TABLE Record ADD COLUMN exercise_lapsJson TEXT")
-                    db.execSQL("ALTER TABLE Record ADD COLUMN exercise_hasRoute INTEGER NOT NULL DEFAULT 0")
-                }
+            Migration(4, 5) {
+                it.execSQL("ALTER TABLE Record ADD COLUMN exercise_exerciseType INTEGER NOT NULL DEFAULT 0")
+                it.execSQL("ALTER TABLE Record ADD COLUMN exercise_title TEXT")
+                it.execSQL("ALTER TABLE Record ADD COLUMN exercise_notes TEXT")
+                it.execSQL("ALTER TABLE Record ADD COLUMN exercise_segmentsJson TEXT")
+                it.execSQL("ALTER TABLE Record ADD COLUMN exercise_lapsJson TEXT")
+                it.execSQL("ALTER TABLE Record ADD COLUMN exercise_hasRoute INTEGER NOT NULL DEFAULT 0")
             }
         )
     }

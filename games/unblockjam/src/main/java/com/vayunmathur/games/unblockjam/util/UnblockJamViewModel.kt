@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.vayunmathur.games.unblockjam.data.CompletedLevelsRepository
 import com.vayunmathur.games.unblockjam.data.LevelData
 import com.vayunmathur.games.unblockjam.data.LevelPack
-import com.vayunmathur.games.unblockjam.data.LevelStats
+import com.vayunmathur.library.util.LevelStats
 import com.vayunmathur.library.util.AchievementsManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay

@@ -11,8 +11,6 @@ import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -32,7 +30,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toOkioPath
@@ -40,20 +37,6 @@ import okio.Path.Companion.toPath
 import okio.openZip
 import okio.source
 
-/**
- * ViewModel for the Files app.
- *
- * Owns:
- *  - All-files-access permission state and notification-prompted flag (DataStore-style)
- *  - Current directory / file system / open-zip path navigation state
- *  - Directory listing (run on Dispatchers.IO; refreshed by FileObserver)
- *  - Selection set
- *  - Rename, delete, move, archive, unzip, save-incoming-Uri operations
- *  - ACTION_VIEW intent emission for opening files with external apps
- *  - Snackbar message emission for error/status feedback
- *
- * Composables collect [snackbarMessages] and [intents] via LaunchedEffect.
- */
 class FilesViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs =
@@ -206,26 +189,25 @@ class FilesViewModel(application: Application) : AndroidViewModel(application) {
             return true
         }
         val z = _zipPath.value
-        if (z != null) {
-            val cur = _currentDirectory.value
-            if (cur.toString() == "/" || cur.name.isEmpty()) {
-                _currentFileSystem.value = fs
-                _currentDirectory.value = z.parent ?: rootDirectory
-                _zipPath.value = null
-            } else {
-                _currentDirectory.value = cur.parent ?: "/".toPath()
+        when {
+            z != null -> {
+                val cur = _currentDirectory.value
+                if (cur.toString() == "/" || cur.name.isEmpty()) {
+                    navigateTo(z.parent ?: rootDirectory, fs)
+                } else {
+                    _currentDirectory.value = cur.parent ?: "/".toPath()
+                    loadDirectory()
+                    restartObserver()
+                }
             }
-            loadDirectory()
-            restartObserver()
-            return true
+            _currentDirectory.value != rootDirectory -> {
+                _currentDirectory.value = _currentDirectory.value.parent ?: _currentDirectory.value
+                loadDirectory()
+                restartObserver()
+            }
+            else -> return false
         }
-        if (_currentDirectory.value != rootDirectory) {
-            _currentDirectory.value = _currentDirectory.value.parent ?: _currentDirectory.value
-            loadDirectory()
-            restartObserver()
-            return true
-        }
-        return false
+        return true
     }
 
     // ---- File ops ----
@@ -253,40 +235,26 @@ class FilesViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Move [sources] into [target] directory (used for in-row drop targets). */
     fun moveInto(sources: List<Path>, target: Path) {
         if (!target.isDirectory(_currentFileSystem.value)) return
-        val fileSystem = _currentFileSystem.value
-        viewModelScope.launch(Dispatchers.IO) {
-            var movedAny = false
-            sources.forEach { source ->
-                if (source != target && !target.toString().startsWith(source.toString())) {
-                    try {
-                        fileSystem.atomicMove(source, target.resolve(source.name))
-                        movedAny = true
-                    } catch (e: Exception) {
-                        emitMoveFailed(e)
-                    }
-                }
-            }
-            if (movedAny) {
-                clearSelection()
-                loadDirectory()
-            }
+        moveFiles(sources, target, _currentFileSystem.value) { source ->
+            source != target && !target.toString().startsWith(source.toString())
         }
     }
 
-    /**
-     * Move [sources] into [target] for breadcrumb drops. Always uses the on-disk file system
-     * (breadcrumbs of the real fs only — matching original behavior).
-     */
     fun moveToBreadcrumb(sources: List<Path>, target: Path) {
+        moveFiles(sources, target, fs) { source ->
+            source.parent != target && source != target
+        }
+    }
+
+    private fun moveFiles(sources: List<Path>, target: Path, fileSystem: FileSystem, canMove: (Path) -> Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             var movedAny = false
             sources.forEach { source ->
-                if (source.parent != target && source != target) {
+                if (canMove(source)) {
                     try {
-                        fs.atomicMove(source, target.resolve(source.name))
+                        fileSystem.atomicMove(source, target.resolve(source.name))
                         movedAny = true
                     } catch (e: Exception) {
                         emitMoveFailed(e)
@@ -358,10 +326,8 @@ class FilesViewModel(application: Application) : AndroidViewModel(application) {
         val ctx = getApplication<Application>()
         val uris = _incomingUris.value ?: return
         val target = _currentDirectory.value
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                uris.forEach { uri -> saveUriToPath(ctx, uri, target) }
-            }
+        viewModelScope.launch(Dispatchers.IO) {
+            uris.forEach { uri -> saveUriToPath(ctx, uri, target) }
             clearIncomingUris()
             loadDirectory()
             _snackbarMessages.emit(ctx.getString(R.string.files_saved))
@@ -427,18 +393,5 @@ class FilesViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         return uri.path?.substringAfterLast('/')
-    }
-}
-
-/** Factory for [FilesViewModel]. Only [Application] is required. */
-class FilesViewModelFactory(
-    private val application: Application,
-) : ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        require(modelClass.isAssignableFrom(FilesViewModel::class.java)) {
-            "Unexpected ViewModel class: $modelClass"
-        }
-        return FilesViewModel(application) as T
     }
 }

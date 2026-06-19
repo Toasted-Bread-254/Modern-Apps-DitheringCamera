@@ -176,8 +176,8 @@ fun PasswordEditPage(
                                 InputChip(true, {}, label = { Text(w)}, modifier = Modifier.padding(vertical = 4.dp),
                                     trailingIcon = {
                                         Box(Modifier.clickable {
-                                            viewModel.updateDraft { d ->
-                                                d.copy(websites = d.websites.toMutableList().also { it.removeAt(index) })
+                                        viewModel.updateDraft { d ->
+                                                d.copy(websites = d.websites.filterIndexed { i, _ -> i != index })
                                             }
                                         }) {
                                             IconClose()

@@ -4,7 +4,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -15,12 +17,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -30,17 +32,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import com.vayunmathur.library.R as LibraryR
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.weather.R
 import com.vayunmathur.weather.Route
 import com.vayunmathur.weather.data.SavedLocation
+import com.vayunmathur.weather.intents.parseLocalIsoToEpochSec
 import com.vayunmathur.weather.ui.components.CurrentWeatherCard
 import com.vayunmathur.weather.ui.components.DailyCard
 import com.vayunmathur.weather.ui.components.HourlyCard
@@ -49,19 +47,7 @@ import com.vayunmathur.weather.ui.components.SummaryCard
 import com.vayunmathur.weather.ui.components.WeatherBlocks
 import com.vayunmathur.weather.util.WeatherViewModel
 import kotlinx.coroutines.launch
-import kotlin.time.Instant
 
-/**
- * Port of WeatherMaster's `MainScreen` + `MainScreenScaffold`:
- *
- * - Wraps the main content in a `DismissibleNavigationDrawer` whose
- *   `drawerContent` is [LocationsScreen].
- * - The drawer is opened by the hamburger in [MainSearchBar].
- * - Below the search bar, the vertical scroll renders, in order:
- *   `CurrentWeatherCard` → `SummaryCard` → `HourlyCard` → `DailyCard` →
- *   `WeatherBlocks`. 16 dp horizontal padding,
- *   24 dp top, 14 dp spacing between cards.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomePage(backStack: NavBackStack<Route>, viewModel: WeatherViewModel) {
@@ -75,9 +61,6 @@ fun HomePage(backStack: NavBackStack<Route>, viewModel: WeatherViewModel) {
         return
     }
 
-    // Track which location is "active" — we don't have a flag on the
-    // entity itself, so default to the first row and let the user pick
-    // others from the drawer.
     var activeLocationId by remember { mutableStateOf(locations.first().id) }
     val activeLocation = locations.firstOrNull { it.id == activeLocationId } ?: locations.first()
 
@@ -199,56 +182,7 @@ private fun LocationPage(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EmptyHome(viewModel: WeatherViewModel, onAddLocation: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val scope = rememberCoroutineScope()
-    var requesting by remember { mutableStateOf(false) }
-
-    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions(),
-    ) { granted ->
-        if (granted.values.any { it }) {
-            requesting = true
-            scope.launch {
-                val loc = com.vayunmathur.weather.util.LocationProvider.currentLocation(context)
-                if (loc != null) {
-                    viewModel.setCurrentLocation(
-                        name = "Current location",
-                        latitude = loc.latitude,
-                        longitude = loc.longitude,
-                    )
-                } else {
-                    android.widget.Toast.makeText(context, "Couldn't determine location", android.widget.Toast.LENGTH_SHORT).show()
-                }
-                requesting = false
-            }
-        } else {
-            android.widget.Toast.makeText(context, "Location permission denied", android.widget.Toast.LENGTH_SHORT).show()
-        }
-    }
-    val onUseCurrent = {
-        if (com.vayunmathur.weather.util.LocationProvider.hasPermission(context)) {
-            requesting = true
-            scope.launch {
-                val loc = com.vayunmathur.weather.util.LocationProvider.currentLocation(context)
-                if (loc != null) {
-                    viewModel.setCurrentLocation(
-                        name = "Current location",
-                        latitude = loc.latitude,
-                        longitude = loc.longitude,
-                    )
-                }
-                requesting = false
-            }
-            Unit
-        } else {
-            permissionLauncher.launch(
-                arrayOf(
-                    android.Manifest.permission.ACCESS_FINE_LOCATION,
-                    android.Manifest.permission.ACCESS_COARSE_LOCATION,
-                ),
-            )
-        }
-    }
+    val (onUseCurrent, requesting) = rememberRequestDeviceLocation(viewModel)
 
     Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.weather_title)) }) }) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
@@ -261,14 +195,14 @@ private fun EmptyHome(viewModel: WeatherViewModel, onAddLocation: () -> Unit) {
                     modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp),
                 )
                 Button(onClick = onAddLocation) { Text(stringResource(R.string.add_location)) }
-                androidx.compose.foundation.layout.Spacer(Modifier.padding(top = 8.dp))
-                androidx.compose.material3.OutlinedButton(
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
                     onClick = { onUseCurrent() },
                     enabled = !requesting,
                 ) {
                     if (requesting) {
                         CircularProgressIndicator(
-                            modifier = Modifier.padding(end = 8.dp).then(Modifier),
+                            modifier = Modifier.padding(end = 8.dp),
                             strokeWidth = 2.dp,
                         )
                     }
@@ -277,16 +211,4 @@ private fun EmptyHome(viewModel: WeatherViewModel, onAddLocation: () -> Unit) {
             }
         }
     }
-}
-
-/**
- * Open-Meteo returns ISO local-time strings (no offset) when timezone=auto
- * is requested. Combine with the response's `utc_offset_seconds` to
- * produce an actual epoch.
- */
-private fun parseLocalIsoToEpochSec(iso: String, utcOffsetSec: Int): Long? {
-    val padded = if (iso.length == 16) "$iso:00" else iso
-    return runCatching {
-        Instant.parse("${padded}Z").epochSeconds - utcOffsetSec
-    }.getOrNull()
 }

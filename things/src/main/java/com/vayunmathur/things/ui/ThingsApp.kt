@@ -116,11 +116,7 @@ private fun HydrationCard(totalMl: Int, goalMl: Int) {
                 style = MaterialTheme.typography.displayMedium
             )
             Spacer(Modifier.height(12.dp))
-            val progress = if (goalMl > 0) {
-                (totalMl.toFloat() / goalMl).coerceIn(0f, 1f)
-            } else {
-                0f
-            }
+            val progress = (totalMl.toFloat() / goalMl.coerceAtLeast(1)).coerceIn(0f, 1f)
             LinearProgressIndicator(
                 progress = { progress },
                 modifier = Modifier.fillMaxWidth()

@@ -9,16 +9,11 @@ import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -107,44 +102,6 @@ class PasswordsViewModel(
         }
     }
 
-    /**
-     * Returns a [MutableState] bound to a password row. Reads observe the
-     * latest persisted value; writes optimistically update local state and
-     * upsert to the DB. For new rows (id = 0), the assigned id is captured
-     * after the first upsert so subsequent updates target the same row.
-     */
-    @Composable
-    fun editablePassword(initialId: Long, default: () -> Password): MutableState<Password> {
-        var currentId by remember { mutableLongStateOf(initialId) }
-        val data by passwords.collectAsState()
-        val localState = remember { mutableStateOf<Password?>(null) }
-
-        LaunchedEffect(data, currentId) {
-            val dbItem = data.firstOrNull { it.id == currentId }
-            if (dbItem != null) {
-                localState.value = dbItem
-            }
-        }
-
-        return remember {
-            object : MutableState<Password> {
-                override var value: Password
-                    get() = localState.value ?: default()
-                    set(newValue) {
-                        localState.value = newValue
-                        upsert(newValue) { newId ->
-                            if (currentId == 0L) {
-                                currentId = newId
-                            }
-                        }
-                    }
-
-                override fun component1(): Password = value
-                override fun component2(): (Password) -> Unit = { value = it }
-            }
-        }
-    }
-
     // -- TOTP ticker ------------------------------------------------------
 
     /**
@@ -223,10 +180,6 @@ class PasswordsViewModel(
 
     private val _importMessage = MutableStateFlow<String?>(null)
     val importMessage: StateFlow<String?> = _importMessage.asStateFlow()
-
-    fun dismissImportMessage() {
-        _importMessage.value = null
-    }
 
     fun importCsv(uri: Uri, source: ImportSource = ImportSource.BITWARDEN) {
         val ctx = getApplication<Application>()

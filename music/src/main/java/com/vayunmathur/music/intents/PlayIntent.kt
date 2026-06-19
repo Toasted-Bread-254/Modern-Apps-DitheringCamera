@@ -23,9 +23,8 @@ class PlayIntent: AssistantIntent<PlayMusicData, Unit>(serializer<PlayMusicData>
             "album" -> allMusic.filter { it.albumId == input.id }
             "artist" -> allMusic.filter { it.artistId == input.id }
             "playlist" -> {
-                // Playlist > Music in the type-code ordering → playlist is right.
-                val songIds = db.matchingDao().getFromRight(input.id, TYPE_MUSIC_PLAYLIST)
-                allMusic.filter { songIds.contains(it.id) }
+                val songIds = db.matchingDao().getFromRight(input.id, TYPE_MUSIC_PLAYLIST).toSet()
+                allMusic.filter { it.id in songIds }
             }
             else -> emptyList()
         }

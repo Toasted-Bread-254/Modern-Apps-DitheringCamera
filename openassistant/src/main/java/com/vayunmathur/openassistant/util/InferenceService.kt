@@ -78,43 +78,17 @@ class InferenceService : Service() {
             }
         }
         serviceScope.launch {
-            Log.d("InferenceService", "Starting job queue processor loop")
             while (isActive) {
                 try {
-                    // Prioritize standardQueue
                     val standardJob = standardQueue.tryReceive().getOrNull()
-                    if (standardJob != null) {
-                        executeStandardInference(standardJob)
-                        continue
-                    }
+                    if (standardJob != null) { executeStandardInference(standardJob); continue }
 
-                    // Check intentQueue if standardQueue is empty
                     val intentJob = intentQueue.tryReceive().getOrNull()
-                    if (intentJob != null) {
-                        val now = System.currentTimeMillis()
-                        if (now - intentJob.enqueuedTime > 45000) {
-                            Log.w("InferenceService", "Intent job expired in queue, discarding.")
-                            intentJob.receiver.send(-1, Bundle().apply { putString("error", getString(R.string.error_request_expired)) })
-                        } else {
-                            executeIntentInference(intentJob)
-                        }
-                        continue
-                    }
+                    if (intentJob != null) { processIntentJob(intentJob); continue }
 
-                    // If both empty, wait for either (with priority to standard)
                     select<Unit> {
-                        standardQueue.onReceive { job: InferenceJob.Standard ->
-                            executeStandardInference(job)
-                        }
-                        intentQueue.onReceive { job: InferenceJob.Intent ->
-                            val now = System.currentTimeMillis()
-                            if (now - job.enqueuedTime > 45000) {
-                                Log.w("InferenceService", "Intent job expired in queue, discarding.")
-                                job.receiver.send(-1, Bundle().apply { putString("error", getString(R.string.error_request_expired)) })
-                            } else {
-                                executeIntentInference(job)
-                            }
-                        }
+                        standardQueue.onReceive { executeStandardInference(it) }
+                        intentQueue.onReceive { processIntentJob(it) }
                     }
                 } catch (e: Exception) {
                     Log.e("InferenceService", "Critical error in job processor loop", e)
@@ -197,21 +171,30 @@ class InferenceService : Service() {
         }
     }
 
+    private suspend fun processIntentJob(job: InferenceJob.Intent) {
+        if (System.currentTimeMillis() - job.enqueuedTime > 45000) {
+            Log.w("InferenceService", "Intent job expired in queue, discarding.")
+            job.receiver.send(-1, Bundle().apply { putString("error", getString(R.string.error_request_expired)) })
+        } else {
+            executeIntentInference(job)
+        }
+    }
+
+    private suspend fun resetConversation(conversationId: Long, userText: String) {
+        currentConversation?.close()
+        currentConversation = null
+        delay(100)
+        val history = fetchHistoryFromDb(conversationId)
+            .filter { it.text != userText || it.timestamp < Clock.System.now().toEpochMilliseconds() - 1000 }
+        setupConversation(conversationId, history)
+    }
+
     private suspend fun executeStandardInference(job: InferenceJob.Standard) {
         try {
-            Log.d("InferenceService", "Executing Standard Inference for conversation ${job.conversationId}")
             ensureEngineInitialized()
-            
             if (currentConversationId != job.conversationId || currentConversation == null || !currentConversation!!.isAlive) {
-                currentConversation?.close()
-                currentConversation = null
-                delay(100)
-
-                val history = fetchHistoryFromDb(job.conversationId)
-                    .filter { it.text != job.userText || it.timestamp < Clock.System.now().toEpochMilliseconds() - 1000 }
-                setupConversation(job.conversationId, history)
+                resetConversation(job.conversationId, job.userText)
             }
-
             runInferenceLoop(job.conversationId, job.userText, job.imagePaths, job.audioPath)
         } catch (e: Exception) {
             Log.e("InferenceService", "Inference failed, resetting engine for retry", e)
@@ -220,12 +203,9 @@ class InferenceService : Service() {
             currentConversationId = -1L
             engine?.close()
             engine = null
-
             try {
                 ensureEngineInitialized()
-                val history = fetchHistoryFromDb(job.conversationId)
-                    .filter { it.text != job.userText || it.timestamp < Clock.System.now().toEpochMilliseconds() - 1000 }
-                setupConversation(job.conversationId, history)
+                resetConversation(job.conversationId, job.userText)
                 runInferenceLoop(job.conversationId, job.userText, job.imagePaths, job.audioPath)
             } catch (retryError: Exception) {
                 Log.e("InferenceService", "Retry also failed", retryError)
@@ -407,7 +387,6 @@ class InferenceService : Service() {
         ))
 
         var fullResponseText = ""
-        var displayedText = ""
         val contents = mutableListOf<Content>()
         imagePaths.forEach { path -> contents.add(Content.ImageFile(path)) }
         audioPath?.let { if (File(it).exists()) contents.add(Content.AudioFile(it)) }
@@ -432,15 +411,14 @@ class InferenceService : Service() {
             }
             val chunkText = chunk.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
             fullResponseText += chunkText
-            displayedText += chunkText
 
             if(newTitle != null) {
                 updateTitleInDb(conversationId, newTitle!!)
                 newTitle = null
             }
 
-            if (displayedText.isNotBlank()) {
-                updateMessageInDb(aiMsgId, displayedText)
+            if (fullResponseText.isNotBlank()) {
+                updateMessageInDb(aiMsgId, fullResponseText)
             }
         }
     }

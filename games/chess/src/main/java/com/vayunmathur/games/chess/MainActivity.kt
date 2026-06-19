@@ -61,13 +61,13 @@ import com.vayunmathur.games.chess.util.ChessViewModel
 import com.vayunmathur.games.chess.util.ChessUiState
 import com.vayunmathur.games.chess.util.GameMode
 import com.vayunmathur.games.chess.util.StockfishEngine
-import com.vayunmathur.games.chess.util.ChessApi
-import com.vayunmathur.games.chess.data.Board
 import com.vayunmathur.games.chess.data.Piece
 import com.vayunmathur.games.chess.data.PieceColor
 import com.vayunmathur.games.chess.data.PieceType
 import com.vayunmathur.games.chess.data.Position
 import com.vayunmathur.games.chess.data.Move
+import com.vayunmathur.games.chess.util.AppBackupAgent
+import com.vayunmathur.games.chess.util.ChessAchievementsManager
 import com.vayunmathur.library.util.AchievementsManager
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.util.NavKey
@@ -75,8 +75,9 @@ import com.vayunmathur.library.util.rememberNavBackStack
 import com.vayunmathur.library.util.MainNavigation
 import com.vayunmathur.library.ui.GameCenterScreen
 import com.vayunmathur.library.ui.AchievementNotification
-import com.vayunmathur.games.chess.util.AppBackupAgent
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.Serializable
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
@@ -242,7 +243,6 @@ fun ChessGame(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     LaunchedEffect(uiState.board.lastMove) {
         val lastMove = uiState.board.lastMove ?: return@LaunchedEffect
@@ -256,9 +256,9 @@ fun ChessGame(
 
     LaunchedEffect(uiState.gameStatus) {
         val status = uiState.gameStatus ?: return@LaunchedEffect
-        val playerWins = if (uiState.gameMode is GameMode.VsAI) {
-            val playerColor = (uiState.gameMode as GameMode.VsAI).playerColor
-            if (playerColor == PieceColor.WHITE) status.contains("White wins") else status.contains("Black wins")
+        val mode = uiState.gameMode
+        val playerWins = if (mode is GameMode.VsAI) {
+            if (mode.playerColor == PieceColor.WHITE) status.contains("White wins") else status.contains("Black wins")
         } else {
             status.contains("wins")
         }
@@ -271,15 +271,12 @@ fun ChessGame(
             achievementsManager.onProgressUpdated("win_10", currentWins.toInt())
             achievementsManager.onProgressUpdated("win_50", currentWins.toInt())
 
-            if (uiState.board.moves.size <= 40) { // 20 moves per side = 40 total moves in list
+            if (uiState.board.moves.size <= 40) {
                 achievementsManager.onAchievementUnlocked("won_fast")
             }
 
-            if (uiState.gameMode is GameMode.VsAI) {
-                val diff = (uiState.gameMode as GameMode.VsAI).difficulty
-                if (diff == StockfishEngine.Difficulty.ADVANCED || diff == StockfishEngine.Difficulty.GRANDMASTER) {
-                    achievementsManager.onAchievementUnlocked("win_vs_ai_hard")
-                }
+            if (mode is GameMode.VsAI && mode.difficulty >= StockfishEngine.Difficulty.ADVANCED) {
+                achievementsManager.onAchievementUnlocked("win_vs_ai_hard")
             }
         }
     }
@@ -491,10 +488,10 @@ sealed interface Route: NavKey {
 @Composable
 fun rememberAchievementsManager(): AchievementsManager? {
     val context = LocalContext.current
-    val state = androidx.compose.runtime.produceState<AchievementsManager?>(initialValue = null, context) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    val state = produceState<AchievementsManager?>(initialValue = null, context) {
+        value = withContext(Dispatchers.IO) {
             val json = context.assets.open("achievements.json").bufferedReader().use { it.readText() }
-            com.vayunmathur.games.chess.util.ChessAchievementsManager(context, json)
+            ChessAchievementsManager(context, json)
         }
     }
     return state.value

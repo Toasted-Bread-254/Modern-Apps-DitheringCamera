@@ -111,6 +111,26 @@ fun ContactList(
             .toSortedMap()
     }
 
+    val toggleSelection = { id: Long ->
+        if (id in selectedIds) selectedIds.remove(id) else selectedIds.add(id)
+    }
+
+    val exportVcf = { contactsToExport: List<Contact>, filename: String ->
+        scope.launch(Dispatchers.IO) {
+            val vcfFile = context.cacheDir.toOkioPath().resolve(filename)
+            FileSystem.SYSTEM.sink(vcfFile).buffer().use { outputStream ->
+                VcfUtils.exportContacts(contactsToExport, outputStream)
+            }
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", vcfFile.toFile())
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/x-vcard"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, resources.getString(R.string.share_contact)))
+        }
+    }
+
     var showDeleteConfirmation by remember { mutableStateOf(false) }
 
     if (showDeleteConfirmation) {
@@ -136,9 +156,9 @@ fun ContactList(
         )
     }
 
-    val selectedID = when(backStack.last()) {
-        is Route.ContactDetail -> (backStack.last() as Route.ContactDetail).contactId
-        is Route.EditContact -> (backStack.last() as Route.EditContact).contactId
+    val selectedID = when (val last = backStack.last()) {
+        is Route.ContactDetail -> last.contactId
+        is Route.EditContact -> last.contactId
         else -> null
     }
 
@@ -173,20 +193,7 @@ fun ContactList(
                             Icon(painterResource(R.drawable.baseline_group_24), contentDescription = stringResource(R.string.add_to_group))
                         }
                         IconButton(onClick = {
-                            val toExport = contacts.filter { it.id in selectedIds }
-                            scope.launch(Dispatchers.IO) {
-                                val vcfFile = context.cacheDir.toOkioPath().resolve("selected_contacts.vcf")
-                                FileSystem.SYSTEM.sink(vcfFile).buffer().use { outputStream ->
-                                    VcfUtils.exportContacts(toExport, outputStream)
-                                }
-                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", vcfFile.toFile())
-                                val intent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/x-vcard"
-                                    putExtra(Intent.EXTRA_STREAM, uri)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                context.startActivity(Intent.createChooser(intent, resources.getString(R.string.share_contact)))
-                            }
+                            exportVcf(contacts.filter { it.id in selectedIds }, "selected_contacts.vcf")
                         }) {
                             IconShare()
                         }
@@ -206,21 +213,7 @@ fun ContactList(
                         )
                     },
                     actions = {
-                        IconButton(onClick = {
-                            scope.launch(Dispatchers.IO) {
-                                val vcfFile = context.cacheDir.toOkioPath().resolve("all_contacts.vcf")
-                                FileSystem.SYSTEM.sink(vcfFile).buffer().use { outputStream ->
-                                    VcfUtils.exportContacts(contacts, outputStream)
-                                }
-                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", vcfFile.toFile())
-                                val intent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/x-vcard"
-                                    putExtra(Intent.EXTRA_STREAM, uri)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                context.startActivity(Intent.createChooser(intent, resources.getString(R.string.share_contact)))
-                            }
-                        }) {
+                        IconButton(onClick = { exportVcf(contacts, "all_contacts.vcf") }) {
                             IconShare()
                         }
                     }
@@ -258,20 +251,10 @@ fun ContactList(
                                 viewModel = viewModel,
                                 embeddedInCard = true,
                                 onClick = {
-                                    if (isSelectionMode) {
-                                        if (contact.id in selectedIds) {
-                                            selectedIds.remove(contact.id)
-                                        } else {
-                                            selectedIds.add(contact.id)
-                                        }
-                                    } else {
-                                        onContactClick(contact)
-                                    }
+                                    if (isSelectionMode) toggleSelection(contact.id) else onContactClick(contact)
                                 },
                                 onLongClick = {
-                                    if (!isSelectionMode) {
-                                        selectedIds.add(contact.id)
-                                    }
+                                    if (!isSelectionMode) selectedIds.add(contact.id)
                                 }
                             )
                         }
@@ -290,20 +273,10 @@ fun ContactList(
                                 viewModel = viewModel,
                                 embeddedInCard = true,
                                 onClick = {
-                                    if (isSelectionMode) {
-                                        if (contact.id in selectedIds) {
-                                            selectedIds.remove(contact.id)
-                                        } else {
-                                            selectedIds.add(contact.id)
-                                        }
-                                    } else {
-                                        onContactClick(contact)
-                                    }
+                                    if (isSelectionMode) toggleSelection(contact.id) else onContactClick(contact)
                                 },
                                 onLongClick = {
-                                    if (!isSelectionMode) {
-                                        selectedIds.add(contact.id)
-                                    }
+                                    if (!isSelectionMode) selectedIds.add(contact.id)
                                 }
                             )
                         }
@@ -356,7 +329,7 @@ fun ContactListPick(mimeType: String?, contacts: List<Contact>, onClick: (Uri) -
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ContactItemPick(contact: Contact, mimeType: String?, onClick: (Uri) -> Unit) {
-    if(mimeType == null || mimeType == ContactsContract.Contacts.CONTENT_ITEM_TYPE || mimeType == ContactsContract.Contacts.CONTENT_TYPE) {
+    if (mimeType == null || mimeType == ContactsContract.Contacts.CONTENT_ITEM_TYPE || mimeType == ContactsContract.Contacts.CONTENT_TYPE) {
         ContactItem(
             contact = contact,
             isSelected = false,
@@ -369,16 +342,10 @@ fun ContactItemPick(contact: Contact, mimeType: String?, onClick: (Uri) -> Unit)
         )
     } else {
         val details = contact.details
-        val relevantList = when(mimeType) {
-            CDKEmail.CONTENT_ITEM_TYPE -> details.emails
-            CDKPhone.CONTENT_ITEM_TYPE -> details.phoneNumbers
-            CDKStructuredPostal.CONTENT_ITEM_TYPE -> details.addresses
-            else -> throw IllegalArgumentException("Unsupported MIME type: $mimeType")
-        }
-        val baseURI = when(mimeType) {
-            CDKEmail.CONTENT_ITEM_TYPE -> CDKEmail.CONTENT_URI
-            CDKPhone.CONTENT_ITEM_TYPE -> CDKPhone.CONTENT_URI
-            CDKStructuredPostal.CONTENT_ITEM_TYPE -> CDKStructuredPostal.CONTENT_URI
+        val (relevantList, baseURI) = when(mimeType) {
+            CDKEmail.CONTENT_ITEM_TYPE -> details.emails to CDKEmail.CONTENT_URI
+            CDKPhone.CONTENT_ITEM_TYPE -> details.phoneNumbers to CDKPhone.CONTENT_URI
+            CDKStructuredPostal.CONTENT_ITEM_TYPE -> details.addresses to CDKStructuredPostal.CONTENT_URI
             else -> throw IllegalArgumentException("Unsupported MIME type: $mimeType")
         }
         ContactItem(
@@ -556,20 +523,17 @@ fun ContactItem(
 
     val trimmedOrg = contact.org.company.trim()
     val showOrg = trimmedOrg.isNotEmpty()
-    val showGroups = contactGroups.size > 0
+    val showGroups = contactGroups.isNotEmpty()
 
     val content = @Composable {
         val hasDropdown = !dropdownList.isNullOrEmpty()
 
         key(showOrg, showGroups, contactGroups.size) {
             val itemModifier = if (embeddedInCard) {
-                // Inside a ContactSectionCard the parent already clips and
-                // paints the background; the row is just a flat ListItem with
-                // a translucent selection highlight.
                 combinedModifier
             } else {
-                combinedModifier
-                    .clip(RoundedCornerShape(16.dp, 16.dp, if(hasDropdown) 0.dp else 16.dp, if(hasDropdown) 0.dp else 16.dp))
+                val r = if (hasDropdown) 0.dp else 16.dp
+                combinedModifier.clip(RoundedCornerShape(16.dp, 16.dp, r, r))
             }
             val rowContainerColor = when {
                 isSelected -> MaterialTheme.colorScheme.primaryContainer
@@ -593,27 +557,19 @@ fun ContactItem(
                         modifier = Modifier.size(50.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        avatarBitmap?.let { bitmap ->
+                        if (avatarBitmap != null) {
                             Image(
-                                bitmap = bitmap.asImageBitmap(),
+                                bitmap = avatarBitmap!!.asImageBitmap(),
                                 contentDescription = stringResource(R.string.contact_photo_description, contact.name.value),
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(CircleShape)
+                                modifier = Modifier.fillMaxSize().clip(CircleShape)
                             )
-                        }
-                        if (contact.photo == null) {
+                        } else {
                             Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        color = getAvatarColor(contact.id),
-                                        shape = CircleShape
-                                    ),
+                                modifier = Modifier.fillMaxSize().background(getAvatarColor(contact.id), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = contact.name.value.firstOrNull()?.uppercase()?: "",
+                                    text = contact.name.value.firstOrNull()?.uppercase() ?: "",
                                     color = Color.White,
                                     style = MaterialTheme.typography.bodyLarge,
                                     fontWeight = FontWeight.Bold

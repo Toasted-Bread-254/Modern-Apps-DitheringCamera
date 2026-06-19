@@ -34,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -53,7 +52,6 @@ import com.vayunmathur.music.data.Artist
 import com.vayunmathur.music.data.Music
 import com.vayunmathur.music.R
 import com.vayunmathur.music.util.formatDuration
-import kotlinx.coroutines.runBlocking
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,7 +70,6 @@ fun ArtistDetailScreen(backStack: NavBackStack<Route>, musicViewModel: MusicView
         albumIds.map { id -> allAlbums.find { it.id == id }!! }
     } }
 
-    val context = LocalContext.current
     val currentMediaItem by musicViewModel.currentMediaItem.collectAsState()
     val currentSource by musicViewModel.currentSource.collectAsState()
 
@@ -97,9 +94,7 @@ fun ArtistDetailScreen(backStack: NavBackStack<Route>, musicViewModel: MusicView
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    val albumIds by musicViewModel.matchedAlbumsForArtist(artist.id)
-                    val allAlbums by musicViewModel.albums.collectAsState()
-                    val albumsUris by remember { derivedStateOf { allAlbums.filter { it.id in albumIds }.map { it.uri.toUri() } } }
+                    val albumsUris = remember(albums) { albums.map { it.uri.toUri() } }
 
                     AlbumArt(albumsUris, Modifier
                         .size(260.dp)

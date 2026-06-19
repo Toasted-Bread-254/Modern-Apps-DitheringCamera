@@ -80,23 +80,17 @@ fun SelectTimeZonesDialog(backStack: NavBackStack<Route>, ds: DataStoreUtils, cl
                 LazyColumn(Modifier.weight(1f)) {
                     items(filteredOptions, key = { (city, _) -> city }) { (city, id) ->
                         val isSelected = city in selectedTimeZones
+                        val toggle = {
+                            if (isSelected) ds.removeStringFromSet("time_zones", city)
+                            else ds.addStringToSet("time_zones", city)
+                        }
                         ListItem(
                             headlineContent = { Text(city) },
                             supportingContent = { Text(id, style = MaterialTheme.typography.labelSmall) },
                             trailingContent = {
-                                Checkbox(
-                                    checked = isSelected,
-                                    onCheckedChange = { checked ->
-                                        if (checked) ds.addStringToSet("time_zones", city)
-                                        else ds.removeStringFromSet("time_zones", city)
-                                    }
-                                )
+                                Checkbox(checked = isSelected, onCheckedChange = { toggle() })
                             },
-                            modifier = Modifier.clickable {
-                                // Toggle on row click for better UX
-                                if (!isSelected) ds.addStringToSet("time_zones", city)
-                                else ds.removeStringFromSet("time_zones", city)
-                            },
+                            modifier = Modifier.clickable { toggle() },
                             colors = ListItemDefaults.colors(Color.Transparent)
                         )
                     }

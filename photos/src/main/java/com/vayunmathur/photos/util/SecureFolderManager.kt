@@ -141,7 +141,4 @@ class SecureFolderManager(val context: Context) {
         return uri
     }
 
-    fun getSecureFile(path: String): File {
-        return File(path)
-    }
 }

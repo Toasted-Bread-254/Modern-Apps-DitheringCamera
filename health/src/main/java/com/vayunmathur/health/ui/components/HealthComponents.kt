@@ -244,18 +244,13 @@ fun DeltaChip(
     isGood: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val containerColor = if (isGood) {
-        MaterialTheme.colorScheme.tertiaryContainer
+    val (containerColor, contentColor) = if (isGood) {
+        MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
     } else {
-        MaterialTheme.colorScheme.errorContainer
-    }
-    val contentColor = if (isGood) {
-        MaterialTheme.colorScheme.onTertiaryContainer
-    } else {
-        MaterialTheme.colorScheme.onErrorContainer
+        MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
     }
     val arrow = if (percent >= 0f) "▲" else "▼"
-    val absPct = if (percent < 0f) -percent else percent
+    val absPct = kotlin.math.abs(percent)
     Surface(
         modifier = modifier.wrapContentSize(),
         shape = RoundedCornerShape(999.dp),

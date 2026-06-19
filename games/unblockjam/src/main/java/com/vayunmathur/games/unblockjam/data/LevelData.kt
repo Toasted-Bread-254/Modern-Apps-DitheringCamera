@@ -73,15 +73,10 @@ data class PackColorScheme(
 private fun packFromJson(json: String): LevelPack {
     val jsonObject = Json.parseToJsonElement(json).jsonObject
     val colors = jsonObject["colors"]?.jsonObject?.let {
-        fun parseColor(key: String, default: Long): Long {
-            return it[key]?.jsonPrimitive?.content?.let { content ->
-                try {
-                    content.removePrefix("0x").removePrefix("#").toLong(16)
-                } catch (_: Exception) {
-                    default
-                }
-            } ?: default
-        }
+        fun parseColor(key: String, default: Long): Long =
+            it[key]?.jsonPrimitive?.content
+                ?.removePrefix("0x")?.removePrefix("#")
+                ?.toLongOrNull(16) ?: default
         PackColorScheme(
             primary = parseColor("primary", 0xFF3D3021),
             secondary = parseColor("secondary", 0xFF4A3B2A),
@@ -109,9 +104,10 @@ private fun fromJson(json: JsonObject): LevelData {
         json["w"]!!.jsonPrimitive.int,
         json["h"]!!.jsonPrimitive.int
     )
+    val exitObj = json["e"]!!.jsonObject
     val exit = Coord(
-        json["e"]!!.jsonObject["x"]!!.jsonPrimitive.int,
-        dimension.height - (json["e"]!!.jsonObject["y"]!!.jsonPrimitive.int) - 1
+        exitObj["x"]!!.jsonPrimitive.int,
+        dimension.height - exitObj["y"]!!.jsonPrimitive.int - 1
     )
     val blocks = json["b"]!!.jsonArray.map {
         val block = it.jsonObject

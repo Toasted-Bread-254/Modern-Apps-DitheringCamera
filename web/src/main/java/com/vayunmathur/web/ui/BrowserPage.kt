@@ -165,7 +165,7 @@ private fun SearchResultsContent(entry: NavEntry.Search, viewModel: BrowserViewM
     when {
         entry.error != null -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(entry.error!!, color = MaterialTheme.colorScheme.error)
+                Text(entry.error, color = MaterialTheme.colorScheme.error)
             }
         }
         entry.results.isEmpty() && !entry.loading -> {
@@ -177,7 +177,7 @@ private fun SearchResultsContent(entry: NavEntry.Search, viewModel: BrowserViewM
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(entry.results) { result ->
                     SearchResultItem(result) {
-                        viewModel.loadSearchResult(result.url)
+                        viewModel.loadUrl(result.url)
                     }
                 }
             }

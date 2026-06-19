@@ -33,13 +33,16 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.room.migration.Migration
 import com.vayunmathur.library.util.NavKey
 import com.vayunmathur.findfamily.data.FFDatabase
 import com.vayunmathur.findfamily.data.LocationValue
+import com.vayunmathur.findfamily.data.LocationValueDao
 import com.vayunmathur.findfamily.data.TemporaryLink
+import com.vayunmathur.findfamily.data.TemporaryLinkDao
 import com.vayunmathur.findfamily.data.User
+import com.vayunmathur.findfamily.data.UserDao
 import com.vayunmathur.findfamily.data.Waypoint
+import com.vayunmathur.findfamily.data.WaypointDao
 import com.vayunmathur.findfamily.ui.MainPage
 import com.vayunmathur.findfamily.ui.UwbRangingScreen
 import com.vayunmathur.findfamily.ui.dialogs.AddLinkDialog
@@ -66,10 +69,10 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_UWB_PEER_ID = "com.vayunmathur.findfamily.EXTRA_UWB_PEER_ID"
     }
 
-    private lateinit var userDao: com.vayunmathur.findfamily.data.UserDao
-    private lateinit var waypointDao: com.vayunmathur.findfamily.data.WaypointDao
-    private lateinit var locationValueDao: com.vayunmathur.findfamily.data.LocationValueDao
-    private lateinit var temporaryLinkDao: com.vayunmathur.findfamily.data.TemporaryLinkDao
+    private lateinit var userDao: UserDao
+    private lateinit var waypointDao: WaypointDao
+    private lateinit var locationValueDao: LocationValueDao
+    private lateinit var temporaryLinkDao: TemporaryLinkDao
     private val ffViewModel: FindFamilyViewModel by viewModels {
         FindFamilyViewModelFactory(application, userDao, waypointDao, locationValueDao, temporaryLinkDao)
     }
@@ -119,16 +122,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-
-val Migration_1_2 = Migration(1, 2) {
-    it.execSQL("CREATE INDEX IF NOT EXISTS index_LocationValue_timestamp ON LocationValue (timestamp)")
-}
-
-val Migration_2_3 = Migration(2, 3) {
-    it.execSQL(
-        "CREATE INDEX IF NOT EXISTS `index_LocationValue_userid_timestamp` " +
-                "ON `LocationValue` (`userid`, `timestamp`)"
-    )}
 
 @Composable
 fun NoPermissionsScreen(

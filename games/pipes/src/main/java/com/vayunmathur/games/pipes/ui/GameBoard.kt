@@ -35,20 +35,10 @@ fun GameBoard(
     val cellSizePx = with(androidx.compose.ui.platform.LocalDensity.current) { cellSizeDp.toPx() }
     val boardSizePx = cellSizePx * maxDim
 
-    val cellRects = buildMap {
-        if (levelData.renderPositions != null) {
-            for (cell in levelData.cells) {
-                val rp = levelData.renderPositions[cell] ?: continue
-                put(cell, Rect(Offset(rp.x * cellSizePx, rp.y * cellSizePx), Size(cellSizePx, cellSizePx)))
-            }
-        } else {
-            for (cell in levelData.cells) {
-                put(cell, Rect(
-                    Offset(cell.col * cellSizePx, cell.row * cellSizePx),
-                    Size(cellSizePx, cellSizePx)
-                ))
-            }
-        }
+    val cellRects = levelData.cells.associateWith { cell ->
+        val (x, y) = levelData.renderPositions?.get(cell)?.let { it.x to it.y }
+            ?: (cell.col.toFloat() to cell.row.toFloat())
+        Rect(Offset(x * cellSizePx, y * cellSizePx), Size(cellSizePx, cellSizePx))
     }
 
     fun hitTest(offset: Offset): CellPos? {
@@ -92,13 +82,7 @@ fun GameBoard(
             drawEmptyCell(rect)
         }
 
-        val displayPaths = if (activeColor != null) {
-            gameState.paths.toMutableMap().apply {
-                put(activeColor, activePath)
-            }
-        } else {
-            gameState.paths
-        }
+        val displayPaths = if (activeColor != null) gameState.paths + (activeColor to activePath) else gameState.paths
 
         for ((colorIndex, path) in displayPaths) {
             if (path.isEmpty()) continue
@@ -107,17 +91,10 @@ fun GameBoard(
             for (i in path.indices) {
                 val cell = path[i]
                 val rect = cellRects[cell] ?: continue
-
-                val connections = mutableSetOf<Direction>()
-                if (i > 0) {
-                    val prev = path[i - 1]
-                    directionBetween(cell, prev)?.let { connections.add(it) }
+                val connections = buildSet {
+                    if (i > 0) directionBetween(cell, path[i - 1])?.let { add(it) }
+                    if (i < path.lastIndex) directionBetween(cell, path[i + 1])?.let { add(it) }
                 }
-                if (i < path.lastIndex) {
-                    val next = path[i + 1]
-                    directionBetween(cell, next)?.let { connections.add(it) }
-                }
-
                 drawPipeSegment(rect, connections, color)
             }
         }

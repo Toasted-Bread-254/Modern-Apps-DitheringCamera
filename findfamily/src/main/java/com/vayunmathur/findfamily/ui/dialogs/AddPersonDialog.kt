@@ -29,10 +29,6 @@ import com.vayunmathur.findfamily.R
 import com.vayunmathur.findfamily.data.RequestStatus
 import com.vayunmathur.findfamily.data.User
 import com.vayunmathur.library.ui.IconCopy
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlin.math.pow
 import kotlin.time.Clock
 
 @Composable
@@ -49,10 +45,8 @@ fun AddPersonDialog(
     var contactName: String? by remember { mutableStateOf(null) }
     var contactPhoto by remember { mutableStateOf<String?>(null) }
     val requestPickContact2 = platform.requestPickContact { name, photo ->
-        CoroutineScope(Dispatchers.Main).launch {
-            contactName = name
-            contactPhoto = photo
-        }
+        contactName = name
+        contactPhoto = photo
     }
 
     val userStatus = usersByID[userid.decodeBase26()]?.requestStatus
@@ -127,21 +121,16 @@ fun AddPersonDialog(
     }
 }
 
-fun String.decodeBase26(): Long {
-    var value = 0uL
-    for(i in this.indices)
-        value += (this[i].code - 65).toULong() * 26.0.pow(this.length - i - 1).toULong()
-    return value.toLong()
-}
+fun String.decodeBase26(): Long = fold(0uL) { acc, c ->
+    acc * 26uL + (c.code - 65).toULong()
+}.toLong()
 
-fun Long.encodeBase26(): String {
-    var result = ""
-    var remaining = this.toULong()
-    while(remaining > 0uL) {
-        result = ((remaining % 26uL) + 65uL).toInt().toChar() + result
+fun Long.encodeBase26(): String = buildString {
+    var remaining = this@encodeBase26.toULong()
+    while (remaining > 0uL) {
+        insert(0, ((remaining % 26uL) + 65uL).toInt().toChar())
         remaining /= 26uL
     }
-    return result
 }
 
 @Composable

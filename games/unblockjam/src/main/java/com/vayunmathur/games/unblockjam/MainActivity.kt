@@ -314,13 +314,11 @@ fun PuzzleInfoBox(levelIndex: Int, onLevelChange: (Int) -> Unit, isCompleted: Bo
                     contentDescription = stringResource(R.string.previous_level),
                 )
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "${levelIndex + 1}",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            Text(
+                text = "${levelIndex + 1}",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold
+            )
             IconButton(
                 onClick = { onLevelChange(levelIndex + 1) },
                 enabled = levelIndex < maxLevelIndex
@@ -425,12 +423,11 @@ fun GameBoard(
 
             levelData.blocks.forEachIndexed { index, block ->
                 val isMainBlock = index == 0
-                val color = if (isMainBlock)
-                    MaterialTheme.colorScheme.tertiary
-                else if (block.fixed)
-                    MaterialTheme.colorScheme.secondaryContainer
-                else
-                    MaterialTheme.colorScheme.primaryContainer
+                val color = when {
+                    isMainBlock -> MaterialTheme.colorScheme.tertiary
+                    block.fixed -> MaterialTheme.colorScheme.secondaryContainer
+                    else -> MaterialTheme.colorScheme.primaryContainer
+                }
                 val blockWidth = cellWidth * block.dimension.width
                 val blockHeight = cellHeight * block.dimension.height
 

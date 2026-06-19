@@ -2,8 +2,6 @@ package com.vayunmathur.photos.data
 
 import android.graphics.Bitmap
 import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
 
 enum class HslColorRange(val label: String, val hueCenter: Float) {
     Red("Red", 0f),
@@ -32,8 +30,8 @@ fun rgbToHsl(r: Int, g: Int, b: Int): FloatArray {
     val rf = r / 255f
     val gf = g / 255f
     val bf = b / 255f
-    val cMax = max(rf, max(gf, bf))
-    val cMin = min(rf, min(gf, bf))
+    val cMax = maxOf(rf, gf, bf)
+    val cMin = minOf(rf, gf, bf)
     val delta = cMax - cMin
     val l = (cMax + cMin) / 2f
     if (delta == 0f) return floatArrayOf(0f, 0f, l)

@@ -1,8 +1,7 @@
 package com.vayunmathur.launcher.ui
 
-import android.graphics.Bitmap
-import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
+import com.vayunmathur.launcher.util.toImageBitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.launcher.AppInfo
 import com.vayunmathur.launcher.data.FolderInfo
@@ -71,15 +69,7 @@ fun FolderIcon(
                             val app = previewApps.getOrNull(index)
                             val appInfo = app?.let { getAppInfo(it.packageName) }
                             if (appInfo != null) {
-                                val bmp = remember(appInfo.icon) {
-                                    val w = appInfo.icon.intrinsicWidth.coerceAtLeast(1)
-                                    val h = appInfo.icon.intrinsicHeight.coerceAtLeast(1)
-                                    val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                                    val canvas = android.graphics.Canvas(bitmap)
-                                    appInfo.icon.setBounds(0, 0, w, h)
-                                    appInfo.icon.draw(canvas)
-                                    bitmap.asImageBitmap()
-                                }
+                                val bmp = remember(appInfo.icon) { appInfo.icon.toImageBitmap() }
                                 Image(
                                     bitmap = bmp,
                                     contentDescription = null,

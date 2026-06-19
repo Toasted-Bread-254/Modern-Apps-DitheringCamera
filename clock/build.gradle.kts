@@ -9,5 +9,6 @@ android {
     }
 }
 dependencies {
+    implementation(project(":library:ui"))
     implementRoom(libs)
 }

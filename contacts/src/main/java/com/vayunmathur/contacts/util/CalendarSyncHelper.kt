@@ -67,29 +67,20 @@ object CalendarSyncHelper {
             Log.e("CalendarSyncHelper", "Error querying calendar", e)
         }
 
-        if (calendarIds.isNotEmpty()) {
-            // If multiple calendars exist for our account, delete the extras
-            if (calendarIds.size > 1) {
-                val baseUri = CalendarContract.Calendars.CONTENT_URI.buildUpon()
-                    .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
-                    .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_NAME, ACCOUNT_NAME)
-                    .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, ACCOUNT_TYPE)
-                    .build()
-                for (i in 1 until calendarIds.size) {
-                    try {
-                        context.contentResolver.delete(baseUri, "${CalendarContract.Calendars._ID} = ?", arrayOf(calendarIds[i].toString()))
-                    } catch (_: Exception) {}
-                }
-            }
-            return calendarIds[0]
-        }
-
-        // Create it
-        val uri = CalendarContract.Calendars.CONTENT_URI.buildUpon()
+        val syncAdapterUri = CalendarContract.Calendars.CONTENT_URI.buildUpon()
             .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
             .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_NAME, ACCOUNT_NAME)
             .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_TYPE, ACCOUNT_TYPE)
             .build()
+
+        if (calendarIds.isNotEmpty()) {
+            calendarIds.drop(1).forEach { extraId ->
+                try {
+                    context.contentResolver.delete(syncAdapterUri, "${CalendarContract.Calendars._ID} = ?", arrayOf(extraId.toString()))
+                } catch (_: Exception) {}
+            }
+            return calendarIds[0]
+        }
 
         val values = ContentValues().apply {
             put(CalendarContract.Calendars.ACCOUNT_NAME, ACCOUNT_NAME)
@@ -105,7 +96,7 @@ object CalendarSyncHelper {
         }
 
         return try {
-            val newUri = context.contentResolver.insert(uri, values)
+            val newUri = context.contentResolver.insert(syncAdapterUri, values)
             newUri?.lastPathSegment?.toLong() ?: -1L
         } catch (e: Exception) {
             Log.e("CalendarSyncHelper", "Error creating calendar", e)

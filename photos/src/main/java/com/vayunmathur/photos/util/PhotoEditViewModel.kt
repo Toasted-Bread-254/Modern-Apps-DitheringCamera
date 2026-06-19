@@ -361,7 +361,7 @@ class PhotoEditViewModel(
         private const val TAG = "PhotoEditViewModel"
 
         private sealed class WriteResult {
-            object Success : WriteResult()
+            data object Success : WriteResult()
             data class NeedsPermission(val intentSender: IntentSender, val jpegBytes: ByteArray, val uri: Uri) : WriteResult()
             data class Error(val exception: Exception) : WriteResult()
         }

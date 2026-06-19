@@ -3,7 +3,6 @@ package com.vayunmathur.pdf.util
 import android.app.Application
 import android.net.Uri
 import android.util.Log
-import androidx.compose.ui.geometry.Rect
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.pdf.EditablePdfDocument
@@ -23,19 +22,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * ViewModel for the PDF app.
- *
- * Owns:
- *  - the captured image list (with committed per-image crop rects) used by the
- *    capture-to-PDF flow
- *  - the loaded [EditablePdfDocument] + password-load error state
- *  - PDF export / write invocations (off the main thread)
- *
- * UI-only state stays in compose: CameraX PreviewView, FocusRequester, LazyListState,
- * the in-progress drag rect inside [com.vayunmathur.pdf.ui.CropScreen], dialog visibility
- * booleans, search query/index, animation specs, and the PdfView scroll/zoom state.
- */
 class PdfViewModel(application: Application) : AndroidViewModel(application) {
 
     private val pdfLoader = SandboxedPdfLoader(application)
@@ -63,16 +49,6 @@ class PdfViewModel(application: Application) : AndroidViewModel(application) {
         _capturedImages.value = current.toMutableList().also { it.add(to, it.removeAt(from)) }
     }
 
-    /** Updates the committed crop rect for the image at [index]. */
-    fun updateCrop(index: Int, crop: Rect) {
-        val current = _capturedImages.value
-        if (index !in current.indices) return
-        _capturedImages.value = current.toMutableList().also {
-            it[index] = it[index].copy(cropRect = crop, quadrilateral = Quadrilateral.fromRect(crop))
-        }
-    }
-    
-    /** Updates the committed quadrilateral for the image at [index]. */
     fun updateQuadrilateral(index: Int, quadrilateral: Quadrilateral) {
         val current = _capturedImages.value
         if (index !in current.indices) return
@@ -83,16 +59,11 @@ class PdfViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- PDF export from captured images -----------------------------------
 
-    /** Result of a PDF write requested via [exportCapturedPdf] or [saveDocumentChanges]. */
     data class PdfWriteResult(val targetUri: Uri, val success: Boolean)
 
     private val _pdfWriteResults = MutableSharedFlow<PdfWriteResult>(extraBufferCapacity = 1)
     val pdfWriteResults: SharedFlow<PdfWriteResult> = _pdfWriteResults.asSharedFlow()
 
-    /**
-     * Writes the current [capturedImages] (with their crop rects applied) as a PDF
-     * to [targetUri]. Emits the outcome on [pdfWriteResults].
-     */
     fun exportCapturedPdf(targetUri: Uri) {
         val snapshot = _capturedImages.value
         val ctx = getApplication<Application>()
@@ -102,10 +73,6 @@ class PdfViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Writes pending edits in [document] (a previously-opened [EditablePdfDocument])
-     * to [targetUri]. Used for "Save As" and inline-edit autosave.
-     */
     fun saveDocumentChanges(document: EditablePdfDocument, targetUri: Uri) {
         val ctx = getApplication<Application>()
         viewModelScope.launch {
@@ -139,18 +106,10 @@ class PdfViewModel(application: Application) : AndroidViewModel(application) {
     private val _passwordError = MutableStateFlow<String?>(null)
     val passwordError: StateFlow<String?> = _passwordError.asStateFlow()
 
-    /**
-     * Asynchronously opens [uri] with the given [password]. Updates [pdfDocument]
-     * on success; on a [PdfPasswordException] sets [passwordRequired] (and
-     * [passwordError] if a password was actually supplied).
-     */
     fun loadDocument(uri: Uri, password: String?) {
         val ctx = getApplication<Application>()
-        // Clear any prior error eagerly so the password dialog doesn't show stale
-        // text while the next load attempt is in flight.
         _passwordError.value = null
         viewModelScope.launch {
-            // Preserve the previous 1-second delay so the UI has time to render.
             delay(1000)
             try {
                 val doc = pdfLoader.openDocument(uri, password) as EditablePdfDocument

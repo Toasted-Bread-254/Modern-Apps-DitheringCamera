@@ -51,7 +51,6 @@ import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.UtcOffset
 import kotlinx.datetime.atStartOfDayIn
-import kotlinx.datetime.atTime
 import kotlinx.datetime.format.DateTimeComponents
 import kotlinx.datetime.format.char
 import kotlinx.datetime.toInstant
@@ -59,7 +58,6 @@ import java.io.BufferedInputStream
 import java.io.InputStream
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
 
 class ImportActivity : ComponentActivity() {
@@ -86,40 +84,8 @@ class ImportActivity : ComponentActivity() {
             DynamicTheme {
                 ImportScreen(events, calendars) { selectedCalendarID ->
                     try {
-                        val valuesList = events.map { event ->
-                            ContentValues().apply {
-                                put(CalendarContract.Events.TITLE, event.title)
-                                put(CalendarContract.Events.DESCRIPTION, event.description)
-                                put(CalendarContract.Events.EVENT_LOCATION, event.location)
-                                put(CalendarContract.Events.CALENDAR_ID, selectedCalendarID)
-                                val startDate = event.startDateTimeDisplay.date
-                                val startTime = event.startDateTimeDisplay.time
-                                val endDate = event.endDateTimeDisplay.date
-                                val endTime = event.endDateTimeDisplay.time
-                                val tz = if (event.allDay) "UTC" else event.timezone
-                                val dtstart = startDate.atTime(startTime).toInstant(TimeZone.of(tz))
-                                    .toEpochMilliseconds()
-                                val dtendActual = endDate.atTime(endTime).toInstant(TimeZone.of(tz))
-                                    .toEpochMilliseconds()
-                                put(CalendarContract.Events.DTSTART, dtstart)
-                                if (event.rrule != null) {
-                                    // For recurring events, DTEND must be 0 and DURATION set to the event length
-                                    put(CalendarContract.Events.DTEND, null as Long?)
-                                    var duration = (dtendActual - dtstart).milliseconds
-                                    if (event.allDay) duration += 1.days
-                                    put(CalendarContract.Events.DURATION, duration.toIsoString())
-                                    put(CalendarContract.Events.RRULE, event.rrule.asString(startDate, TimeZone.of(tz)))
-                                } else {
-                                    put(CalendarContract.Events.DTEND, dtendActual)
-                                    // clear DURATION and RRULE if present
-                                    put(CalendarContract.Events.DURATION, null as String?)
-                                    put(CalendarContract.Events.RRULE, null as String?)
-                                }
-                                put(CalendarContract.Events.ALL_DAY, if (event.allDay) 1 else 0)
-                                put(CalendarContract.Events.EVENT_TIMEZONE, tz)
-                            }
-                        }
-                        contentResolver.bulkInsert(CalendarContract.Events.CONTENT_URI, valuesList.toTypedArray())
+                        val valuesList = events.map { it.toContentValues(selectedCalendarID) }.toTypedArray()
+                        contentResolver.bulkInsert(CalendarContract.Events.CONTENT_URI, valuesList)
                         val intent = Intent(this@ImportActivity, MainActivity::class.java)
                         startActivity(intent)
                         finish()
@@ -381,30 +347,14 @@ private fun parseICSTime(propLeft: String?, value: String?): Triple<Long?, Boole
 
 }
 
-private fun extractTZID(left: String): String? {
-    // left examples: DTSTART;TZID=America/Los_Angeles or DTSTART;VALUE=DATE
-    val parts = left.split(';')
-    for (p in parts) {
-        val idx = p.indexOf('=')
-        if (idx > 0) {
-            val k = p.take(idx).uppercase()
-            if (k == "TZID") {
-                return p.substring(idx + 1)
-            }
-        }
-    }
-    return null
-}
+private fun extractTZID(left: String): String? =
+    left.split(';')
+        .map { it.split('=', limit = 2) }
+        .firstOrNull { it.size == 2 && it[0].uppercase() == "TZID" }
+        ?.get(1)
 
-private fun tryParseDurationMillis(duration: String, startMillis: Long): Long? {
-    // very small support for ISO 8601 durations like P1D, PT1H30M, etc.
-    try {
-        val d = Duration.parse(duration)
-        return startMillis + d.inWholeMilliseconds
-    } catch (_: Exception) {
-        return null
-    }
-}
+private fun tryParseDurationMillis(duration: String, startMillis: Long): Long? =
+    runCatching { startMillis + Duration.parse(duration).inWholeMilliseconds }.getOrNull()
 
 
 // This handles the full yyyyMMdd'T'HHmmssZ pattern

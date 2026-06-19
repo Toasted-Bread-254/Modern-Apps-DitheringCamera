@@ -7,3 +7,7 @@ android {
         applicationId = "com.vayunmathur.games.unblockjam"
     }
 }
+
+dependencies {
+    implementation(project(":library:ui"))
+}

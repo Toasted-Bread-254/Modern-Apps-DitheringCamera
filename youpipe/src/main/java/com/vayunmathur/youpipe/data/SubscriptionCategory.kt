@@ -40,6 +40,6 @@ interface SubscriptionCategoryDao {
     @Transaction
     suspend fun replaceCategory(originalCategoryName: String?, categoryName: String, map: List<Long>) {
         if(originalCategoryName != null) deleteCategory(originalCategoryName)
-        upsertAll(map.mapIndexed { index, id -> SubscriptionCategory(id, categoryName) })
+        upsertAll(map.map { id -> SubscriptionCategory(id, categoryName) })
     }
 }

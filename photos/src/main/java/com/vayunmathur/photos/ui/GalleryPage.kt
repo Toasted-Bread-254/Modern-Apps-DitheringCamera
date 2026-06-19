@@ -72,6 +72,18 @@ import kotlin.math.roundToInt
 import kotlin.time.Instant
 import com.vayunmathur.library.R as LibraryR
 
+internal fun groupPhotosByMonth(
+    photos: List<Photo>,
+    resources: android.content.res.Resources,
+): Map<String, List<Photo>> {
+    return photos.groupBy {
+        val date = Instant.fromEpochMilliseconds(it.date).toLocalDateTime(TimeZone.currentSystemDefault())
+        LocalDate(date.year, date.month, 1)
+    }.toSortedMap(compareByDescending { it }).mapKeys {
+        resources.getString(R.string.month_year_format, MonthNames.ENGLISH_ABBREVIATED.names[it.key.month.ordinal], it.key.year)
+    }.mapValues { pair -> pair.value.sortedByDescending { it.date } }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GalleryPage(
@@ -99,14 +111,7 @@ fun GalleryPage(
         galleryViewModel.enqueueSync()
     }
 
-    val trashLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            galleryViewModel.clearSelection()
-            galleryViewModel.runSync()
-        }
-    }
-
-    val moveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+    val mediaResultLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             galleryViewModel.clearSelection()
             galleryViewModel.runSync()
@@ -149,7 +154,7 @@ fun GalleryPage(
                             urisToDelete
                         )
                         // With MANAGE_MEDIA permission granted, this will delete without popup
-                        moveLauncher.launch(
+                        mediaResultLauncher.launch(
                             IntentSenderRequest.Builder(pendingIntent.intentSender).build()
                         )
                     } catch (e: Exception) {
@@ -167,31 +172,17 @@ fun GalleryPage(
     val onDeleteClick: () -> Unit = {
         val uris = photos.filter { it.id in selectedIds }.map { it.uri.toUri() }
         val pendingIntent = MediaStore.createTrashRequest(context.contentResolver, uris, true)
-        trashLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
+        mediaResultLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
     }
 
     val resources = LocalResources.current
     val photosGroupedByMonth by remember {
-        derivedStateOf {
-            photos.groupBy {
-                val date = Instant.fromEpochMilliseconds(it.date).toLocalDateTime(TimeZone.currentSystemDefault())
-                LocalDate(date.year, date.month, 1)
-            }.toSortedMap(Comparator<LocalDate>(LocalDate::compareTo).reversed()).mapKeys {
-                resources.getString(R.string.month_year_format, MonthNames.ENGLISH_ABBREVIATED.names[it.key.month.ordinal], it.key.year)
-            }.mapValues { pair -> pair.value.sortedByDescending { it.date } }
-        }
+        derivedStateOf { groupPhotosByMonth(photos, resources) }
     }
 
     val displayPhotos = if (searchActive && searchQuery.isNotEmpty()) searchResults else photos
     val displayPhotosGroupedByMonth by remember(displayPhotos) {
-        derivedStateOf {
-            displayPhotos.groupBy {
-                val date = Instant.fromEpochMilliseconds(it.date).toLocalDateTime(TimeZone.currentSystemDefault())
-                LocalDate(date.year, date.month, 1)
-            }.toSortedMap(Comparator<LocalDate>(LocalDate::compareTo).reversed()).mapKeys {
-                resources.getString(R.string.month_year_format, MonthNames.ENGLISH_ABBREVIATED.names[it.key.month.ordinal], it.key.year)
-            }.mapValues { pair -> pair.value.sortedByDescending { it.date } }
-        }
+        derivedStateOf { groupPhotosByMonth(displayPhotos, resources) }
     }
 
     Scaffold(
@@ -300,21 +291,7 @@ fun GalleryPage(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
-                    awaitEachGesture {
-                        while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Initial)
-                            if (event.changes.size > 1) {
-                                val zoom = event.calculateZoom()
-                                if (zoom != 1f) {
-                                    columnCount = (columnCount / zoom).coerceIn(2f, 8f)
-                                    event.changes.forEach { it.consume() }
-                                }
-                            }
-                            if (event.changes.all { it.changedToUp() }) break
-                        }
-                    }
-                }
+                .pinchToZoomColumns({ columnCount }, { columnCount = it })
         ) {
             LazyVerticalGrid(
                 GridCells.Fixed(columnCount.roundToInt().coerceIn(2, 8)),
@@ -352,3 +329,20 @@ fun GalleryPage(
         }
     }
 }
+
+fun Modifier.pinchToZoomColumns(getColumnCount: () -> Float, setColumnCount: (Float) -> Unit): Modifier =
+    pointerInput(Unit) {
+        awaitEachGesture {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (event.changes.size > 1) {
+                    val zoom = event.calculateZoom()
+                    if (zoom != 1f) {
+                        setColumnCount((getColumnCount() / zoom).coerceIn(2f, 8f))
+                        event.changes.forEach { it.consume() }
+                    }
+                }
+                if (event.changes.all { it.changedToUp() }) break
+            }
+        }
+    }

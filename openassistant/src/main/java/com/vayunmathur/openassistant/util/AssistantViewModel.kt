@@ -179,10 +179,9 @@ class AssistantViewModel(
                 // don't keep stale gigabytes on disk and so the next launch
                 // re-triggers the downloader for the new file.
                 val legacyModelFiles = listOf("gemma4.litertlm", "gemma4-4b.litertlm")
-                var removedAny = false
+            var removedAny = false
                 for (name in legacyModelFiles) {
-                    val f = File(externalDir, name)
-                    if (f.exists() && f.delete()) {
+                    if (File(externalDir, name).delete()) {
                         Log.i(TAG, "Deleted legacy model file $name")
                         removedAny = true
                     }

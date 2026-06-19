@@ -31,20 +31,7 @@ class GetWeatherIntent : AssistantIntent<LatLonInput, WeatherData>(
             val forecast = WeatherApi.forecast(input.latitude, input.longitude)
             forecast.toWeatherData(locationName = null)
         } catch (e: Exception) {
-            WeatherData(
-                locationName = null,
-                temperatureCelsius = 0.0,
-                feelsLikeCelsius = 0.0,
-                condition = "",
-                highCelsius = 0.0,
-                lowCelsius = 0.0,
-                precipitationChancePercent = 0,
-                humidityPercent = 0,
-                windKph = 0.0,
-                windDirection = "",
-                uvIndex = 0.0,
-                error = e.message ?: "Failed to fetch forecast",
-            )
+            errorWeatherData(null, e.message ?: "Failed to fetch forecast")
         }
     }
 }
@@ -59,22 +46,24 @@ internal fun parseLocalIsoToEpochSec(iso: String, utcOffsetSec: Int): Long? {
     return runCatching { Instant.parse("${padded}Z").epochSeconds - utcOffsetSec }.getOrNull()
 }
 
+internal fun errorWeatherData(locationName: String?, error: String) = WeatherData(
+    locationName = locationName,
+    temperatureCelsius = 0.0,
+    feelsLikeCelsius = 0.0,
+    condition = "",
+    highCelsius = 0.0,
+    lowCelsius = 0.0,
+    precipitationChancePercent = 0,
+    humidityPercent = 0,
+    windKph = 0.0,
+    windDirection = "",
+    uvIndex = 0.0,
+    error = error,
+)
+
 /** Distill a full [ForecastResponse] into the cross-app [WeatherData] payload. */
 internal fun ForecastResponse.toWeatherData(locationName: String?): WeatherData {
-    val current = current ?: return WeatherData(
-        locationName = locationName,
-        temperatureCelsius = 0.0,
-        feelsLikeCelsius = 0.0,
-        condition = "",
-        highCelsius = 0.0,
-        lowCelsius = 0.0,
-        precipitationChancePercent = 0,
-        humidityPercent = 0,
-        windKph = 0.0,
-        windDirection = "",
-        uvIndex = 0.0,
-        error = "No current observations available",
-    )
+    val current = current ?: return errorWeatherData(locationName, "No current observations available")
     val condition = weatherConditionForCode(current.weatherCode).label
     val hi = daily?.temperatureMax?.firstOrNull() ?: current.temperature
     val lo = daily?.temperatureMin?.firstOrNull() ?: current.temperature

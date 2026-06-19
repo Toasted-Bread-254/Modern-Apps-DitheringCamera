@@ -26,6 +26,7 @@ import com.vayunmathur.passwords.util.PasskeyUtils
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
+import java.nio.ByteBuffer
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
@@ -246,31 +247,20 @@ class PasskeyAuthActivity : FragmentActivity() {
             signCount = newSignCount,
         )
 
-        // For privileged browsers: use the browser's clientDataHash
-        // For Android apps: compute from our own clientDataJSON
+        val clientDataJson = JSONObject().apply {
+            put("type", "webauthn.get")
+            put("challenge", challenge)
+            put("origin", origin)
+            put("crossOrigin", false)
+        }.toString()
+
         val clientDataHash: ByteArray
         val clientDataJsonB64: String
         if (isPrivileged) {
-            val providedHash = try { publicKeyOption.clientDataHash } catch (_: Exception) { null }
-            if (providedHash != null) {
-                clientDataHash = providedHash
-            } else {
-                val cdj = JSONObject().apply {
-                    put("type", "webauthn.get")
-                    put("challenge", challenge)
-                    put("origin", origin)
-                    put("crossOrigin", false)
-                }.toString()
-                clientDataHash = MessageDigest.getInstance("SHA-256").digest(cdj.toByteArray())
-            }
+            clientDataHash = (try { publicKeyOption.clientDataHash } catch (_: Exception) { null })
+                ?: MessageDigest.getInstance("SHA-256").digest(clientDataJson.toByteArray())
             clientDataJsonB64 = b64Url("<placeholder>".toByteArray())
         } else {
-            val clientDataJson = JSONObject().apply {
-                put("type", "webauthn.get")
-                put("challenge", challenge)
-                put("origin", origin)
-                put("crossOrigin", false)
-            }.toString()
             clientDataHash = MessageDigest.getInstance("SHA-256").digest(clientDataJson.toByteArray())
             clientDataJsonB64 = b64Url(clientDataJson.toByteArray())
         }
@@ -435,19 +425,10 @@ class PasskeyAuthActivity : FragmentActivity() {
         private const val TAG = "PasskeyAuthActivity"
         private val AAGUID = uuidToBytes(UUID.fromString("a1b2c3d4-e5f6-7890-abcd-ef1234567890"))
 
-        private fun uuidToBytes(uuid: UUID): ByteArray {
-            val bytes = ByteArray(16)
-            var msb = uuid.mostSignificantBits
-            var lsb = uuid.leastSignificantBits
-            for (i in 0..7) {
-                bytes[7 - i] = (msb and 0xFF).toByte()
-                msb = msb shr 8
-            }
-            for (i in 0..7) {
-                bytes[15 - i] = (lsb and 0xFF).toByte()
-                lsb = lsb shr 8
-            }
-            return bytes
-        }
+        private fun uuidToBytes(uuid: UUID): ByteArray =
+            ByteBuffer.allocate(16)
+                .putLong(uuid.mostSignificantBits)
+                .putLong(uuid.leastSignificantBits)
+                .array()
     }
 }

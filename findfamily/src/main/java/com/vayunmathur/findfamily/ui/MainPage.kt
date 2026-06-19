@@ -447,23 +447,12 @@ fun BoxScope.HistoryBar(
         val colmod = if (isShowingPresent) Modifier else Modifier.fillMaxHeight(1f)
         Column(colmod.padding(4.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             if (!isShowingPresent) {
-                val currentDate = Clock.System.now().toLocalDateTime(
-                    TimeZone.currentSystemDefault()
-                ).date
-                val currentTime = Clock.System.now().toLocalDateTime(
-                    TimeZone.currentSystemDefault()
-                ).time
-                var pickedLocalDate by remember {
-                    mutableStateOf(
-                        Clock.System.now().toLocalDateTime(
-                            TimeZone.currentSystemDefault()
-                        ).date
-                    )
-                }
+                val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
+                val currentDate = now.date
+                val currentTime = now.time
+                var pickedLocalDate by remember { mutableStateOf(currentDate) }
                 val sliderState = rememberSliderState(
-                    Clock.System.now().toLocalDateTime(
-                        TimeZone.currentSystemDefault()
-                    ).time.toSecondOfDay().toFloat(), valueRange = 0.0f..(24f * 60f * 60f - 0.1f)
+                    currentTime.toSecondOfDay().toFloat(), valueRange = 0.0f..(24f * 60f * 60f - 0.1f)
                 )
 
                 LaunchedEffect(Unit) {
@@ -617,26 +606,25 @@ fun UserCard(user: User, locationValue: LocationValue?, showSupportingContent: B
     val speedString = (locationValue?.speed ?: 0f).formatSpeed()
     val sinceTime = user.lastLocationChangeTime.toLocalDateTime(TimeZone.currentSystemDefault())
     val timeSinceEntry = Clock.System.now() - user.lastLocationChangeTime
-    val sinceString = if (user.locationName == "Unnamed Location")
-        ""
-    else if (timeSinceEntry < 60.seconds)
-        stringResource(R.string.since_just_now)
-    else if (timeSinceEntry < 15.minutes)
-        stringResource(R.string.since_minutes_ago, timeSinceEntry.inWholeMinutes)
-    else {
-        val formattedTime = sinceTime.format(LocalDateTime.Format {
-            amPmHour(Padding.NONE)
-            chars(":")
-            minute()
-            chars(" ")
-            amPmMarker("am", "pm")
-        })
-        val formattedDate = when (sinceTime.date.toEpochDays() - Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date.toEpochDays()) {
-            0L -> stringResource(R.string.today)
-            1L -> stringResource(R.string.yesterday)
-            else -> sinceTime.date.format(DateFormats.MONTH_DAY)
+    val sinceString = when {
+        user.locationName == "Unnamed Location" -> ""
+        timeSinceEntry < 60.seconds -> stringResource(R.string.since_just_now)
+        timeSinceEntry < 15.minutes -> stringResource(R.string.since_minutes_ago, timeSinceEntry.inWholeMinutes)
+        else -> {
+            val formattedTime = sinceTime.format(LocalDateTime.Format {
+                amPmHour(Padding.NONE)
+                chars(":")
+                minute()
+                chars(" ")
+                amPmMarker("am", "pm")
+            })
+            val formattedDate = when (sinceTime.date.toEpochDays() - Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date.toEpochDays()) {
+                0L -> stringResource(R.string.today)
+                1L -> stringResource(R.string.yesterday)
+                else -> sinceTime.date.format(DateFormats.MONTH_DAY)
+            }
+            stringResource(R.string.since_time_date, formattedTime, formattedDate)
         }
-        stringResource(R.string.since_time_date, formattedTime, formattedDate)
     }
     Card(if (showSupportingContent) Modifier.clickable(onClick = onClick) else Modifier) {
         ListItem(
@@ -680,26 +668,11 @@ fun BatteryBar(percent: Float, width: Dp = 30.dp, height: Dp = 15.dp) {
 
 fun timestring(timestamp: Instant, future: Boolean, context: Context): String {
     val duration = (Clock.System.now() - timestamp).absoluteValue
-    if (!future) {
-        return if (duration.inWholeSeconds < 60) {
-            context.getString(R.string.time_just_now)
-        } else if (duration.inWholeMinutes < 60) {
-            context.getString(R.string.time_minutes_ago, duration.inWholeMinutes)
-        } else if (duration.inWholeHours < 24) {
-            context.getString(R.string.time_hours_ago, duration.inWholeHours)
-        } else {
-            context.getString(R.string.time_days_ago, duration.inWholeDays)
-        }
-    } else {
-        return if (duration.inWholeSeconds < 60) {
-            context.getString(R.string.time_very_soon)
-        } else if (duration.inWholeMinutes < 60) {
-            context.getString(R.string.time_in_minutes, duration.inWholeMinutes)
-        } else if (duration.inWholeHours < 24) {
-            context.getString(R.string.time_in_hours, duration.inWholeHours)
-        } else {
-            context.getString(R.string.time_in_days, duration.inWholeDays)
-        }
+    return when {
+        duration.inWholeSeconds < 60 -> context.getString(if (future) R.string.time_very_soon else R.string.time_just_now)
+        duration.inWholeMinutes < 60 -> context.getString(if (future) R.string.time_in_minutes else R.string.time_minutes_ago, duration.inWholeMinutes)
+        duration.inWholeHours < 24 -> context.getString(if (future) R.string.time_in_hours else R.string.time_hours_ago, duration.inWholeHours)
+        else -> context.getString(if (future) R.string.time_in_days else R.string.time_days_ago, duration.inWholeDays)
     }
 }
 
@@ -722,10 +695,5 @@ object DateFormats {
         amPmMarker("AM", "PM")
     }
 
-    // example: 05/12/2025
-    val DATE_INPUT = LocalDate.Format {
-        monthName(MonthNames.ENGLISH_ABBREVIATED)
-        chars(" ")
-        day()
-    }
+    val DATE_INPUT = MONTH_DAY
 }

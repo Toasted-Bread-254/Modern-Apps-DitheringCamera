@@ -120,6 +120,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     implementation(project(":library"))
+    implementation(project(":library:ui"))
 }
 
 fun DependencyHandlerScope.justSoItShowsAsUsedSomewhere() {

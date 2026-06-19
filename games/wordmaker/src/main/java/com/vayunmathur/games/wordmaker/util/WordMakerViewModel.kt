@@ -16,21 +16,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * ViewModel for the WordMaker game.
- *
- * Owns:
- *  - DataStore-backed progress (current level, found words, bonus words)
- *  - Crossword data loading from assets (per-level)
- *  - Dictionary loading from assets (one-time)
- *
- * Composables continue to own UI/animation state — letter offsets, drag offsets,
- * shake/scale [androidx.compose.animation.core.Animatable]s — because those are
- * inherently tied to composition lifecycle.
- */
 class WordMakerViewModel(application: Application) : AndroidViewModel(application) {
 
-    /** Exposed for shared [com.vayunmathur.library.util.AchievementsManager] construction. */
     val levelDataStore: LevelDataStore = LevelDataStore(application)
 
     private val dictionary = Dictionary()
@@ -70,21 +57,11 @@ class WordMakerViewModel(application: Application) : AndroidViewModel(applicatio
 
     private suspend fun loadLevel(level: Int) {
         val ctx = getApplication<Application>()
-        try {
-            val data = withContext(Dispatchers.IO) {
-                CrosswordData.fromAsset(ctx, "levels/$level.txt")
-            }
-            if (data == null) {
-                _crosswordData.value = null
-                _error.value = ctx.getString(R.string.error_parse_level)
-            } else {
-                _crosswordData.value = data
-                _error.value = null
-            }
-        } catch (e: Exception) {
-            _crosswordData.value = null
-            _error.value = ctx.getString(R.string.error_load_level, e.message)
+        val data = withContext(Dispatchers.IO) {
+            CrosswordData.fromAsset(ctx, "levels/$level.txt")
         }
+        _crosswordData.value = data
+        _error.value = if (data == null) ctx.getString(R.string.error_parse_level) else null
     }
 
     fun isInDictionary(word: String): Boolean = word.lowercase() in dictionary
@@ -99,7 +76,6 @@ class WordMakerViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch { levelDataStore.addFoundWord(word) }
     }
 
-    /** Suspending so callers (e.g. compose animation coroutines) can sequence achievement updates. */
     suspend fun addBonusWord(word: String): Int = levelDataStore.addBonusWord(word)
 
     fun setTapToSpell(enabled: Boolean) {
@@ -107,26 +83,19 @@ class WordMakerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun revealHint(crosswordData: CrosswordData, foundWords: Set<String>, revealedHints: Set<Pair<Int, Int>>) {
-        val revealedPositions = mutableSetOf<Pair<Int, Int>>()
-        crosswordData.letterPositions.forEach { (word, occurrences) ->
-            if (word in foundWords) {
-                occurrences.forEach { positions -> revealedPositions.addAll(positions) }
-            }
-        }
-        revealedPositions.addAll(revealedHints)
+        val revealed = foundWords.flatMapTo(mutableSetOf()) { word ->
+            crosswordData.letterPositions[word]?.flatten().orEmpty()
+        } + revealedHints
 
-        val allCellPositions = mutableSetOf<Pair<Int, Int>>()
-        crosswordData.letterPositions.values.forEach { occurrences -> occurrences.forEach { allCellPositions.addAll(it) } }
-
-        val unrevealed = allCellPositions - revealedPositions
+        val allCells = crosswordData.letterPositions.values.flatMapTo(mutableSetOf()) { it.flatten() }
+        val unrevealed = allCells - revealed
         if (unrevealed.isEmpty()) return
 
         val target = unrevealed.random()
         _hintCooldownEnd.value = System.currentTimeMillis() + 30_000L
         viewModelScope.launch {
             levelDataStore.addRevealedHint(target.first, target.second)
-
-            val nowRevealed = revealedPositions + target
+            val nowRevealed = revealed + target
             crosswordData.letterPositions.forEach { (word, occurrences) ->
                 if (word !in foundWords && occurrences.any { nowRevealed.containsAll(it) }) {
                     levelDataStore.addFoundWord(word)

@@ -38,20 +38,6 @@ fun SettingsAddCalendarDialog(viewModel: CalendarViewModel, backStack: NavBackSt
     var newDisplayName by remember { mutableStateOf("") }
     var newColor by remember { mutableIntStateOf(0xFF2196F3.toInt()) }
 
-    val swatches = listOf(
-        0xFFF44336.toInt(), // red
-        0xFFE91E63.toInt(), // pink
-        0xFF9C27B0.toInt(), // purple
-        0xFF3F51B5.toInt(), // indigo
-        0xFF2196F3.toInt(), // blue
-        0xFF009688.toInt(), // teal
-        0xFF4CAF50.toInt(), // green
-        0xFFFFC107.toInt(), // amber
-        0xFFFF9800.toInt(), // orange
-        0xFF795548.toInt(), // brown
-        0xFF607D8B.toInt()  // blue gray
-    )
-
     AlertDialog(
         onDismissRequest = { backStack.pop() },
         title = { Text(text = stringResource(R.string.new_local_calendar)) },
@@ -67,7 +53,7 @@ fun SettingsAddCalendarDialog(viewModel: CalendarViewModel, backStack: NavBackSt
                 Spacer(modifier = Modifier.size(8.dp))
                 Text(stringResource(R.string.choose_color))
                 LazyRow {
-                    items(swatches, key = { it }) { c ->
+                    items(COLOR_SWATCHES, key = { it }) { c ->
                         val selected = (newColor == c)
                         Box(
                             modifier = Modifier

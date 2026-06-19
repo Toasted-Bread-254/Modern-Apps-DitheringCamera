@@ -12,7 +12,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
-import androidx.sqlite.db.SimpleSQLiteQuery
 import com.vayunmathur.library.util.ManyManyMatching
 import com.vayunmathur.library.util.MatchingDao
 import com.vayunmathur.music.data.Album

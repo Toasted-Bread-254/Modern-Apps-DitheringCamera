@@ -82,10 +82,7 @@ class NotesViewModel(
         val localState = remember { mutableStateOf<Note?>(null) }
 
         LaunchedEffect(dbNote, currentId) {
-            val item = dbNote
-            if (item != null) {
-                localState.value = item
-            }
+            dbNote?.let { localState.value = it }
         }
 
         return remember {

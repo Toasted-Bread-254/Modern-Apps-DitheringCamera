@@ -27,39 +27,26 @@ import com.vayunmathur.weather.util.PressureUnit
  */
 @Composable
 fun PressureBlock(current: Current, pressureUnit: PressureUnit) {
-    val valueText: String
-    val unitText: String
-    when (pressureUnit) {
-        PressureUnit.InHg -> {
-            val inHg = current.pressureMsl * 0.02953
-            valueText = String.format("%.2f", inHg)
-            unitText = "inHg"
-        }
-        PressureUnit.Hpa -> {
-            valueText = current.pressureMsl.toInt().toString()
-            unitText = "hPa"
-        }
+    val inHg = current.pressureMsl * 0.02953
+    val pressureHpa = current.pressureMsl.toInt()
+    val (valueText, unitText) = when (pressureUnit) {
+        PressureUnit.InHg -> String.format("%.2f", inHg) to "inHg"
+        PressureUnit.Hpa -> pressureHpa.toString() to "hPa"
     }
     val progressDrawable = when (pressureUnit) {
-        PressureUnit.InHg -> {
-            val inHg = current.pressureMsl * 0.02953
-            when {
-                inHg < 29.0 -> R.drawable.pressure_progress_low
-                inHg in 29.0..29.7 -> R.drawable.pressure_progress_medium
-                inHg in 29.7..30.2 -> R.drawable.pressure_progress_low_medium
-                inHg in 30.2..31.0 -> R.drawable.pressure_progress_high
-                else -> R.drawable.pressure_progress_very_high
-            }
+        PressureUnit.InHg -> when {
+            inHg < 29.0 -> R.drawable.pressure_progress_low
+            inHg <= 29.7 -> R.drawable.pressure_progress_medium
+            inHg <= 30.2 -> R.drawable.pressure_progress_low_medium
+            inHg <= 31.0 -> R.drawable.pressure_progress_high
+            else -> R.drawable.pressure_progress_very_high
         }
-        PressureUnit.Hpa -> {
-            val pressureHpa = current.pressureMsl.toInt()
-            when {
-                pressureHpa < 980 -> R.drawable.pressure_progress_low
-                pressureHpa in 980..1005 -> R.drawable.pressure_progress_medium
-                pressureHpa in 1005..1020 -> R.drawable.pressure_progress_low_medium
-                pressureHpa in 1020..1035 -> R.drawable.pressure_progress_high
-                else -> R.drawable.pressure_progress_very_high
-            }
+        PressureUnit.Hpa -> when {
+            pressureHpa < 980 -> R.drawable.pressure_progress_low
+            pressureHpa <= 1005 -> R.drawable.pressure_progress_medium
+            pressureHpa <= 1020 -> R.drawable.pressure_progress_low_medium
+            pressureHpa <= 1035 -> R.drawable.pressure_progress_high
+            else -> R.drawable.pressure_progress_very_high
         }
     }
 

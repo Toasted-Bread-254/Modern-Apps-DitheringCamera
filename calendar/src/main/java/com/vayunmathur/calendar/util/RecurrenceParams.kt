@@ -19,43 +19,21 @@ data class RecurrenceParams(
     companion object {
         fun fromRRule(rr: RRule?): RecurrenceParams? {
             if (rr == null) return null
+            val base = RecurrenceParams(
+                freq = "", interval = 0,
+                endCondition = rr.endCondition,
+                byMonthDay = rr.byMonthDay.orEmpty(),
+                byMonth = rr.byMonth.orEmpty(),
+                bySetPos = rr.bySetPos.orEmpty(),
+                byYearDay = rr.byYearDay.orEmpty(),
+                byWeekNo = rr.byWeekNo.orEmpty(),
+                wkst = rr.wkst
+            )
             return when (rr) {
-                is RRule.EveryXDays -> RecurrenceParams(
-                    "days", rr.days, emptyList(), 0, rr.endCondition,
-                    rr.byMonthDay ?: emptyList(),
-                    rr.byMonth ?: emptyList(),
-                    rr.bySetPos ?: emptyList(),
-                    rr.byYearDay ?: emptyList(),
-                    rr.byWeekNo ?: emptyList(),
-                    rr.wkst
-                )
-                is RRule.EveryXWeeks -> RecurrenceParams(
-                    "weeks", rr.weeks, rr.daysOfWeek, 0, rr.endCondition,
-                    rr.byMonthDay ?: emptyList(),
-                    rr.byMonth ?: emptyList(),
-                    rr.bySetPos ?: emptyList(),
-                    rr.byYearDay ?: emptyList(),
-                    rr.byWeekNo ?: emptyList(),
-                    rr.wkst
-                )
-                is RRule.EveryXMonths -> RecurrenceParams(
-                    "months", rr.months, emptyList(), rr.typeE, rr.endCondition,
-                    rr.byMonthDay ?: emptyList(),
-                    rr.byMonth ?: emptyList(),
-                    rr.bySetPos ?: emptyList(),
-                    rr.byYearDay ?: emptyList(),
-                    rr.byWeekNo ?: emptyList(),
-                    rr.wkst
-                )
-                is RRule.EveryXYears -> RecurrenceParams(
-                    "years", rr.years, emptyList(), 0, rr.endCondition,
-                    rr.byMonthDay ?: emptyList(),
-                    rr.byMonth ?: emptyList(),
-                    rr.bySetPos ?: emptyList(),
-                    rr.byYearDay ?: emptyList(),
-                    rr.byWeekNo ?: emptyList(),
-                    rr.wkst
-                )
+                is RRule.EveryXDays -> base.copy(freq = "days", interval = rr.days)
+                is RRule.EveryXWeeks -> base.copy(freq = "weeks", interval = rr.weeks, daysOfWeek = rr.daysOfWeek)
+                is RRule.EveryXMonths -> base.copy(freq = "months", interval = rr.months, monthlyType = rr.typeE)
+                is RRule.EveryXYears -> base.copy(freq = "years", interval = rr.years)
             }
         }
     }

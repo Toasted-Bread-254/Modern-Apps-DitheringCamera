@@ -30,7 +30,7 @@ class UnzipWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         createNotificationChannel()
         setForeground(createForegroundInfo(0))
 
-        try {
+        return try {
             val fileSystem = FileSystem.SYSTEM
             val zipFileSize = fileSystem.metadataOrNull(zipPath)?.size ?: 0L
             var totalBytesRead = 0L
@@ -71,9 +71,6 @@ class UnzipWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
                         } else {
                             fileSystem.createDirectories(entryPath.parent!!)
                             fileSystem.write(entryPath) {
-                                // Instead of writeAll(zipInputStream.source()), we can manually read/write to avoid closing issues
-                                // and to keep our counting input stream active.
-                                // Actually writeAll is fine as long as we don't close the ZipInputStream.
                                 val buffer = ByteArray(8192)
                                 var bytes: Int
                                 while (zipInputStream.read(buffer).also { bytes = it } != -1) {
@@ -86,12 +83,12 @@ class UnzipWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
                     }
                 }
             }
-            notificationManager.cancel(notificationId)
-            return Result.success()
+            Result.success()
         } catch (e: Exception) {
             e.printStackTrace()
+            Result.failure()
+        } finally {
             notificationManager.cancel(notificationId)
-            return Result.failure()
         }
     }
 
@@ -111,24 +108,18 @@ class UnzipWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         notificationManager.createNotificationChannel(channel)
     }
 
-    private fun createForegroundInfo(progress: Int): ForegroundInfo {
-        val notification = NotificationCompat.Builder(applicationContext, channelId)
+    private fun buildNotification(progress: Int) =
+        NotificationCompat.Builder(applicationContext, channelId)
             .setContentTitle(applicationContext.getString(R.string.unzipping))
             .setSmallIcon(R.drawable.folder_24px)
             .setProgress(100, progress, false)
             .setOngoing(true)
             .build()
 
-        return ForegroundInfo(notificationId, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-    }
+    private fun createForegroundInfo(progress: Int) =
+        ForegroundInfo(notificationId, buildNotification(progress), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
 
     private fun updateNotification(progress: Int) {
-        val notification = NotificationCompat.Builder(applicationContext, channelId)
-            .setContentTitle(applicationContext.getString(R.string.unzipping))
-            .setSmallIcon(R.drawable.folder_24px)
-            .setProgress(100, progress, false)
-            .setOngoing(true)
-            .build()
-        notificationManager.notify(notificationId, notification)
+        notificationManager.notify(notificationId, buildNotification(progress))
     }
 }

@@ -2,8 +2,8 @@ package com.vayunmathur.launcher.widget
 
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
-import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
+import com.vayunmathur.launcher.util.toImageBitmap
 import android.os.Process
 import android.os.UserManager
 import androidx.compose.foundation.Image
@@ -36,7 +36,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
@@ -88,15 +87,10 @@ fun WidgetPicker(
     }
 
     val filteredWidgets = remember(allWidgets, filterQuery) {
-        if (filterQuery.isBlank()) {
-            allWidgets.groupBy { it.appName }
-        } else {
-            val q = filterQuery.lowercase()
-            allWidgets.filter {
-                it.appName.lowercase().contains(q) ||
-                it.label.lowercase().contains(q)
-            }.groupBy { it.appName }
-        }
+        val q = filterQuery.lowercase()
+        allWidgets
+            .filter { q.isBlank() || it.appName.lowercase().contains(q) || it.label.lowercase().contains(q) }
+            .groupBy { it.appName }
     }
 
     ModalBottomSheet(
@@ -142,15 +136,7 @@ fun WidgetPicker(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         option.icon?.let { drawable ->
-                            val bmp = remember(drawable) {
-                                val w = drawable.intrinsicWidth.coerceAtLeast(1)
-                                val h = drawable.intrinsicHeight.coerceAtLeast(1)
-                                val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                                val canvas = android.graphics.Canvas(bitmap)
-                                drawable.setBounds(0, 0, w, h)
-                                drawable.draw(canvas)
-                                bitmap.asImageBitmap()
-                            }
+                            val bmp = remember(drawable) { drawable.toImageBitmap() }
                             Image(
                                 bitmap = bmp,
                                 contentDescription = option.label,

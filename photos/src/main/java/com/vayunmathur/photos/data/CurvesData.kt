@@ -13,11 +13,10 @@ data class CurvesAdjustment(
     val green: List<CurveControlPoint> = listOf(CurveControlPoint(0f, 0f), CurveControlPoint(1f, 1f)),
     val blue: List<CurveControlPoint> = listOf(CurveControlPoint(0f, 0f), CurveControlPoint(1f, 1f)),
 ) {
+    private val defaultPoints = listOf(CurveControlPoint(0f, 0f), CurveControlPoint(1f, 1f))
+
     fun isIdentity(): Boolean =
-        combined.size == 2 && combined[0] == CurveControlPoint(0f, 0f) && combined[1] == CurveControlPoint(1f, 1f) &&
-        red.size == 2 && red[0] == CurveControlPoint(0f, 0f) && red[1] == CurveControlPoint(1f, 1f) &&
-        green.size == 2 && green[0] == CurveControlPoint(0f, 0f) && green[1] == CurveControlPoint(1f, 1f) &&
-        blue.size == 2 && blue[0] == CurveControlPoint(0f, 0f) && blue[1] == CurveControlPoint(1f, 1f)
+        listOf(combined, red, green, blue).all { it == defaultPoints }
 }
 
 fun interpolateSpline(points: List<CurveControlPoint>, steps: Int = 256): FloatArray {

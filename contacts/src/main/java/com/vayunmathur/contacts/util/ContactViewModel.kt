@@ -190,9 +190,7 @@ class ContactViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun loadContacts() {
-        syncWithSystemContacts()
-    }
+    fun loadContacts() = syncWithSystemContacts()
 
     fun loadAccounts() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -374,9 +372,7 @@ class ContactViewModel(application: Application) : AndroidViewModel(application)
         return contacts.map { contacts -> contacts.find { it.id == contactId } }
     }
 
-    fun loadContact(contactId: Long) {
-        syncWithSystemContacts()
-    }
+    fun loadContact(contactId: Long) = syncWithSystemContacts()
 
     fun saveContact(contact: com.vayunmathur.contacts.data.Contact) {
         viewModelScope.launch(Dispatchers.IO) {

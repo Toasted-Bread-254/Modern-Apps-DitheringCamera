@@ -173,21 +173,18 @@ fun androidx.health.connect.client.records.Record.toRecord(): List<Record> =
             val stages = this.stages.map { stage ->
                 SleepStage(stage.startTime.toEpochMilli(), stage.endTime.toEpochMilli(), stage.stage)
             }
-            val awake = this.stages.filter { it.stage == SleepSessionRecord.STAGE_TYPE_AWAKE || it.stage == SleepSessionRecord.STAGE_TYPE_OUT_OF_BED }.sumOf { Duration.between(it.startTime, it.endTime).toMillis() }
-            val rem = this.stages.filter { it.stage == SleepSessionRecord.STAGE_TYPE_REM }.sumOf { Duration.between(it.startTime, it.endTime).toMillis() }
-            val light = this.stages.filter { it.stage == SleepSessionRecord.STAGE_TYPE_LIGHT }.sumOf { Duration.between(it.startTime, it.endTime).toMillis() }
-            val deep = this.stages.filter { it.stage == SleepSessionRecord.STAGE_TYPE_DEEP }.sumOf { Duration.between(it.startTime, it.endTime).toMillis() }
-            val unknown = this.stages.filter { it.stage == SleepSessionRecord.STAGE_TYPE_UNKNOWN }.sumOf { Duration.between(it.startTime, it.endTime).toMillis() }
+            val durations = this.stages.groupBy { it.stage }
+                .mapValues { (_, v) -> v.sumOf { Duration.between(it.startTime, it.endTime).toMillis() } }
 
             listOf(Record(
                 this.metadata.id, 0, RecordType.Sleep, this.startTime, this.endTime,
-                Duration.between(this.startTime, this.endTime).toMillis().toDouble() / 1000.0 / 60.0 / 60.0, // Hours
+                Duration.between(this.startTime, this.endTime).toMillis().toDouble() / 1000.0 / 60.0 / 60.0,
                 sleepData = com.vayunmathur.health.data.SleepData(
-                    awakeDurationMillis = awake,
-                    remDurationMillis = rem,
-                    lightDurationMillis = light,
-                    deepDurationMillis = deep,
-                    unknownDurationMillis = unknown,
+                    awakeDurationMillis = (durations[SleepSessionRecord.STAGE_TYPE_AWAKE] ?: 0) + (durations[SleepSessionRecord.STAGE_TYPE_OUT_OF_BED] ?: 0),
+                    remDurationMillis = durations[SleepSessionRecord.STAGE_TYPE_REM] ?: 0,
+                    lightDurationMillis = durations[SleepSessionRecord.STAGE_TYPE_LIGHT] ?: 0,
+                    deepDurationMillis = durations[SleepSessionRecord.STAGE_TYPE_DEEP] ?: 0,
+                    unknownDurationMillis = durations[SleepSessionRecord.STAGE_TYPE_UNKNOWN] ?: 0,
                     stagesJson = Json.encodeToString(stages)
                 ),
                 metadata = "Sleep Session"

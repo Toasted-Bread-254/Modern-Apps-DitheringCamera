@@ -108,7 +108,7 @@ fun VideoPlayer(
     if (videoStreams.isEmpty()) return
 
     val hasAudio = audioStreams.isNotEmpty()
-    var languages by remember { mutableStateOf(audioStreams.map { it.language }.distinct().sorted()) }
+    val languages = remember(audioStreams) { audioStreams.map { it.language }.distinct().sorted() }
     var language by remember { mutableStateOf(if("en" in languages) "en" else languages.firstOrNull() ?: "") }
     val audioStreamOptions = audioStreams.filter { it.language == language }
 

@@ -4,8 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.LauncherApps
 import android.content.pm.ShortcutInfo
-import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
+import com.vayunmathur.launcher.util.toImageBitmap
 import android.net.Uri
 import android.os.Process
 import android.provider.Settings
@@ -32,7 +32,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -164,15 +163,7 @@ private fun ShortcutRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (icon != null) {
-            val bmp = remember(icon) {
-                val w = icon.intrinsicWidth.coerceAtLeast(1)
-                val h = icon.intrinsicHeight.coerceAtLeast(1)
-                val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                val canvas = android.graphics.Canvas(bitmap)
-                icon.setBounds(0, 0, w, h)
-                icon.draw(canvas)
-                bitmap.asImageBitmap()
-            }
+            val bmp = remember(icon) { icon.toImageBitmap() }
             Image(bitmap = bmp, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(12.dp))
         }

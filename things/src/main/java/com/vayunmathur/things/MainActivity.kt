@@ -27,10 +27,10 @@ class MainActivity : ComponentActivity() {
     private val prefs by lazy { getSharedPreferences("hydration", MODE_PRIVATE) }
 
     private fun today() = LocalDate.now().toString()
+    private fun isToday() = prefs.getString("date", null) == today()
 
     private fun loadTodayTotal() {
-        totalMl.intValue =
-            if (prefs.getString("date", null) == today()) prefs.getInt("total_ml", 0) else 0
+        totalMl.intValue = if (isToday()) prefs.getInt("total_ml", 0) else 0
     }
 
     private fun saveTotal() {
@@ -42,8 +42,7 @@ class MainActivity : ComponentActivity() {
 
     /** Called from the BLE callback when the cup reports a drink (mL). */
     fun onDrinkReceived(ml: Int) {
-        if (prefs.getString("date", null) != today()) {
-            // New day since the last reading: start fresh.
+        if (!isToday()) {
             totalMl.intValue = 0
             messages.clear()
         }
@@ -75,21 +74,19 @@ class MainActivity : ComponentActivity() {
                     connectionState = connectionState.value,
                     scanning = scanning.value,
                     discoveredDevices = discoveredDevices,
-                    onScanClick = ::requestPermissionsAndScan,
+                    onScanClick = {
+                        permissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.BLUETOOTH_SCAN,
+                                Manifest.permission.BLUETOOTH_CONNECT
+                            )
+                        )
+                    },
                     onDeviceClick = { bleManager.connect(it.address) },
                     onDisconnectClick = { bleManager.disconnect() }
                 )
             }
         }
-    }
-
-    private fun requestPermissionsAndScan() {
-        permissionLauncher.launch(
-            arrayOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT
-            )
-        )
     }
 
     override fun onDestroy() {

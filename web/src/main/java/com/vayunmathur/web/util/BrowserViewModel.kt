@@ -28,8 +28,6 @@ import org.mozilla.geckoview.GeckoRuntimeSettings
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoSessionSettings
 import org.mozilla.geckoview.StorageController
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.util.UUID
 
 sealed interface NavEntry {
@@ -64,7 +62,6 @@ class BrowserViewModel(
 
     private val sessions = mutableMapOf<String, GeckoSession>()
 
-    // Per-tab navigation history
     private val tabHistory = mutableMapOf<String, MutableList<NavEntry>>()
     private val tabCursor = mutableMapOf<String, Int>()
 
@@ -97,6 +94,8 @@ class BrowserViewModel(
 
     private fun currentTabId(): String? = activeTab?.id
 
+    private fun isActiveTab(tabId: String) = activeTab?.id == tabId
+
     private fun getHistory(tabId: String): MutableList<NavEntry> =
         tabHistory.getOrPut(tabId) { mutableListOf() }
 
@@ -111,7 +110,6 @@ class BrowserViewModel(
         val history = getHistory(tabId)
         val cursor = getCursor(tabId)
 
-        // Truncate forward history
         if (cursor < history.lastIndex) {
             history.subList(cursor + 1, history.size).clear()
         }
@@ -122,7 +120,7 @@ class BrowserViewModel(
         updateNavState(tabId)
     }
 
-    private fun applyEntry(tabId: String, entry: NavEntry) {
+    private fun applyEntry(tabId: String, entry: NavEntry, restore: Boolean = false) {
         currentEntry = entry
         when (entry) {
             is NavEntry.NewTab -> {
@@ -132,40 +130,14 @@ class BrowserViewModel(
             is NavEntry.Search -> {
                 currentUrl = ""
                 currentTitle = entry.query
-                performSearch(tabId, entry)
-            }
-            is NavEntry.WebPage -> {
-                currentUrl = entry.url
-                sessions[tabId]?.close()
-                val session = createSession(tabId)
-                session.loadUri(entry.url)
-            }
-            is NavEntry.Blocked -> {
-                currentUrl = entry.url
-                currentTitle = "Blocked"
-            }
-        }
-    }
-
-    private fun restoreEntry(tabId: String, entry: NavEntry) {
-        currentEntry = entry
-        when (entry) {
-            is NavEntry.NewTab -> {
-                currentUrl = ""
-                currentTitle = "New Tab"
-            }
-            is NavEntry.Search -> {
-                currentUrl = ""
-                currentTitle = entry.query
-                if (entry.results.isEmpty() && entry.error == null && !entry.loading) {
+                if (!restore || (entry.results.isEmpty() && entry.error == null && !entry.loading)) {
                     performSearch(tabId, entry)
                 }
             }
             is NavEntry.WebPage -> {
                 currentUrl = entry.url
                 sessions[tabId]?.close()
-                val session = createSession(tabId)
-                session.loadUri(entry.url)
+                createSession(tabId).loadUri(entry.url)
             }
             is NavEntry.Blocked -> {
                 currentUrl = entry.url
@@ -204,25 +176,28 @@ class BrowserViewModel(
         canGoForward = cursor < getHistory(tabId).lastIndex
     }
 
+    private fun activateTab(tab: Tab) {
+        currentUrl = tab.url
+        currentTitle = tab.title
+        currentEntry = getHistory(tab.id).getOrNull(getCursor(tab.id)) ?: NavEntry.NewTab
+        updateNavState(tab.id)
+    }
+
     fun createTab(url: String = HOME_URL) {
         val tab = Tab(id = UUID.randomUUID().toString())
         _tabs.add(tab)
         activeTabIndex = _tabs.lastIndex
+        createSession(tab.id)
 
-        val isNewTab = url == HOME_URL
-        if (isNewTab) {
-            val history = getHistory(tab.id)
-            history.add(NavEntry.NewTab)
+        if (url == HOME_URL) {
+            getHistory(tab.id).add(NavEntry.NewTab)
             setCursor(tab.id, 0)
             currentEntry = NavEntry.NewTab
             currentUrl = ""
             currentTitle = "New Tab"
             canGoBack = false
             canGoForward = false
-            // Still create a session for future use
-            createSession(tab.id)
         } else {
-            createSession(tab.id)
             navigate(NavEntry.WebPage(url))
         }
     }
@@ -232,120 +207,109 @@ class BrowserViewModel(
             .usePrivateMode(isIncognito)
             .build()
 
-        val session = GeckoSession(settings)
-        session.open(runtime)
+        return GeckoSession(settings).also { session ->
+            session.open(runtime)
 
-        session.navigationDelegate = object : GeckoSession.NavigationDelegate {
-            override fun onLocationChange(
-                session: GeckoSession,
-                url: String?,
-                perms: List<GeckoSession.PermissionDelegate.ContentPermission>,
-                hasUserGesture: Boolean
-            ) {
-                url?.let {
-                    if (it != "about:blank" && _tabs.getOrNull(activeTabIndex)?.id == tabId) {
-                        currentUrl = it
+            session.navigationDelegate = object : GeckoSession.NavigationDelegate {
+                override fun onLocationChange(
+                    session: GeckoSession,
+                    url: String?,
+                    perms: List<GeckoSession.PermissionDelegate.ContentPermission>,
+                    hasUserGesture: Boolean
+                ) {
+                    url?.let {
+                        if (it != "about:blank" && isActiveTab(tabId)) currentUrl = it
+                        updateTab(tabId) { copy(url = it) }
                     }
-                    updateTab(tabId) { copy(url = it) }
                 }
-            }
 
-            override fun onLoadRequest(
-                session: GeckoSession,
-                request: GeckoSession.NavigationDelegate.LoadRequest
-            ): GeckoResult<AllowOrDeny>? {
-                Log.d("ContentBlocker", "onLoadRequest: ${request.uri}")
-                val query = SearchEngine.extractSearchQuery(request.uri)
-                if (query != null) {
-                    search(query)
-                    return GeckoResult.fromValue(AllowOrDeny.DENY)
-                }
-                if (SearchEngine.isSearchEngineUrl(request.uri)) {
-                    session.loadUri(HOME_URL)
-                    return GeckoResult.fromValue(AllowOrDeny.DENY)
-                }
-                if (isDomainBlocked(request.uri)) {
-                    Log.d("ContentBlocker", "Blocked: ${request.uri}")
-                    // Replace the current WebPage entry with Blocked
-                    val tabIdNow = currentTabId()
-                    if (tabIdNow != null) {
-                        val history = getHistory(tabIdNow)
-                        val cursor = getCursor(tabIdNow)
-                        if (cursor >= 0 && cursor < history.size && history[cursor] is NavEntry.WebPage) {
-                            history[cursor] = NavEntry.Blocked(request.uri)
-                            currentEntry = history[cursor]
-                            currentUrl = request.uri
-                            currentTitle = "Blocked"
-                        } else {
-                            navigate(NavEntry.Blocked(request.uri))
+                override fun onLoadRequest(
+                    session: GeckoSession,
+                    request: GeckoSession.NavigationDelegate.LoadRequest
+                ): GeckoResult<AllowOrDeny>? {
+                    Log.d("ContentBlocker", "onLoadRequest: ${request.uri}")
+                    val query = SearchEngine.extractSearchQuery(request.uri)
+                    if (query != null) {
+                        search(query)
+                        return GeckoResult.fromValue(AllowOrDeny.DENY)
+                    }
+                    if (SearchEngine.isSearchEngineUrl(request.uri)) {
+                        session.loadUri(HOME_URL)
+                        return GeckoResult.fromValue(AllowOrDeny.DENY)
+                    }
+                    if (isDomainBlocked(request.uri)) {
+                        Log.d("ContentBlocker", "Blocked: ${request.uri}")
+                        val tabIdNow = currentTabId()
+                        if (tabIdNow != null) {
+                            val history = getHistory(tabIdNow)
+                            val cursor = getCursor(tabIdNow)
+                            if (cursor in history.indices && history[cursor] is NavEntry.WebPage) {
+                                val blocked = NavEntry.Blocked(request.uri)
+                                history[cursor] = blocked
+                                currentEntry = blocked
+                                currentUrl = request.uri
+                                currentTitle = "Blocked"
+                            } else {
+                                navigate(NavEntry.Blocked(request.uri))
+                            }
                         }
+                        session.loadUri(HOME_URL)
+                        return GeckoResult.fromValue(AllowOrDeny.DENY)
                     }
-                    session.loadUri(HOME_URL)
-                    return GeckoResult.fromValue(AllowOrDeny.DENY)
+                    return GeckoResult.fromValue(AllowOrDeny.ALLOW)
                 }
-                return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+
+                override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {}
+                override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {}
             }
 
-            override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
-                // Ignored — we derive canGoBack from our own stack
-            }
-
-            override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
-                // Ignored — we derive canGoForward from our own stack
-            }
-        }
-
-        session.progressDelegate = object : GeckoSession.ProgressDelegate {
-            override fun onPageStart(session: GeckoSession, url: String) {
-                if (_tabs.getOrNull(activeTabIndex)?.id == tabId) {
-                    isLoading = true
-                    progress = 0f
+            session.progressDelegate = object : GeckoSession.ProgressDelegate {
+                override fun onPageStart(session: GeckoSession, url: String) {
+                    if (isActiveTab(tabId)) {
+                        isLoading = true
+                        progress = 0f
+                    }
                 }
-            }
 
-            override fun onPageStop(session: GeckoSession, success: Boolean) {
-                if (_tabs.getOrNull(activeTabIndex)?.id == tabId) {
-                    isLoading = false
-                    progress = 1f
-                }
-                val tab = _tabs.firstOrNull { it.id == tabId }
-                if (success && tab != null && !isIncognito) {
-                    val tabUrl = tab.url
-                    val tabTitle = tab.title
-                    if (tabUrl.isNotBlank() && tabUrl != "about:blank") {
-                        viewModelScope.launch {
-                            historyDao.insert(
-                                HistoryEntry(
-                                    url = tabUrl,
-                                    title = tabTitle.ifBlank { tabUrl },
-                                    timestamp = System.currentTimeMillis()
+                override fun onPageStop(session: GeckoSession, success: Boolean) {
+                    if (isActiveTab(tabId)) {
+                        isLoading = false
+                        progress = 1f
+                    }
+                    if (success && !isIncognito) {
+                        val tab = _tabs.firstOrNull { it.id == tabId } ?: return
+                        if (tab.url.isNotBlank() && tab.url != "about:blank") {
+                            viewModelScope.launch {
+                                historyDao.insert(
+                                    HistoryEntry(
+                                        url = tab.url,
+                                        title = tab.title.ifBlank { tab.url },
+                                        timestamp = System.currentTimeMillis()
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }
-            }
 
-            override fun onProgressChange(session: GeckoSession, progressValue: Int) {
-                if (_tabs.getOrNull(activeTabIndex)?.id == tabId) {
-                    progress = progressValue / 100f
-                }
-            }
-        }
-
-        session.contentDelegate = object : GeckoSession.ContentDelegate {
-            override fun onTitleChange(session: GeckoSession, title: String?) {
-                title?.let {
-                    if (_tabs.getOrNull(activeTabIndex)?.id == tabId) {
-                        currentTitle = it
+                override fun onProgressChange(session: GeckoSession, progressValue: Int) {
+                    if (isActiveTab(tabId)) {
+                        progress = progressValue / 100f
                     }
-                    updateTab(tabId) { copy(title = it) }
                 }
             }
-        }
 
-        sessions[tabId] = session
-        return session
+            session.contentDelegate = object : GeckoSession.ContentDelegate {
+                override fun onTitleChange(session: GeckoSession, title: String?) {
+                    title?.let {
+                        if (isActiveTab(tabId)) currentTitle = it
+                        updateTab(tabId) { copy(title = it) }
+                    }
+                }
+            }
+
+            sessions[tabId] = session
+        }
     }
 
     fun getActiveSession(): GeckoSession? = activeTab?.let { sessions[it.id] }
@@ -353,13 +317,7 @@ class BrowserViewModel(
     fun switchTab(index: Int) {
         if (index in _tabs.indices) {
             activeTabIndex = index
-            val tab = _tabs[index]
-            currentUrl = tab.url
-            currentTitle = tab.title
-            val history = getHistory(tab.id)
-            val cursor = getCursor(tab.id)
-            currentEntry = history.getOrNull(cursor) ?: NavEntry.NewTab
-            updateNavState(tab.id)
+            activateTab(_tabs[index])
         }
     }
 
@@ -367,8 +325,7 @@ class BrowserViewModel(
         val index = _tabs.indexOfFirst { it.id == tabId }
         if (index < 0) return
 
-        sessions[tabId]?.close()
-        sessions.remove(tabId)
+        sessions.remove(tabId)?.close()
         tabHistory.remove(tabId)
         tabCursor.remove(tabId)
         _tabs.removeAt(index)
@@ -377,13 +334,7 @@ class BrowserViewModel(
             finishActivity()
         } else {
             activeTabIndex = index.coerceAtMost(_tabs.lastIndex)
-            val tab = _tabs[activeTabIndex]
-            currentUrl = tab.url
-            currentTitle = tab.title
-            val history = getHistory(tab.id)
-            val cursor = getCursor(tab.id)
-            currentEntry = history.getOrNull(cursor) ?: NavEntry.NewTab
-            updateNavState(tab.id)
+            activateTab(_tabs[activeTabIndex])
         }
     }
 
@@ -395,17 +346,12 @@ class BrowserViewModel(
         navigate(NavEntry.Search(query))
     }
 
-    fun loadSearchResult(url: String) {
-        navigate(NavEntry.WebPage(url))
-    }
-
     fun goBack() {
         val tabId = currentTabId() ?: return
         val cursor = getCursor(tabId)
         if (cursor <= 0) return
         setCursor(tabId, cursor - 1)
-        val entry = getHistory(tabId)[cursor - 1]
-        restoreEntry(tabId, entry)
+        applyEntry(tabId, getHistory(tabId)[cursor - 1], restore = true)
         updateNavState(tabId)
     }
 
@@ -415,21 +361,13 @@ class BrowserViewModel(
         val cursor = getCursor(tabId)
         if (cursor >= history.lastIndex) return
         setCursor(tabId, cursor + 1)
-        val entry = history[cursor + 1]
-        restoreEntry(tabId, entry)
+        applyEntry(tabId, history[cursor + 1], restore = true)
         updateNavState(tabId)
-    }
-
-    fun reload() { getActiveSession()?.reload() }
-    fun stop() { getActiveSession()?.stop() }
-
-    fun clearHistory() {
-        viewModelScope.launch { historyDao.deleteAll() }
     }
 
     fun clearBrowsingData() {
         runtime.storageController.clearData(StorageController.ClearFlags.ALL)
-        clearHistory()
+        viewModelScope.launch { historyDao.deleteAll() }
     }
 
     val history = historyDao.getAll()
@@ -460,28 +398,18 @@ class BrowserViewModel(
     companion object {
         const val HOME_URL = "about:blank"
 
-        private fun loadBlockedDomains(application: Application): Set<String> {
-            return try {
-                application.assets.open("extensions/content_blocker/domains.js").use { stream ->
-                    val domains = mutableSetOf<String>()
-                    BufferedReader(InputStreamReader(stream)).useLines { lines ->
-                        lines.forEach { line ->
-                            val trimmed = line.trim()
-                            if (trimmed.startsWith("\"") && trimmed.contains("\",")) {
-                                val domain = trimmed.removePrefix("\"").substringBefore("\"")
-                                if (domain.isNotEmpty()) {
-                                    domains.add(domain.lowercase())
-                                }
-                            }
-                        }
-                    }
-                    Log.d("ContentBlocker", "Loaded ${domains.size} blocked domains")
-                    domains
-                }
-            } catch (e: Exception) {
-                Log.e("ContentBlocker", "Failed to load blocked domains", e)
-                emptySet()
-            }
+        private fun loadBlockedDomains(application: Application): Set<String> = try {
+            application.assets.open("extensions/content_blocker/domains.js").bufferedReader().useLines { lines ->
+                lines.mapNotNull { line ->
+                    line.trim()
+                        .takeIf { it.startsWith("\"") && it.contains("\",") }
+                        ?.removePrefix("\"")?.substringBefore("\"")
+                        ?.lowercase()?.takeIf { it.isNotEmpty() }
+                }.toSet()
+            }.also { Log.d("ContentBlocker", "Loaded ${it.size} blocked domains") }
+        } catch (e: Exception) {
+            Log.e("ContentBlocker", "Failed to load blocked domains", e)
+            emptySet()
         }
     }
 }

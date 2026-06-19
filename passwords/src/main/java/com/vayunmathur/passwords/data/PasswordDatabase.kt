@@ -8,7 +8,6 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.Upsert
 import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
 import com.vayunmathur.library.util.DatabaseMigrations
 import kotlinx.coroutines.flow.Flow
 
@@ -66,24 +65,22 @@ abstract class PasswordDatabase : RoomDatabase() {
 
     companion object : DatabaseMigrations {
         override val migrations = listOf(
-            object : Migration(1, 2) {
-                override fun migrate(db: SupportSQLiteDatabase) {
-                    db.execSQL(
-                        """CREATE TABLE IF NOT EXISTS `Passkey` (
-                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                            `rpId` TEXT NOT NULL,
-                            `rpName` TEXT NOT NULL,
-                            `credentialId` TEXT NOT NULL,
-                            `userId` TEXT NOT NULL,
-                            `userName` TEXT NOT NULL,
-                            `userDisplayName` TEXT NOT NULL,
-                            `privateKeyBytes` BLOB NOT NULL,
-                            `creationTime` INTEGER NOT NULL,
-                            `lastUsedTime` INTEGER NOT NULL,
-                            `signCount` INTEGER NOT NULL
-                        )"""
-                    )
-                }
+            Migration(1, 2) {
+                it.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `Passkey` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `rpId` TEXT NOT NULL,
+                        `rpName` TEXT NOT NULL,
+                        `credentialId` TEXT NOT NULL,
+                        `userId` TEXT NOT NULL,
+                        `userName` TEXT NOT NULL,
+                        `userDisplayName` TEXT NOT NULL,
+                        `privateKeyBytes` BLOB NOT NULL,
+                        `creationTime` INTEGER NOT NULL,
+                        `lastUsedTime` INTEGER NOT NULL,
+                        `signCount` INTEGER NOT NULL
+                    )"""
+                )
             }
         )
     }

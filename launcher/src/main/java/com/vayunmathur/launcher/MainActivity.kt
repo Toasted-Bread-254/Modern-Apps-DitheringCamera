@@ -48,8 +48,7 @@ class MainActivity : ComponentActivity() {
             } else if (wId != -1) {
                 widgetHost?.deleteAppWidgetId(wId)
             }
-            pendingWidgetId.intValue = -1
-            pendingWidgetInfo.value = null
+            clearPendingWidget()
         }
 
         configureWidgetLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -60,8 +59,7 @@ class MainActivity : ComponentActivity() {
             } else if (wId != -1) {
                 widgetHost?.deleteAppWidgetId(wId)
             }
-            pendingWidgetId.intValue = -1
-            pendingWidgetInfo.value = null
+            clearPendingWidget()
         }
 
         setContent {
@@ -89,8 +87,7 @@ class MainActivity : ComponentActivity() {
                 configureWidgetLauncher.launch(intent)
             } else {
                 onBound(widgetId, info)
-                pendingWidgetId.intValue = -1
-                pendingWidgetInfo.value = null
+                clearPendingWidget()
             }
         } else {
             val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_BIND).apply {
@@ -101,6 +98,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun clearPendingWidget() {
+        pendingWidgetId.intValue = -1
+        pendingWidgetInfo.value = null
+    }
+
     override fun onStart() {
         super.onStart()
         widgetHost?.startListening()
@@ -109,10 +111,6 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         widgetHost?.stopListening()
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
     }
 
     @Deprecated("Use OnBackPressedCallback")

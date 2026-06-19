@@ -22,12 +22,10 @@ data class Album(
         val artists by musicViewModel.artists.collectAsState()
 
         return remember(artistIDs, artists) {
-            if (artistIDs.size > 2) {
-                "Various Artists"
-            } else if (artistIDs.isEmpty()) {
-                ""
-            } else {
-                artistIDs.mapNotNull { artistId ->
+            when {
+                artistIDs.size > 2 -> "Various Artists"
+                artistIDs.isEmpty() -> ""
+                else -> artistIDs.mapNotNull { artistId ->
                     artists.find { it.id == artistId }?.name
                 }.joinToString()
             }

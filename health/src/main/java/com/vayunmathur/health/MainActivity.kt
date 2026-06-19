@@ -186,22 +186,22 @@ fun Navigation(viewModel: HealthViewModel) {
                 backStack = backStack,
                 pages = listOf(
                     com.vayunmathur.library.util.BottomBarItem(
-                        stringResourceName(R.string.nav_today),
+                        stringResource(R.string.nav_today),
                         Route.Today,
                         com.vayunmathur.library.R.drawable.favorite_24px,
                     ),
                     com.vayunmathur.library.util.BottomBarItem(
-                        stringResourceName(R.string.nav_activity),
+                        stringResource(R.string.nav_activity),
                         Route.Activity,
                         R.drawable.outline_directions_walk_24,
                     ),
                     com.vayunmathur.library.util.BottomBarItem(
-                        stringResourceName(R.string.nav_nutrition),
+                        stringResource(R.string.nav_nutrition),
                         Route.NutritionDetails,
                         com.vayunmathur.library.R.drawable.fire_24px,
                     ),
                     com.vayunmathur.library.util.BottomBarItem(
-                        stringResourceName(R.string.nav_body),
+                        stringResource(R.string.nav_body),
                         Route.Body,
                         R.drawable.body_24px,
                     ),
@@ -242,7 +242,3 @@ fun Navigation(viewModel: HealthViewModel) {
         }
     }
 }
-
-@Composable
-private fun stringResourceName(@androidx.annotation.StringRes id: Int): String =
-    androidx.compose.ui.res.stringResource(id)

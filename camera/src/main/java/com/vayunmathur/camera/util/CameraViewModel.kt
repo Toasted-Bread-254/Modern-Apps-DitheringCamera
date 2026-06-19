@@ -180,10 +180,6 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { ds.setString("camera_last_capture", uri?.toString() ?: "") }
     }
 
-    fun setCameraMode(mode: CameraMode) {
-        _cameraMode.value = mode
-    }
-
     fun switchCameraMode(newMode: CameraMode) {
         _cameraMode.value = newMode
     }
@@ -323,16 +319,21 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
         _highSpeedActive.value = false
     }
 
-    fun clearHighSpeedState() {
-        highSpeedRecording?.stop()
-        highSpeedRecording = null
-        highSpeedLifecycleOwner?.destroy()
-        highSpeedLifecycleOwner = null
-        cameraProvider?.unbindAll()
-        highSpeedVideoCapture = null
-        highSpeedCamera = null
-        cameraProvider = null
-        _highSpeedActive.value = false
+    private fun startRecordingTimer() {
+        _isRecording.value = true
+        _recordingDurationSec.value = 0
+        recordingTimerJob = viewModelScope.launch {
+            while (true) {
+                delay(1000)
+                _recordingDurationSec.value += 1
+            }
+        }
+    }
+
+    private fun stopRecordingTimer() {
+        _isRecording.value = false
+        recordingTimerJob?.cancel()
+        _recordingDurationSec.value = 0
     }
 
     @android.annotation.SuppressLint("MissingPermission")
@@ -342,9 +343,7 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
         if (_isRecording.value) {
             highSpeedRecording?.stop()
             highSpeedRecording = null
-            _isRecording.value = false
-            recordingTimerJob?.cancel()
-            _recordingDurationSec.value = 0
+            stopRecordingTimer()
             return
         }
 
@@ -360,14 +359,7 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         ).setContentValues(contentValues).build()
 
-        _isRecording.value = true
-        _recordingDurationSec.value = 0
-        recordingTimerJob = viewModelScope.launch {
-            while (true) {
-                delay(1000)
-                _recordingDurationSec.value += 1
-            }
-        }
+        startRecordingTimer()
 
         Log.d("SloMo", "Starting high-speed recording at ${sloMoFps}fps")
 
@@ -375,9 +367,7 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
             .prepareRecording(app, outputOptions)
             .start(ContextCompat.getMainExecutor(app)) { event ->
                 if (event is VideoRecordEvent.Finalize) {
-                    _isRecording.value = false
-                    recordingTimerJob?.cancel()
-                    _recordingDurationSec.value = 0
+                    stopRecordingTimer()
                     if (event.hasError()) {
                         Log.e("SloMo", "Recording error: ${event.error} - ${event.cause?.message}")
                     } else {
@@ -416,9 +406,7 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
         }
 
         val metadata = ImageCapture.Metadata().apply {
-            if (_locationEnabled.value && lastLocation != null) {
-                location = lastLocation
-            }
+            if (_locationEnabled.value) location = lastLocation
         }
 
         val outputOptions = ImageCapture.OutputFileOptions.Builder(
@@ -447,9 +435,7 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
         if (_isRecording.value) {
             currentRecording?.stop()
             currentRecording = null
-            _isRecording.value = false
-            recordingTimerJob?.cancel()
-            _recordingDurationSec.value = 0
+            stopRecordingTimer()
             return
         }
 
@@ -470,23 +456,14 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
         val outputOptions = FileOutputOptions.Builder(cacheFile).build()
         val recordingMode = _cameraMode.value
 
-        _isRecording.value = true
-        _recordingDurationSec.value = 0
-        recordingTimerJob = viewModelScope.launch {
-            while (true) {
-                delay(1000)
-                _recordingDurationSec.value += 1
-            }
-        }
+        startRecordingTimer()
         currentRecording = controller.startRecording(
             outputOptions,
             AudioConfig.create(recordingMode == CameraMode.VIDEO),
             ContextCompat.getMainExecutor(app)
         ) { event ->
             if (event is VideoRecordEvent.Finalize) {
-                _isRecording.value = false
-                recordingTimerJob?.cancel()
-                _recordingDurationSec.value = 0
+                stopRecordingTimer()
                 viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     if (!cacheFile.exists()) return@launch
                     val fileToSave = when (recordingMode) {
@@ -537,33 +514,20 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun startPanorama() {
-        panoramaEngine.startSweep()
-    }
+    fun startPanorama() = panoramaEngine.startSweep()
 
-    fun stopPanorama() {
+    fun stopPanorama() = finishPanoramaSweep()
+
+    fun startPhotosphere() = panoramaEngine.startSweep(fullSphere = true)
+
+    fun stopPhotosphere() = finishPanoramaSweep()
+
+    private fun finishPanoramaSweep() {
         panoramaEngine.stopSweep()
         viewModelScope.launch {
-            val result = panoramaEngine.stitch()
-            if (result != null) {
-                panoramaEngine.saveToMediaStore(result)
-                result.recycle()
-            }
-            panoramaEngine.reset()
-        }
-    }
-
-    fun startPhotosphere() {
-        panoramaEngine.startSweep(fullSphere = true)
-    }
-
-    fun stopPhotosphere() {
-        panoramaEngine.stopSweep()
-        viewModelScope.launch {
-            val result = panoramaEngine.stitch()
-            if (result != null) {
-                panoramaEngine.saveToMediaStore(result)
-                result.recycle()
+            panoramaEngine.stitch()?.let {
+                panoramaEngine.saveToMediaStore(it)
+                it.recycle()
             }
             panoramaEngine.reset()
         }

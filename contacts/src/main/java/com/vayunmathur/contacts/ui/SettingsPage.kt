@@ -95,9 +95,8 @@ fun SettingsPage(viewModel: ContactViewModel, backStack: NavBackStack<Route>) {
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                val readGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
-                val writeGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED
-                val hasCalendarPermissions = readGranted && writeGranted
+                val hasCalendarPermissions = arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
+                    .all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
 
                 ListItem(
                     headlineContent = { Text(stringResource(R.string.sync_contacts_calendar)) },

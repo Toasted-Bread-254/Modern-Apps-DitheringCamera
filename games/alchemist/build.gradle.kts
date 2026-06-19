@@ -7,3 +7,7 @@ android {
         applicationId = "com.vayunmathur.games.alchemist"
     }
 }
+
+dependencies {
+    implementation(project(":library:ui"))
+}

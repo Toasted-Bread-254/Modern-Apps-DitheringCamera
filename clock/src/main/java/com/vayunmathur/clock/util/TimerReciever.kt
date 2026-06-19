@@ -17,48 +17,31 @@ class TimerReceiver : BroadcastReceiver() {
         val name = intent.getStringExtra("timer_name") ?: context.getString(R.string.label_timer)
         val id = intent.getLongExtra("timer_id", 0L)
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
         val pendingResult = goAsync()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-        scope.launch {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
-
-                // 3. Cancel the old "ticking" notification if it's still there
                 nm.cancel(id.hashCode())
-                // 1. Post the "Finished" notification immediately
-                // This triggers the sound automatically via the channel settings
-                postFinishedNotification(context, name, id)
 
-                // 2. Database Cleanup
+                val notification = NotificationCompat.Builder(context, "finished_timers_channel")
+                    .setSmallIcon(R.drawable.outline_timer_24)
+                    .setContentTitle(context.getString(R.string.timer_finished_title))
+                    .setContentText(context.getString(R.string.timer_finished_text, name))
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setCategory(NotificationCompat.CATEGORY_ALARM)
+                    .setAutoCancel(true)
+                    .setFullScreenIntent(null, true)
+                    .build()
+                nm.notify(id.hashCode(), notification)
+
                 val db = context.buildDatabase<ClockDatabase>(useDeviceProtectedStorage = true)
                 db.timerDao().delete(
                     Timer(true, name, Clock.System.now(), Duration.ZERO, Duration.ZERO, id)
                 )
-
-            } catch (e: Exception) {
-                // Handle potential DB or null pointer issues
+            } catch (_: Exception) {
             } finally {
                 pendingResult.finish()
             }
         }
-    }
-
-    private fun postFinishedNotification(context: Context, name: String, id: Long) {
-        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-        val notification = NotificationCompat.Builder(context, "finished_timers_channel")
-            .setSmallIcon(R.drawable.outline_timer_24)
-            .setContentTitle(context.getString(R.string.timer_finished_title))
-            .setContentText(context.getString(R.string.timer_finished_text, name))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setAutoCancel(true)
-            .setOngoing(false)
-            // Ensure the notification actually "pops up" on screen
-            .setFullScreenIntent(null, true)
-            .build()
-
-        nm.notify(id.hashCode(), notification)
     }
 }

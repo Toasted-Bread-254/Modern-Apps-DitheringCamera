@@ -141,7 +141,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val activities = launcherApps.getActivityList(null, userHandle)
 
         _apps.value = activities
-            .mapNotNull { info ->
+            .map { info ->
                 val label = info.label.toString()
                 val icon = info.getBadgedIcon(0)
                 val pkg = info.applicationInfo.packageName
@@ -276,14 +276,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun addToHomeFromDrawer(appInfo: AppInfo, page: Int, row: Int, col: Int) {
-        viewModelScope.launch {
-            db.homeScreenDao().upsert(
-                HomeScreenItem(
-                    pageIndex = page, row = row, col = col,
-                    packageName = appInfo.packageName, activityName = appInfo.activityName
-                )
-            )
-        }
+        addToPage(appInfo.packageName, appInfo.activityName, page, row, col)
     }
 
     fun addToDock(packageName: String, activityName: String, position: Int) {

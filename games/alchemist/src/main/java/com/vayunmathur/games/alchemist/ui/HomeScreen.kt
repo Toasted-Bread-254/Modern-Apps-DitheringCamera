@@ -74,7 +74,6 @@ fun HomeScreen(
     val allItems by viewModel.allItems.collectAsState()
     val activeItems by viewModel.placedElements.collectAsState()
 
-    // --- UI-only filter state (per the plan: dialog/filter visibility stays in compose) ---
     val scope = rememberCoroutineScope()
 
     var bottomBarTopInWindow by remember { mutableFloatStateOf(Float.MAX_VALUE) }
@@ -161,7 +160,7 @@ fun HomeScreen(
                     ),
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.fillMaxWidth(),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    textAlign = TextAlign.Center
                 )
 
                 // 2.2 A-Z LETTER BAR

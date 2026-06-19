@@ -30,7 +30,7 @@ class ZipWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
         createNotificationChannel()
         setForeground(createForegroundInfo(0))
 
-        try {
+        return try {
             val fileSystem = FileSystem.SYSTEM
             
             var totalSize = 0L
@@ -52,23 +52,19 @@ class ZipWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
                     }
                 }
             }
-            notificationManager.cancel(notificationId)
-            return Result.success()
+            Result.success()
         } catch (e: Exception) {
             e.printStackTrace()
+            Result.failure()
+        } finally {
             notificationManager.cancel(notificationId)
-            return Result.failure()
         }
     }
 
     private fun calculateTotalSize(fileSystem: FileSystem, path: Path): Long {
         val metadata = fileSystem.metadataOrNull(path) ?: return 0L
-        if (metadata.isDirectory) {
-            var size = 0L
-            fileSystem.list(path).forEach { size += calculateTotalSize(fileSystem, it) }
-            return size
-        }
-        return metadata.size ?: 0L
+        return if (metadata.isDirectory) fileSystem.list(path).sumOf { calculateTotalSize(fileSystem, it) }
+        else metadata.size ?: 0L
     }
 
     private fun addToZip(
@@ -114,24 +110,18 @@ class ZipWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
         notificationManager.createNotificationChannel(channel)
     }
 
-    private fun createForegroundInfo(progress: Int): ForegroundInfo {
-        val notification = NotificationCompat.Builder(applicationContext, channelId)
+    private fun buildNotification(progress: Int) =
+        NotificationCompat.Builder(applicationContext, channelId)
             .setContentTitle(applicationContext.getString(R.string.archiving))
             .setSmallIcon(R.drawable.folder_24px)
             .setProgress(100, progress, false)
             .setOngoing(true)
             .build()
 
-        return ForegroundInfo(notificationId, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-    }
+    private fun createForegroundInfo(progress: Int) =
+        ForegroundInfo(notificationId, buildNotification(progress), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
 
     private fun updateNotification(progress: Int) {
-        val notification = NotificationCompat.Builder(applicationContext, channelId)
-            .setContentTitle(applicationContext.getString(R.string.archiving))
-            .setSmallIcon(R.drawable.folder_24px)
-            .setProgress(100, progress, false)
-            .setOngoing(true)
-            .build()
-        notificationManager.notify(notificationId, notification)
+        notificationManager.notify(notificationId, buildNotification(progress))
     }
 }

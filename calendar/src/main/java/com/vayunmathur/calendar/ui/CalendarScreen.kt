@@ -297,8 +297,11 @@ fun CalendarPagerView(
                             .width(56.dp)) {
                             val hourString = if(DateFormat.is24HourFormat(context)) {
                                 "%02d:00".format(hour)
-                            } else {
-                                if (hour == 0) context.getString(R.string.twelve_am) else if (hour < 12) context.getString(R.string.hour_am, hour) else if (hour == 12) context.getString(R.string.twelve_pm) else context.getString(R.string.hour_pm, hour - 12)
+                            } else when {
+                                hour == 0 -> context.getString(R.string.twelve_am)
+                                hour < 12 -> context.getString(R.string.hour_am, hour)
+                                hour == 12 -> context.getString(R.string.twelve_pm)
+                                else -> context.getString(R.string.hour_pm, hour - 12)
                             }
                             Text(
                                 text = hourString,

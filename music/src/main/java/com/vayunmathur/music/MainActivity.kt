@@ -42,20 +42,12 @@ class MainActivity : ComponentActivity() {
         db = buildDatabase<MusicDatabase>()
         setContent {
             DynamicTheme {
-                if(Build.VERSION.SDK_INT >= 33) {
-                    PermissionsChecker(
-                        arrayOf(Manifest.permission.READ_MEDIA_AUDIO),
-                        getString(R.string.grant_audio_permissions)
-                    ) {
-                        Navigation(musicViewModel)
-                    }
-                } else {
-                    PermissionsChecker(
-                        arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE),
-                        getString(R.string.grant_storage_permissions)
-                    ) {
-                        Navigation(musicViewModel)
-                    }
+                val (permissions, message) = if (Build.VERSION.SDK_INT >= 33)
+                    arrayOf(Manifest.permission.READ_MEDIA_AUDIO) to getString(R.string.grant_audio_permissions)
+                else
+                    arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE) to getString(R.string.grant_storage_permissions)
+                PermissionsChecker(permissions, message) {
+                    Navigation(musicViewModel)
                 }
             }
         }

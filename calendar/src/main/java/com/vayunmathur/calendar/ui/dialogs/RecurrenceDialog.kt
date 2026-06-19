@@ -208,7 +208,7 @@ fun RecurrenceDialog(backStack: NavBackStack<Route>, resultKey: String, startDat
                 }
 
                 // BYMONTHDAY - specific days of month
-                if (freq in listOf("months", "years")) {
+                if (freq == "months" || freq == "years") {
                     var byMonthDayStr by remember { mutableStateOf(byMonthDay.joinToString(",")) }
                     OutlinedTextField(
                         byMonthDayStr,
@@ -222,7 +222,7 @@ fun RecurrenceDialog(backStack: NavBackStack<Route>, resultKey: String, startDat
                 }
 
                 // BYMONTH - specific months
-                if (freq in listOf("years")) {
+                if (freq == "years") {
                     var byMonthStr by remember { mutableStateOf(byMonth.joinToString(",")) }
                     OutlinedTextField(
                         byMonthStr,
@@ -248,7 +248,7 @@ fun RecurrenceDialog(backStack: NavBackStack<Route>, resultKey: String, startDat
                 )
 
                 // BYYEARDAY - day of year
-                if (freq in listOf("years")) {
+                if (freq == "years") {
                     var byYearDayStr by remember { mutableStateOf(byYearDay.joinToString(",")) }
                     OutlinedTextField(
                         byYearDayStr,
@@ -262,7 +262,7 @@ fun RecurrenceDialog(backStack: NavBackStack<Route>, resultKey: String, startDat
                 }
 
                 // BYWEEKNO - week number
-                if (freq in listOf("years")) {
+                if (freq == "years") {
                     var byWeekNoStr by remember { mutableStateOf(byWeekNo.joinToString(",")) }
                     OutlinedTextField(
                         byWeekNoStr,

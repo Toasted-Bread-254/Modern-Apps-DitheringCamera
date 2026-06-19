@@ -167,7 +167,7 @@ suspend fun syncMusic(context: Context, database: MusicDatabase, uris: List<Uri>
                     val artistID = cursor.getLong(artistIDColumn)
                     val albumID = cursor.getLong(albumIDColumn)
                     val contentUriObject = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
-                    val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id).toString()
+                    val contentUri = contentUriObject.toString()
 
                     val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                     var duration = cursor.getLong(durationColumn)

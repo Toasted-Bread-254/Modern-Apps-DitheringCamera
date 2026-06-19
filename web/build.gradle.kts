@@ -10,6 +10,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":library:ui"))
     implementation(libs.geckoview)
     implementation(libs.jsoup)
     implementRoom(libs)

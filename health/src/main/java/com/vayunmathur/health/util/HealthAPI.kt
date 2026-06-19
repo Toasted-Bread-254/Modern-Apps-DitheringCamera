@@ -3,8 +3,6 @@ package com.vayunmathur.health.util
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.records.HydrationRecord
 import androidx.health.connect.client.records.NutritionRecord
@@ -36,455 +34,6 @@ object HealthAPI {
         this.healthConnectClient = healthConnectClient
         this.db = db
         preferences = context.getSharedPreferences("sync", Context.MODE_PRIVATE)
-    }
-
-    @Composable
-    fun sumInRange(recordType: RecordType, startTime: Instant, endTime: Instant): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumProteinInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumProteinInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumCarbsInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumCarbsInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumFatInRange(recordType: RecordType, startTime: Instant, endTime: Instant): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumFatInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumFiberInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumFiberInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumSugarInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumSugarInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumSodiumInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumSodiumInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumBiotinInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumBiotinInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumCaffeineInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumCaffeineInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumCalciumInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumCalciumInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumChlorideInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumChlorideInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumCholesterolInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumCholesterolInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumChromiumInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumChromiumInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumCopperInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumCopperInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumFolateInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumFolateInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumFolicAcidInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumFolicAcidInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumIodineInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumIodineInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumIronInRange(recordType: RecordType, startTime: Instant, endTime: Instant): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumIronInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumMagnesiumInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumMagnesiumInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumManganeseInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumManganeseInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumMolybdenumInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumMolybdenumInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumMonounsaturatedFatInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumMonounsaturatedFatInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumNiacinInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumNiacinInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumPantothenicAcidInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumPantothenicAcidInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumPhosphorusInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumPhosphorusInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumPolyunsaturatedFatInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumPolyunsaturatedFatInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumPotassiumInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumPotassiumInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumRiboflavinInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumRiboflavinInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumSaturatedFatInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumSaturatedFatInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumSeleniumInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumSeleniumInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumThiaminInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumThiaminInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumTransFatInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumTransFatInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumUnsaturatedFatInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumUnsaturatedFatInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumVitaminAInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumVitaminAInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumVitaminB12InRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumVitaminB12InRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumVitaminB6InRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumVitaminB6InRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumVitaminCInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumVitaminCInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumVitaminDInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumVitaminDInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumVitaminEInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumVitaminEInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumVitaminKInRange(
-            recordType: RecordType,
-            startTime: Instant,
-            endTime: Instant
-    ): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumVitaminKInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun sumZincInRange(recordType: RecordType, startTime: Instant, endTime: Instant): Flow<Double> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().sumZincInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun maxInRange(recordType: RecordType, startTime: Instant, endTime: Instant): Flow<Double?> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().maxInRange(recordType, startTime, endTime)
-        }
-    }
-
-    @Composable
-    fun minInRange(recordType: RecordType, startTime: Instant, endTime: Instant): Flow<Double?> {
-        return remember(recordType, startTime, endTime) {
-            db.healthDao().minInRange(recordType, startTime, endTime)
-        }
     }
 
     suspend inline fun lastRecord(recordType: RecordType): Record? {
@@ -633,147 +182,63 @@ object HealthAPI {
                 minute()
             }
 
+    private suspend fun aggregateByPeriod(
+        recordType: RecordType,
+        startTime: Instant,
+        endTime: Instant,
+        period: PeriodType,
+        dailyQuery: suspend (RecordType, Instant, Instant) -> List<com.vayunmathur.health.data.HealthDao.DailySum>,
+        hourlyQuery: suspend (RecordType, Long, Long) -> List<com.vayunmathur.health.data.HealthDao.HourlySum>,
+    ): List<Tuple3<Long, Double, Double>> = when (period) {
+        PeriodType.Daily -> {
+            dailyQuery(recordType, startTime, endTime).sortedBy { it.day }.map {
+                Tuple3(LocalDate.parse(it.day).toEpochDays(), it.totalValue, it.totalValue2)
+            }
+        }
+        PeriodType.Weekly -> {
+            dailyQuery(recordType, startTime, endTime).sortedBy { it.day }.groupBy {
+                val date = LocalDate.parse(it.day)
+                date.minus((date.dayOfWeek.ordinal + 1) % 7, DateTimeUnit.DAY).toEpochDays()
+            }.map { (key, values) ->
+                Tuple3(key, values.map { it.totalValue }.average(), values.map { it.totalValue2 }.average())
+            }
+        }
+        PeriodType.Monthly -> {
+            dailyQuery(recordType, startTime, endTime).sortedBy { it.day }.groupBy {
+                val date = LocalDate.parse(it.day)
+                date.minus(date.day - 1, DateTimeUnit.DAY).toEpochDays()
+            }.map { (key, values) ->
+                Tuple3(key, values.map { it.totalValue }.average(), values.map { it.totalValue2 }.average())
+            }
+        }
+        PeriodType.Hourly -> {
+            hourlyQuery(recordType, startTime.toEpochMilliseconds(), endTime.toEpochMilliseconds())
+                .sortedBy { it.hourBlock }.map {
+                    val date = hourlyFormat.parse(it.hourBlock)
+                    Tuple3(date.date.toEpochDays() * 24 + date.hour, it.totalValue, it.totalValue2)
+                }
+        }
+    }
+
     suspend fun getListOfAverages(
             recordType: RecordType,
             startTime: Instant,
             endTime: Instant,
             period: PeriodType
-    ): List<Tuple3<Long, Double, Double>> {
-        when (period) {
-            PeriodType.Daily -> {
-                // yyyy-mm-dd
-                val dailySums =
-                        db.healthDao().getDailyAvgs(recordType, startTime, endTime).sortedBy {
-                            it.day
-                        }
-                return dailySums.map {
-                    Tuple3(LocalDate.parse(it.day).toEpochDays(), it.totalValue, it.totalValue2)
-                }
-            }
-            PeriodType.Weekly -> {
-                val dailySums =
-                        db.healthDao()
-                                .getDailyAvgs(recordType, startTime, endTime)
-                                .sortedBy { it.day }
-                                .groupBy {
-                                    val date = LocalDate.parse(it.day)
-                                    val firstDayOfWeek =
-                                    date.minus(
-                                                    (date.dayOfWeek.ordinal + 1) % 7,
-                                                    DateTimeUnit.DAY
-                                            )
-                                    firstDayOfWeek.toEpochDays()
-                                }
-                                .mapValues { day ->
-                                    day.value.map { it.totalValue }.average() to
-                                            day.value.map { it.totalValue2 }.average()
-                                }
-                                .map { Tuple3(it.key, it.value.first, it.value.second) }
-                return dailySums
-            }
-            PeriodType.Monthly -> {
-                val dailySums =
-                        db.healthDao()
-                                .getDailyAvgs(recordType, startTime, endTime)
-                                .sortedBy { it.day }
-                                .groupBy {
-                                    val date = LocalDate.parse(it.day)
-                                    val firstDayOfMonth = date.minus(date.day - 1, DateTimeUnit.DAY)
-                                    firstDayOfMonth.toEpochDays()
-                                }
-                                .mapValues { day ->
-                                    day.value.map { it.totalValue }.average() to
-                                            day.value.map { it.totalValue2 }.average()
-                                }
-                                .map { Tuple3(it.key, it.value.first, it.value.second) }
-                return dailySums
-            }
-            else -> {
-                val hourlySums =
-                        db.healthDao()
-                                .getHourlyAvgs(
-                                        recordType,
-                                        startTime.toEpochMilliseconds(),
-                                        endTime.toEpochMilliseconds()
-                                )
-                                .sortedBy { it.hourBlock }
-                return hourlySums.map {
-                    val date = hourlyFormat.parse(it.hourBlock)
-                    Tuple3(date.date.toEpochDays() * 24 + date.hour, it.totalValue, it.totalValue2)
-                }
-            }
-        }
-    }
+    ): List<Tuple3<Long, Double, Double>> = aggregateByPeriod(
+        recordType, startTime, endTime, period,
+        dailyQuery = { t, s, e -> db.healthDao().getDailyAvgs(t, s, e) },
+        hourlyQuery = { t, s, e -> db.healthDao().getHourlyAvgs(t, s, e) },
+    )
 
     suspend fun getListOfSums(
             recordType: RecordType,
             startTime: Instant,
             endTime: Instant,
             period: PeriodType
-    ): List<Tuple3<Long, Double, Double>> {
-        when (period) {
-            PeriodType.Daily -> {
-                // yyyy-mm-dd
-                val dailySums =
-                        db.healthDao().getDailySums(recordType, startTime, endTime).sortedBy {
-                            it.day
-                        }
-                return dailySums.map {
-                    Tuple3(LocalDate.parse(it.day).toEpochDays(), it.totalValue, it.totalValue2)
-                }
-            }
-            PeriodType.Weekly -> {
-                val dailySums =
-                        db.healthDao()
-                                .getDailySums(recordType, startTime, endTime)
-                                .sortedBy { it.day }
-                                .groupBy {
-                                    val date = LocalDate.parse(it.day)
-                                    val firstDayOfWeek =
-                                            date.plus(
-                                                    (date.dayOfWeek.ordinal + 1) % 7,
-                                                    DateTimeUnit.DAY
-                                            )
-                                    firstDayOfWeek.toEpochDays()
-                                }
-                                .mapValues { day ->
-                                    day.value.map { it.totalValue }.average() to
-                                            day.value.map { it.totalValue2 }.average()
-                                }
-                                .map { Tuple3(it.key, it.value.first, it.value.second) }
-                return dailySums
-            }
-            PeriodType.Monthly -> {
-                val dailySums =
-                        db.healthDao()
-                                .getDailySums(recordType, startTime, endTime)
-                                .sortedBy { it.day }
-                                .groupBy {
-                                    val date = LocalDate.parse(it.day)
-                                    val firstDayOfMonth = date.minus(date.day - 1, DateTimeUnit.DAY)
-                                    firstDayOfMonth.toEpochDays()
-                                }
-                                .mapValues { day ->
-                                    day.value.map { it.totalValue }.average() to
-                                            day.value.map { it.totalValue2 }.average()
-                                }
-                                .map { Tuple3(it.key, it.value.first, it.value.second) }
-                return dailySums
-            }
-            else -> {
-                val hourlySums =
-                        db.healthDao()
-                                .getHourlySums(
-                                        recordType,
-                                        startTime.toEpochMilliseconds(),
-                                        endTime.toEpochMilliseconds()
-                                )
-                                .sortedBy { it.hourBlock }
-                return hourlySums.map {
-                    val date = hourlyFormat.parse(it.hourBlock)
-                    Tuple3(date.date.toEpochDays() * 24 + date.hour, it.totalValue, it.totalValue2)
-                }
-            }
-        }
-    }
+    ): List<Tuple3<Long, Double, Double>> = aggregateByPeriod(
+        recordType, startTime, endTime, period,
+        dailyQuery = { t, s, e -> db.healthDao().getDailySums(t, s, e) },
+        hourlyQuery = { t, s, e -> db.healthDao().getHourlySums(t, s, e) },
+    )
 }

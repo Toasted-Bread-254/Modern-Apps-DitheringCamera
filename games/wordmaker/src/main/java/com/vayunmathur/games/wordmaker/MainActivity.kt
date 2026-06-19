@@ -96,10 +96,8 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlin.math.atan2
 import kotlin.math.cos
-import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 @Serializable
 sealed interface Route : NavKey {
@@ -148,8 +146,6 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun rememberAchievementsManager(levelDataStore: LevelDataStore): AchievementsManager? {
     val context = androidx.compose.ui.platform.LocalContext.current
-    // Read + parse the achievements JSON off the main thread; first composition
-    // sees null and the manager appears once IO completes.
     val state = androidx.compose.runtime.produceState<AchievementsManager?>(initialValue = null, context, levelDataStore) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val json = context.assets.open("achievements.json").bufferedReader().use { it.readText() }
@@ -406,53 +402,36 @@ fun WordGameScreen(
                                 shuffledLetters = nextLetters
                             },
                             onWordSubmitted = { word, ids ->
-
-                                suspend fun shakeWord() {
-                                    val offsets = listOf(-16f, 12f, -8f, 6f, -3f, 0f)
-                                    for (o in offsets) {
-                                        val state = wordShakeAnim.animateTo(
-                                            with(density) { o.dp.toPx() },
-                                            animationSpec = tween(40)
-                                        ).endState
-                                        while (state.isRunning) delay(30)
+                                suspend fun shakeAnim(anim: Animatable<Float, AnimationVector1D>, duration: Int = 40) {
+                                    for (o in listOf(-16f, 12f, -8f, 6f, -3f, 0f)) {
+                                        anim.animateTo(with(density) { o.dp.toPx() }, tween(duration))
                                     }
                                 }
-                                // Handle submission with shake animations for invalid cases
-                                if (word in crosswordData.solutionWords) {
-                                    if (word !in foundWords) {
+
+                                val isSolution = word in crosswordData.solutionWords
+                                val isBonus = !isSolution && word.length >= 3 && viewModel.isInDictionary(word)
+
+                                when {
+                                    isSolution && word !in foundWords -> {
                                         wordToAnimate = WordToAnimate(word, ids)
                                         if (word.length >= 7) achievementsManager.onAchievementUnlocked("long_word")
                                     }
-                                    else shakeWord()
-                                } else if (word.length < 3) {
-                                    shakeWord()
-                                } else if (viewModel.isInDictionary(word) && word !in bonusWords) {
-                                    coroutineScope.launch {
-                                        animatedWord = word
-                                        animationProgress.snapTo(0f)
-                                        animationProgress.animateTo(
-                                            1f,
-                                            animationSpec = tween(durationMillis = 800)
-                                        )
-                                        val newTotal = viewModel.addBonusWord(word)
-                                        achievementsManager.onProgressUpdated("bonus_hunter", newTotal)
-                                        animatedWord = null
-                                    }
-                                } else if (viewModel.isInDictionary(word) && word in bonusWords) {
-                                    val j = launch {
-                                        val offsets = listOf(-16f, 12f, -8f, 6f, -3f, 0f)
-                                        // also animate bonus button concurrently across the same offsets
-                                        offsets.forEach { o ->
-                                            bonusShakeAnim.animateTo(
-                                                with(density) { o.dp.toPx() },
-                                                animationSpec = tween(60)
-                                            )
+                                    isBonus && word !in bonusWords -> {
+                                        coroutineScope.launch {
+                                            animatedWord = word
+                                            animationProgress.snapTo(0f)
+                                            animationProgress.animateTo(1f, tween(800))
+                                            val newTotal = viewModel.addBonusWord(word)
+                                            achievementsManager.onProgressUpdated("bonus_hunter", newTotal)
+                                            animatedWord = null
                                         }
                                     }
-                                    shakeWord()
-                                    j.join()
-                                } else {
-                                    shakeWord()
+                                    isBonus && word in bonusWords -> {
+                                        val j = launch { shakeAnim(bonusShakeAnim, 60) }
+                                        shakeAnim(wordShakeAnim)
+                                        j.join()
+                                    }
+                                    else -> shakeAnim(wordShakeAnim)
                                 }
                             },
                             onWordBoxPositioned = { wordBoxOffset = it },
@@ -652,20 +631,11 @@ fun CrosswordBoard(
 ) {
     val allCharPositions = mutableMapOf<Pair<Int, Int>, Char>()
     crosswordData.letterPositions.forEach { (word, occurrences) ->
-        if (word in foundWords && word != wordToAnimate) {
-            for (positions in occurrences) {
-                word.forEachIndexed { index, char ->
-                    allCharPositions[positions[index]] = char
-                }
-            }
-        }
-    }
-    // Also reveal hint cells
-    crosswordData.letterPositions.forEach { (word, occurrences) ->
         for (positions in occurrences) {
+            val isFound = word in foundWords && word != wordToAnimate
             word.forEachIndexed { index, char ->
                 val pos = positions[index]
-                if (pos in revealedHints && pos !in allCharPositions) {
+                if (isFound || (pos in revealedHints && pos !in allCharPositions)) {
                     allCharPositions[pos] = char
                 }
             }
@@ -802,8 +772,6 @@ fun LetterChooser(
         return null
     }
 
-    // wordShakeTranslation is provided from parent (WordGameScreen) and driven there
-
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         SurfaceText(
             Modifier
@@ -888,31 +856,12 @@ fun LetterChooser(
             ) {
                 val primaryColor = colorScheme.primary
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    if (selectedLettersIndices.size > 1) {
-                        for (i in 0 until selectedLettersIndices.size - 1) {
-                            val startLetter = selectedLettersIndices[i]
-                            val endLetter = selectedLettersIndices[i + 1]
-                            val startCenter = letterCenters[startLetter]
-                            val endCenter = letterCenters[endLetter]
-                            drawLine(
-                                color = primaryColor,
-                                start = startCenter,
-                                end = endCenter,
-                                strokeWidth = 10f,
-                                cap = StrokeCap.Round
-                            )
-                        }
+                    selectedLettersIndices.zipWithNext { a, b ->
+                        drawLine(primaryColor, letterCenters[a], letterCenters[b], 10f, cap = StrokeCap.Round)
                     }
                     val lastLetter = selectedLettersIndices.lastOrNull()
                     if (lastLetter != null && currentDragPosition != null) {
-                        val lastCenter = letterCenters[lastLetter]
-                        drawLine(
-                            color = primaryColor,
-                            start = lastCenter,
-                            end = currentDragPosition!!,
-                            strokeWidth = 10f,
-                            cap = StrokeCap.Round
-                        )
+                        drawLine(primaryColor, letterCenters[lastLetter], currentDragPosition!!, 10f, cap = StrokeCap.Round)
                     }
                 }
                 Surface(
@@ -961,6 +910,4 @@ fun LetterChooser(
     }
 }
 
-private fun distance(offset1: Offset, offset2: Offset): Float {
-    return sqrt((offset1.x - offset2.x).pow(2) + (offset1.y - offset2.y).pow(2))
-}
+private fun distance(a: Offset, b: Offset): Float = (a - b).getDistance()

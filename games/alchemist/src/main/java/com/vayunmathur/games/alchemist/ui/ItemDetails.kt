@@ -35,14 +35,12 @@ import com.vayunmathur.games.alchemist.Route
 import com.vayunmathur.games.alchemist.data.AlchemyRecipe
 import com.vayunmathur.games.alchemist.util.AlchemistViewModel
 import com.vayunmathur.library.ui.IconNavigation
-import com.vayunmathur.library.util.DataStoreUtils
 import com.vayunmathur.library.util.NavBackStack
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ItemDetailsScreen(
     backStack: NavBackStack<Route>,
-    @Suppress("UNUSED_PARAMETER") ds: DataStoreUtils,
     viewModel: AlchemistViewModel,
     itemId: Int
 ) {
@@ -120,20 +118,18 @@ fun ItemDetailsScreen(
                     stickyHeader {
                         SectionHeader(stringResource(R.string.recipes, makeThis.size))
                     }
-                    val makeThisRecipes = makeThis
-                    items(makeThisRecipes, key = { "make-${it.inputs.joinToString(",")}->${it.outputs.joinToString(",")}" }) { recipe ->
+                    items(makeThis, key = { "make-${it.inputs.joinToString(",")}->${it.outputs.joinToString(",")}" }) { recipe ->
                         RecipeCard(recipe, isItemDiscovered = { id -> id in itemsIds })
                     }
 
                     // all recipes that have this item as an input
                     val whereIHaveInput = recipes.filter { item.id in it.inputs }
-                    val showers = whereIHaveInput.filter { r -> r.outputs.all { it in itemsIds } }
+                    val discovered = whereIHaveInput.filter { r -> r.outputs.all { it in itemsIds } }
                     val locked = whereIHaveInput.count { r -> r.outputs.all { it !in itemsIds } }
                     stickyHeader {
                         SectionHeader(stringResource(R.string.used_in, whereIHaveInput.size))
                     }
-                    val showerRecipes = showers
-                    items(showerRecipes, key = { "used-${it.inputs.joinToString(",")}->${it.outputs.joinToString(",")}" }) { recipe ->
+                    items(discovered, key = { "used-${it.inputs.joinToString(",")}->${it.outputs.joinToString(",")}" }) { recipe ->
                         RecipeCard(recipe, isItemDiscovered = { id -> id in itemsIds })
                     }
                     if (locked > 0) {
@@ -151,6 +147,16 @@ fun ItemDetailsScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RecipeItemIcons(ids: List<Long>, isItemDiscovered: (Long) -> Boolean) {
+    ids.forEachIndexed { index, id ->
+        if (index > 0) {
+            Text("+", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+        }
+        DynamicAlchemyIcon(iconId = id, undiscovered = !isItemDiscovered(id), modifier = Modifier.size(32.dp))
     }
 }
 
@@ -208,39 +214,13 @@ fun RecipeCard(
                 return@Card
             }
 
-            recipe.inputs.forEach { inputId ->
-                DynamicAlchemyIcon(
-                    iconId = inputId,
-                    undiscovered = !isItemDiscovered(inputId),
-                    modifier = Modifier.size(32.dp)
-                )
-                if (inputId != recipe.inputs.last()) {
-                    Text(
-                        "+",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+            RecipeItemIcons(recipe.inputs, isItemDiscovered)
             Text(
                 "=",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold
             )
-            recipe.outputs.forEach { outputId ->
-                DynamicAlchemyIcon(
-                    iconId = outputId,
-                    undiscovered = !isItemDiscovered(outputId),
-                    modifier = Modifier.size(32.dp)
-                )
-                if (outputId != recipe.outputs.last()) {
-                    Text(
-                        "+",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+            RecipeItemIcons(recipe.outputs, isItemDiscovered)
         }
     }
 }

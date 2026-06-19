@@ -258,22 +258,12 @@ fun SleepStageGraph(record: Record) {
                     val endX =
                         ((stage.endTimeMillis - startTime).toFloat() / duration) * canvasWidth
 
-                    val yPos = when (stage.stage) {
-                        SleepSessionRecord.STAGE_TYPE_AWAKE, SleepSessionRecord.STAGE_TYPE_OUT_OF_BED -> 0f
-
-                        SleepSessionRecord.STAGE_TYPE_REM -> levelHeight
-                        SleepSessionRecord.STAGE_TYPE_LIGHT -> levelHeight * 2
-                        SleepSessionRecord.STAGE_TYPE_DEEP -> levelHeight * 3
-                        else -> levelHeight * 2
-                    }
-
-                    val color = when (stage.stage) {
-                        SleepSessionRecord.STAGE_TYPE_AWAKE, SleepSessionRecord.STAGE_TYPE_OUT_OF_BED -> awakeColor
-
-                        SleepSessionRecord.STAGE_TYPE_REM -> remColor
-                        SleepSessionRecord.STAGE_TYPE_LIGHT -> coreColor
-                        SleepSessionRecord.STAGE_TYPE_DEEP -> deepColor
-                        else -> coreColor
+                    val (yPos, color) = when (stage.stage) {
+                        SleepSessionRecord.STAGE_TYPE_AWAKE, SleepSessionRecord.STAGE_TYPE_OUT_OF_BED -> 0f to awakeColor
+                        SleepSessionRecord.STAGE_TYPE_REM -> levelHeight to remColor
+                        SleepSessionRecord.STAGE_TYPE_LIGHT -> levelHeight * 2 to coreColor
+                        SleepSessionRecord.STAGE_TYPE_DEEP -> levelHeight * 3 to deepColor
+                        else -> levelHeight * 2 to coreColor
                     }
 
                     drawRoundRect(

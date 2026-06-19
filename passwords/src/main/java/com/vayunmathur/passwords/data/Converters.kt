@@ -1,6 +1,5 @@
 package com.vayunmathur.passwords.data
 
-import android.util.Base64
 import androidx.room.TypeConverter
 
 object Converters {
@@ -8,7 +7,7 @@ object Converters {
 
     @TypeConverter
     @JvmStatic
-    fun fromWebsites(list: List<String>?): String = (list ?: emptyList()).joinToString(DELIM) { it }
+    fun fromWebsites(list: List<String>?): String = (list ?: emptyList()).joinToString(DELIM)
 
     @TypeConverter
     @JvmStatic

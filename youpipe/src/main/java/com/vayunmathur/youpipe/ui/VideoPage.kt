@@ -116,7 +116,6 @@ fun VideoPage(
         ypvm.loadVideo(videoID, downloaded)
     }
     LaunchedEffect(downloadedVideo) {
-        downloadedVideo
         downloadedVideo?.let { ypvm.applyDownloadedStreams(it) }
     }
 
@@ -193,32 +192,16 @@ fun VideoPage(
                     val pagerState = rememberPagerState(pageCount = { 3 })
                     val coroutineScope = rememberCoroutineScope()
 
+                    val tabLabels = listOf(R.string.label_comments, R.string.label_related_videos, R.string.label_description)
                     Column {
-                        // 2. The TabRow synchronized with the pager
                         SecondaryTabRow(selectedTabIndex = pagerState.currentPage) {
-                            Tab(
-                                selected = pagerState.currentPage == 0,
-                                onClick = {
-                                    coroutineScope.launch { pagerState.animateScrollToPage(0) }
+                            tabLabels.forEachIndexed { index, labelRes ->
+                                Tab(
+                                    selected = pagerState.currentPage == index,
+                                    onClick = { coroutineScope.launch { pagerState.animateScrollToPage(index) } }
+                                ) {
+                                    Text(stringResource(labelRes), modifier = Modifier.padding(16.dp))
                                 }
-                            ) {
-                                Text(stringResource(R.string.label_comments), modifier = Modifier.padding(16.dp))
-                            }
-                            Tab(
-                                selected = pagerState.currentPage == 1,
-                                onClick = {
-                                    coroutineScope.launch { pagerState.animateScrollToPage(1) }
-                                }
-                            ) {
-                                Text(stringResource(R.string.label_related_videos), modifier = Modifier.padding(16.dp))
-                            }
-                            Tab(
-                                selected = pagerState.currentPage == 2,
-                                onClick = {
-                                    coroutineScope.launch { pagerState.animateScrollToPage(2) }
-                                }
-                            ) {
-                                Text(stringResource(R.string.label_description), modifier = Modifier.padding(16.dp))
                             }
                         }
 
@@ -505,16 +488,12 @@ fun uploadTimeAgo(context: android.content.Context, date: Instant): String {
 }
 
 fun uploadTimeAgo(context: android.content.Context, date: LocalDate): String {
-    val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
-    val period = date.periodUntil(now.date)
-    return if(period.years > 0) {
-        context.getString(R.string.time_ago_years, period.years)
-    } else if(period.months > 0) {
-        context.getString(R.string.time_ago_months, period.months)
-    } else if(period.days > 0) {
-        context.getString(R.string.time_ago_days, period.days)
-    } else {
-        context.getString(R.string.time_ago_just_now)
+    val period = date.periodUntil(Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date)
+    return when {
+        period.years > 0 -> context.getString(R.string.time_ago_years, period.years)
+        period.months > 0 -> context.getString(R.string.time_ago_months, period.months)
+        period.days > 0 -> context.getString(R.string.time_ago_days, period.days)
+        else -> context.getString(R.string.time_ago_just_now)
     }
 }
 

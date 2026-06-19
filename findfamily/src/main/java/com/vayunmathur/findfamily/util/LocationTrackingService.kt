@@ -26,6 +26,8 @@ import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
 import kotlin.math.sqrt
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkerParameters
 import com.vayunmathur.findfamily.data.Coord
 import com.vayunmathur.findfamily.data.FFDatabase
@@ -43,12 +45,10 @@ import com.vayunmathur.findfamily.uwb.UwbEnvelope
 import com.vayunmathur.findfamily.uwb.UwbEnvelopeKind
 import com.vayunmathur.findfamily.uwb.UwbInbox
 import com.vayunmathur.findfamily.MainActivity
-import com.vayunmathur.findfamily.Migration_1_2
-import com.vayunmathur.findfamily.Migration_2_3
 import com.vayunmathur.findfamily.R
 import com.vayunmathur.library.util.DataStoreUtils
 import com.vayunmathur.library.util.buildDatabase
-import com.vayunmathur.findfamily.util.startRepeatedTask
+import com.vayunmathur.library.util.startRepeatedTask
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -570,16 +570,17 @@ class ServiceRestartWorker(
     workerParams: WorkerParameters
 ) : CoroutineWorker(appContext, workerParams) {
 
-    override suspend fun doWork(): Result {
-        try {
-            applicationContext.startForegroundService(Intent(applicationContext, LocationTrackingService::class.java))
-            return Result.success()
-        } catch (_: Exception) {
-            return Result.retry()
-        }
+    override suspend fun doWork(): Result = try {
+        applicationContext.startForegroundService(Intent(applicationContext, LocationTrackingService::class.java))
+        Result.success()
+    } catch (_: Exception) {
+        Result.retry()
     }
 }
 
 fun ensureSync(context: Context) {
-    startRepeatedTask<ServiceRestartWorker>(context, "Location Sync", 15.minutes)
+    startRepeatedTask<ServiceRestartWorker>(
+        context, "Location Sync", 15.minutes,
+        ExistingWorkPolicy.REPLACE, ExistingPeriodicWorkPolicy.REPLACE
+    )
 }

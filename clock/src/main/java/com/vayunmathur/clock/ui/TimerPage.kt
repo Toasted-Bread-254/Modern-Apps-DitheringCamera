@@ -166,18 +166,15 @@ fun TimerKeypadContent(
         }
 
         // Keypad
+        val appendDigits: (String) -> Unit = { input = (input + it).takeLast(6).trimStart('0') }
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            KeypadRow("1", "2", "3") { input = (input + it).takeLast(6).trimStart('0') }
-            KeypadRow("4", "5", "6") { input = (input + it).takeLast(6).trimStart('0') }
-            KeypadRow("7", "8", "9") { input = (input + it).takeLast(6).trimStart('0') }
+            KeypadRow("1", "2", "3", appendDigits)
+            KeypadRow("4", "5", "6", appendDigits)
+            KeypadRow("7", "8", "9", appendDigits)
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                KeypadButton("00", Modifier.weight(1f)) { input = (input + "00").takeLast(6).trimStart('0') }
-                KeypadButton("0", Modifier.weight(1f)) { input = (input + "0").takeLast(6).trimStart('0') }
-                ActionKeypadButton(
-                    text = "⌫",
-                    modifier = Modifier.weight(1f),
-                    onClick = { input = input.dropLast(1) }
-                )
+                KeypadButton("00", Modifier.weight(1f)) { appendDigits("00") }
+                KeypadButton("0", Modifier.weight(1f)) { appendDigits("0") }
+                KeypadButton("⌫", Modifier.weight(1f)) { input = input.dropLast(1) }
             }
         }
 
@@ -240,38 +237,20 @@ fun TimeUnitDisplay(value: String, unit: String, active: Boolean) {
 @Composable
 fun KeypadRow(k1: String, k2: String, k3: String, onClick: (String) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        KeypadButton(k1, Modifier.weight(1f), onClick)
-        KeypadButton(k2, Modifier.weight(1f), onClick)
-        KeypadButton(k3, Modifier.weight(1f), onClick)
+        KeypadButton(k1, Modifier.weight(1f)) { onClick(k1) }
+        KeypadButton(k2, Modifier.weight(1f)) { onClick(k2) }
+        KeypadButton(k3, Modifier.weight(1f)) { onClick(k3) }
     }
 }
 
 @Composable
-fun KeypadButton(text: String, modifier: Modifier = Modifier, onClick: (String) -> Unit) {
+fun KeypadButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
         modifier = modifier
             .aspectRatio(1f)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable { onClick(text) },
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-    }
-}
-
-@Composable
-fun ActionKeypadButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Box(
-        modifier = modifier
-            .aspectRatio(1f)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable { onClick() },
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -402,21 +381,10 @@ fun TimerCard(timer: Timer, now: Instant, clockViewModel: ClockViewModel) {
 
 fun formatTimerDuration(duration: Duration): String {
     val totalSeconds = duration.inWholeSeconds
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-
-    return buildString {
-        if (hours > 0) {
-            append(hours)
-            append(":")
-            if (minutes < 10) append("0")
-        }
-        append(minutes)
-        append(":")
-        if (seconds < 10) append("0")
-        append(seconds)
-    }
+    val h = totalSeconds / 3600
+    val m = (totalSeconds % 3600) / 60
+    val s = totalSeconds % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
 

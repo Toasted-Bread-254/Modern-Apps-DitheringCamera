@@ -1,5 +1,6 @@
 package com.vayunmathur.weather.util
 
+import kotlin.math.round
 import kotlin.math.roundToInt
 
 /** Temperature display unit. Storage / API is always Celsius. */
@@ -35,6 +36,8 @@ fun formatWind(kph: Double, unit: WindUnit): String = when (unit) {
     WindUnit.KmH -> "${kph.roundToInt()} km/h"
     WindUnit.Mph -> "${(kph * 0.621371).roundToInt()} mph"
 }
+
+fun roundCoord(value: Double): Double = round(value * 10000.0) / 10000.0
 
 /**
  * Convert a 0..360° meteorological wind direction (where the wind comes FROM)

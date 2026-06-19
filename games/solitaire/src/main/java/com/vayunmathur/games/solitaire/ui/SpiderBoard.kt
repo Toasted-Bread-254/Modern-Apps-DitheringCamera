@@ -38,7 +38,7 @@ fun SpiderBoard(state: SpiderState, viewModel: SolitaireViewModel, modifier: Mod
                 )
                 if (state.stockGroups.isNotEmpty()) {
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        state.stockGroups.forEachIndexed { _, _ ->
+                    repeat(state.stockGroups.size) {
                             CardBack(
                                 modifier = Modifier.clickable { viewModel.dealSpiderStock() },
                                 cardWidth = cardWidth,

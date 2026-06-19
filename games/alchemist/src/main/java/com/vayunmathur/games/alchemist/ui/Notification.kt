@@ -35,7 +35,6 @@ fun UnlockNotification(
         exit = slideOutVertically { -it } + fadeOut(),
         modifier = Modifier.padding(16.dp)
     ) {
-        if (unlock.isEmpty()) return@AnimatedVisibility
         Card(
             modifier = Modifier
                 .fillMaxWidth()

@@ -91,9 +91,12 @@ import com.vayunmathur.notes.Route
 import com.vayunmathur.notes.data.Note
 import com.vayunmathur.notes.util.NotesViewModel
 
+private fun isCheckboxPrefix(line: String) =
+    line.startsWith("- [ ] ") || line.startsWith("- [x] ") || line.startsWith("- [X] ")
+
 private fun stripLinePrefix(line: String): String {
     Regex("^#{1,6} ").find(line)?.let { return line.substring(it.value.length) }
-    if (line.startsWith("- [ ] ") || line.startsWith("- [x] ") || line.startsWith("- [X] ")) return line.substring(6)
+    if (isCheckboxPrefix(line)) return line.substring(6)
     if (line.startsWith("- ")) return line.substring(2)
     Regex("^\\d+\\. ").find(line)?.let { return line.substring(it.value.length) }
     if (line.startsWith("> ")) return line.substring(2)
@@ -102,7 +105,7 @@ private fun stripLinePrefix(line: String): String {
 
 private fun getLinePrefix(line: String): String {
     Regex("^#{1,6} ").find(line)?.let { return it.value }
-    if (line.startsWith("- [ ] ") || line.startsWith("- [x] ") || line.startsWith("- [X] ")) return line.substring(0, 6)
+    if (isCheckboxPrefix(line)) return line.substring(0, 6)
     if (line.startsWith("- ")) return "- "
     Regex("^\\d+\\. ").find(line)?.let { return it.value }
     if (line.startsWith("> ")) return "> "
@@ -114,6 +117,28 @@ private fun getSelectedLines(text: String, selection: TextRange): Pair<Int, Int>
     val effectiveEnd = if (!selection.collapsed && selection.end > selection.start && selection.end > 0 && text.getOrNull(selection.end - 1) == '\n') selection.end - 1 else selection.end
     val blockEnd = text.indexOf('\n', effectiveEnd).let { if (it == -1) text.length else it }
     return blockStart to blockEnd
+}
+
+private fun matchesPrefix(line: String, prefix: String): Boolean = when {
+    prefix == "1. " -> Regex("^\\d+\\. ").containsMatchIn(line)
+    prefix == "- [ ] " -> isCheckboxPrefix(line)
+    prefix == "- " -> line.startsWith("- ") && !isCheckboxPrefix(line)
+    else -> line.startsWith(prefix)
+}
+
+private fun computeBlockSelection(
+    text: String,
+    selection: TextRange,
+    blockStart: Int,
+    lines: List<String>,
+    newLines: List<String>,
+    newBlockText: String,
+): TextRange = if (selection.collapsed) {
+    val lineIndex = text.substring(blockStart, selection.start).count { it == '\n' }
+    val diff = newLines[lineIndex].length - lines[lineIndex].length
+    TextRange((selection.start + diff).coerceAtLeast(blockStart))
+} else {
+    TextRange(blockStart, blockStart + newBlockText.length)
 }
 
 private fun hasInlineMarker(content: String, marker: String): Boolean {
@@ -132,8 +157,7 @@ private fun toggleInlineFormat(value: TextFieldValue, marker: String): TextField
         return value.copy(text = newText, selection = TextRange(selection.start + marker.length))
     }
     val (blockStart, blockEnd) = getSelectedLines(text, selection)
-    val blockText = text.substring(blockStart, blockEnd)
-    val lines = blockText.split("\n")
+    val lines = text.substring(blockStart, blockEnd).split("\n")
 
     val allHaveMarker = lines.all { line ->
         line.isBlank() || hasInlineMarker(line.substring(getLinePrefix(line).length), marker)
@@ -162,104 +186,59 @@ private fun toggleLinePrefix(value: TextFieldValue, prefix: String): TextFieldVa
     val text = value.text
     val selection = value.selection
     val (blockStart, blockEnd) = getSelectedLines(text, selection)
-    val blockText = text.substring(blockStart, blockEnd)
-    val lines = blockText.split("\n")
+    val lines = text.substring(blockStart, blockEnd).split("\n")
 
-    val isNumberedList = prefix == "1. "
-    val isCheckbox = prefix == "- [ ] "
-
-    val allHavePrefix = lines.all { line ->
-        when {
-            isNumberedList -> Regex("^\\d+\\. ").containsMatchIn(line)
-            isCheckbox -> line.startsWith("- [ ] ") || line.startsWith("- [x] ") || line.startsWith("- [X] ")
-            prefix == "- " -> line.startsWith("- ") && !line.startsWith("- [ ] ") && !line.startsWith("- [x] ") && !line.startsWith("- [X] ")
-            else -> line.startsWith(prefix)
-        }
-    }
+    val allHavePrefix = lines.all { matchesPrefix(it, prefix) }
 
     val newLines = if (allHavePrefix) {
         lines.map { stripLinePrefix(it) }
     } else {
         lines.mapIndexed { index, line ->
             val stripped = stripLinePrefix(line)
-            if (isNumberedList) "${index + 1}. $stripped" else prefix + stripped
+            if (prefix == "1. ") "${index + 1}. $stripped" else prefix + stripped
         }
     }
 
     val newBlockText = newLines.joinToString("\n")
     val newText = text.substring(0, blockStart) + newBlockText + text.substring(blockEnd)
-    val newSelection = if (selection.collapsed) {
-        val textBeforeCursorInBlock = text.substring(blockStart, selection.start)
-        val lineIndex = textBeforeCursorInBlock.count { it == '\n' }
-        val diff = newLines[lineIndex].length - lines[lineIndex].length
-        TextRange((selection.start + diff).coerceAtLeast(blockStart))
-    } else {
-        TextRange(blockStart, blockStart + newBlockText.length)
-    }
-    return value.copy(text = newText, selection = newSelection)
+    return value.copy(text = newText, selection = computeBlockSelection(text, selection, blockStart, lines, newLines, newBlockText))
 }
 
 private fun insertHeading(value: TextFieldValue, level: Int): TextFieldValue {
     val text = value.text
     val selection = value.selection
     val (blockStart, blockEnd) = getSelectedLines(text, selection)
-    val blockText = text.substring(blockStart, blockEnd)
-    val lines = blockText.split("\n")
+    val lines = text.substring(blockStart, blockEnd).split("\n")
     val targetPrefix = "#".repeat(level) + " "
 
-    val allHaveHeading = lines.all { line ->
-        Regex("^#{1,6} ").find(line)?.value == targetPrefix
-    }
+    val allHaveHeading = lines.all { Regex("^#{1,6} ").find(it)?.value == targetPrefix }
 
     val newLines = if (allHaveHeading) {
         lines.map { stripLinePrefix(it) }
     } else {
-        lines.map { line -> targetPrefix + stripLinePrefix(line) }
+        lines.map { targetPrefix + stripLinePrefix(it) }
     }
 
     val newBlockText = newLines.joinToString("\n")
     val newText = text.substring(0, blockStart) + newBlockText + text.substring(blockEnd)
-    val newSelection = if (selection.collapsed) {
-        val textBeforeCursorInBlock = text.substring(blockStart, selection.start)
-        val lineIndex = textBeforeCursorInBlock.count { it == '\n' }
-        val diff = newLines[lineIndex].length - lines[lineIndex].length
-        TextRange((selection.start + diff).coerceAtLeast(blockStart))
-    } else {
-        TextRange(blockStart, blockStart + newBlockText.length)
-    }
-    return value.copy(text = newText, selection = newSelection)
+    return value.copy(text = newText, selection = computeBlockSelection(text, selection, blockStart, lines, newLines, newBlockText))
 }
 
 private fun isInlineFormatActive(text: String, selection: TextRange, marker: String): Boolean {
     val (blockStart, blockEnd) = getSelectedLines(text, selection)
-    val blockText = text.substring(blockStart, blockEnd)
-    val lines = blockText.split("\n")
-    val nonEmptyLines = lines.filter { it.isNotBlank() }
-    if (nonEmptyLines.isEmpty()) return false
-    return nonEmptyLines.all { line ->
-        hasInlineMarker(line.substring(getLinePrefix(line).length), marker)
-    }
+    val lines = text.substring(blockStart, blockEnd).split("\n").filter { it.isNotBlank() }
+    return lines.isNotEmpty() && lines.all { hasInlineMarker(it.substring(getLinePrefix(it).length), marker) }
 }
 
 private fun isLinePrefixActive(text: String, selection: TextRange, prefix: String): Boolean {
     val (blockStart, blockEnd) = getSelectedLines(text, selection)
-    val blockText = text.substring(blockStart, blockEnd)
-    val lines = blockText.split("\n")
-    return lines.all { line ->
-        when {
-            prefix == "1. " -> Regex("^\\d+\\. ").containsMatchIn(line)
-            prefix == "- [ ] " -> line.startsWith("- [ ] ") || line.startsWith("- [x] ") || line.startsWith("- [X] ")
-            prefix == "- " -> line.startsWith("- ") && !line.startsWith("- [ ] ") && !line.startsWith("- [x] ") && !line.startsWith("- [X] ")
-            else -> line.startsWith(prefix)
-        }
-    }
+    return text.substring(blockStart, blockEnd).split("\n").all { matchesPrefix(it, prefix) }
 }
 
 private fun getActiveHeadingLevel(text: String, cursorPos: Int): Int? {
     val lineStart = text.lastIndexOf('\n', (cursorPos - 1).coerceAtLeast(0)) + 1
     val lineEnd = text.indexOf('\n', cursorPos).let { if (it == -1) text.length else it }
-    val line = text.substring(lineStart, lineEnd)
-    val match = Regex("^(#{1,6}) ").find(line) ?: return null
+    val match = Regex("^(#{1,6}) ").find(text.substring(lineStart, lineEnd)) ?: return null
     return match.groupValues[1].length
 }
 
@@ -303,27 +282,20 @@ private fun tryToggleCheckbox(offset: Int, value: TextFieldValue): TextFieldValu
     val text = value.text
     val lineStart = text.lastIndexOf('\n', (offset - 1).coerceAtLeast(0)) + 1
     val lineEnd = text.indexOf('\n', offset).let { if (it == -1) text.length else it }
-    val line = text.substring(lineStart, lineEnd)
-
-    val match = checkboxPattern.find(line) ?: return null
+    val match = checkboxPattern.find(text.substring(lineStart, lineEnd)) ?: return null
     val bracketOffset = lineStart + match.groups[1]!!.value.length
     if (offset > bracketOffset + 3) return null
-
-    val isChecked = match.groups[2]!!.value.lowercase() == "x"
-    val newChar = if (isChecked) " " else "x"
+    val newChar = if (match.groups[2]!!.value.lowercase() == "x") " " else "x"
     val newText = text.substring(0, bracketOffset + 1) + newChar + text.substring(bracketOffset + 2)
     return value.copy(text = newText, selection = TextRange(offset))
 }
 
-private fun findCheckboxPositions(text: String): List<Pair<Int, Boolean>> {
-    val results = mutableListOf<Pair<Int, Boolean>>()
-    Regex("(?m)^(\\s*- )\\[([ xX])] ").findAll(text).forEach { match ->
+private fun findCheckboxPositions(text: String): List<Pair<Int, Boolean>> =
+    Regex("(?m)^(\\s*- )\\[([ xX])] ").findAll(text).map { match ->
         val bracketOffset = match.groups[1]!!.range.last + 1
         val isChecked = match.groups[2]!!.value.lowercase() == "x"
-        results.add(bracketOffset to isChecked)
-    }
-    return results
-}
+        bracketOffset to isChecked
+    }.toList()
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -380,6 +352,12 @@ fun NotePage(
     }
 
     var showHeadingMenu by remember { mutableStateOf(false) }
+
+    fun applyFormat(transform: (TextFieldValue) -> TextFieldValue) {
+        contentValue = transform(contentValue)
+        note = note.copy(content = contentValue.text)
+        contentValue = contentValue.copy(annotatedString = notesViewModel.parseDisplay(contentValue.text))
+    }
 
     Scaffold(topBar = {
         TopAppBar(title = {
@@ -482,38 +460,22 @@ fun NotePage(
                     )
 
                     IconButton(
-                        onClick = {
-                            contentValue = toggleInlineFormat(contentValue, "**")
-                            note = note.copy(content = contentValue.text)
-                            contentValue = contentValue.copy(annotatedString = notesViewModel.parseDisplay(contentValue.text))
-                        },
+                        onClick = { applyFormat { toggleInlineFormat(it, "**") } },
                         modifier = if (isBoldActive) activeBg else Modifier
                     ) { Icon(Icons.Default.FormatBold, "Bold") }
 
                     IconButton(
-                        onClick = {
-                            contentValue = toggleInlineFormat(contentValue, "*")
-                            note = note.copy(content = contentValue.text)
-                            contentValue = contentValue.copy(annotatedString = notesViewModel.parseDisplay(contentValue.text))
-                        },
+                        onClick = { applyFormat { toggleInlineFormat(it, "*") } },
                         modifier = if (isItalicActive) activeBg else Modifier
                     ) { Icon(Icons.Default.FormatItalic, "Italic") }
 
                     IconButton(
-                        onClick = {
-                            contentValue = toggleInlineFormat(contentValue, "~~")
-                            note = note.copy(content = contentValue.text)
-                            contentValue = contentValue.copy(annotatedString = notesViewModel.parseDisplay(contentValue.text))
-                        },
+                        onClick = { applyFormat { toggleInlineFormat(it, "~~") } },
                         modifier = if (isStrikethroughActive) activeBg else Modifier
                     ) { Icon(Icons.Default.FormatStrikethrough, "Strikethrough") }
 
                     IconButton(
-                        onClick = {
-                            contentValue = toggleInlineFormat(contentValue, "`")
-                            note = note.copy(content = contentValue.text)
-                            contentValue = contentValue.copy(annotatedString = notesViewModel.parseDisplay(contentValue.text))
-                        },
+                        onClick = { applyFormat { toggleInlineFormat(it, "`") } },
                         modifier = if (isCodeActive) activeBg else Modifier
                     ) { Icon(Icons.Default.Code, "Inline Code") }
 
@@ -533,9 +495,7 @@ fun NotePage(
                                 DropdownMenuItem(
                                     text = { Text("H$level") },
                                     onClick = {
-                                        contentValue = insertHeading(contentValue, level)
-                                        note = note.copy(content = contentValue.text)
-                                        contentValue = contentValue.copy(annotatedString = notesViewModel.parseDisplay(contentValue.text))
+                                        applyFormat { insertHeading(it, level) }
                                         showHeadingMenu = false
                                     },
                                     modifier = if (isActive) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier,
@@ -546,58 +506,36 @@ fun NotePage(
                     }
 
                     IconButton(
-                        onClick = {
-                            contentValue = toggleLinePrefix(contentValue, "> ")
-                            note = note.copy(content = contentValue.text)
-                            contentValue = contentValue.copy(annotatedString = notesViewModel.parseDisplay(contentValue.text))
-                        },
+                        onClick = { applyFormat { toggleLinePrefix(it, "> ") } },
                         modifier = if (isQuoteActive) activeBg else Modifier
                     ) { Icon(Icons.Default.FormatQuote, "Quote") }
 
                     IconButton(
-                        onClick = {
-                            contentValue = toggleLinePrefix(contentValue, "- ")
-                            note = note.copy(content = contentValue.text)
-                            contentValue = contentValue.copy(annotatedString = notesViewModel.parseDisplay(contentValue.text))
-                        },
+                        onClick = { applyFormat { toggleLinePrefix(it, "- ") } },
                         modifier = if (isBulletActive) activeBg else Modifier
                     ) { Icon(Icons.Default.FormatListBulleted, "Bullet List") }
 
                     IconButton(
-                        onClick = {
-                            contentValue = toggleLinePrefix(contentValue, "1. ")
-                            note = note.copy(content = contentValue.text)
-                            contentValue = contentValue.copy(annotatedString = notesViewModel.parseDisplay(contentValue.text))
-                        },
+                        onClick = { applyFormat { toggleLinePrefix(it, "1. ") } },
                         modifier = if (isNumberedActive) activeBg else Modifier
                     ) { Icon(Icons.Default.FormatListNumbered, "Numbered List") }
 
                     IconButton(
-                        onClick = {
-                            contentValue = toggleLinePrefix(contentValue, "- [ ] ")
-                            note = note.copy(content = contentValue.text)
-                            contentValue = contentValue.copy(annotatedString = notesViewModel.parseDisplay(contentValue.text))
-                        },
+                        onClick = { applyFormat { toggleLinePrefix(it, "- [ ] ") } },
                         modifier = if (isCheckboxActive) activeBg else Modifier
                     ) { Icon(Icons.Default.CheckBox, "Checkbox") }
 
-                    IconButton({
-                        contentValue = insertCodeBlock(contentValue)
-                        note = note.copy(content = contentValue.text)
-                        contentValue = contentValue.copy(annotatedString = notesViewModel.parseDisplay(contentValue.text))
-                    }) { Icon(Icons.Default.IntegrationInstructions, "Code Block") }
+                    IconButton({ applyFormat { insertCodeBlock(it) } }) {
+                        Icon(Icons.Default.IntegrationInstructions, "Code Block")
+                    }
 
-                    IconButton({
-                        contentValue = insertHorizontalRule(contentValue)
-                        note = note.copy(content = contentValue.text)
-                        contentValue = contentValue.copy(annotatedString = notesViewModel.parseDisplay(contentValue.text))
-                    }) { Icon(Icons.Default.HorizontalRule, "Horizontal Rule") }
+                    IconButton({ applyFormat { insertHorizontalRule(it) } }) {
+                        Icon(Icons.Default.HorizontalRule, "Horizontal Rule")
+                    }
 
-                    IconButton({
-                        contentValue = insertLink(contentValue)
-                        note = note.copy(content = contentValue.text)
-                        contentValue = contentValue.copy(annotatedString = notesViewModel.parseDisplay(contentValue.text))
-                    }) { Icon(Icons.Default.Link, "Link") }
+                    IconButton({ applyFormat { insertLink(it) } }) {
+                        Icon(Icons.Default.Link, "Link")
+                    }
                 }
             }
         }
@@ -649,15 +587,12 @@ fun NotePage(
                         displayValue,
                         { newValue ->
                             if (newValue.text == contentValue.text && newValue.selection.collapsed) {
-                                val toggled = tryToggleCheckbox(newValue.selection.start, contentValue)
-                                if (toggled != null) {
-                                    note = note.copy(content = toggled.text)
-                                    contentValue = toggled.copy(annotatedString = notesViewModel.parseDisplay(toggled.text))
+                                tryToggleCheckbox(newValue.selection.start, contentValue)?.let {
+                                    applyFormat { _ -> it }
                                     return@BasicTextField
                                 }
                             }
-                            note = note.copy(content = newValue.text)
-                            contentValue = newValue.copy(annotatedString = notesViewModel.parseDisplay(newValue.text))
+                            applyFormat { _ -> newValue }
                         },
                         Modifier.fillMaxSize(),
                         textStyle = MaterialTheme.typography.bodyMedium.copy(color = LocalContentColor.current),
@@ -687,10 +622,8 @@ fun NotePage(
                                         .offset(x = rect.left.toDp() - 12.dp, y = rect.top.toDp())
                                         .size(lineHeight.toDp())
                                         .clickable {
-                                            val toggled = tryToggleCheckbox(bracketOffset, contentValue)
-                                            if (toggled != null) {
-                                                note = note.copy(content = toggled.text)
-                                                contentValue = toggled.copy(annotatedString = notesViewModel.parseDisplay(toggled.text))
+                                            tryToggleCheckbox(bracketOffset, contentValue)?.let {
+                                                applyFormat { _ -> it }
                                             }
                                         }
                                 )

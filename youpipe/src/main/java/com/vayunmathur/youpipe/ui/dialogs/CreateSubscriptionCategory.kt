@@ -63,7 +63,7 @@ fun CreateSubscriptionCategory(backStack: NavBackStack<Route>, youPipeViewModel:
                         ListItem({
                             Text(subscription.name)
                         }, trailingContent = {
-                            Checkbox(subscription in selectedSubscriptions, {checked ->
+                        Checkbox(subscription in selectedSubscriptions, {
                                 selectedSubscriptions = if(subscription in selectedSubscriptions)
                                     selectedSubscriptions - subscription
                                 else

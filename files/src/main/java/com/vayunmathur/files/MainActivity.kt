@@ -85,7 +85,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.vayunmathur.files.util.FilesViewModel
-import com.vayunmathur.files.util.FilesViewModelFactory
 import com.vayunmathur.library.ui.DynamicTheme
 import com.vayunmathur.library.ui.IconArchive
 import com.vayunmathur.library.ui.IconChevronRight
@@ -101,7 +100,7 @@ import okio.Path.Companion.toOkioPath
 import okio.Path.Companion.toPath
 
 class MainActivity : ComponentActivity() {
-    private val viewModel: FilesViewModel by viewModels { FilesViewModelFactory(application) }
+    private val viewModel: FilesViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -121,16 +120,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        if (intent == null) return
-        val action = intent.action
-        val type = intent.type
-
-        if (Intent.ACTION_SEND == action && type != null) {
-            val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
-            if (uri != null) viewModel.setIncomingUris(listOf(uri))
-        } else if (Intent.ACTION_SEND_MULTIPLE == action && type != null) {
-            val uris = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
-            if (uris != null) viewModel.setIncomingUris(uris)
+        intent?.takeIf { it.type != null } ?: return
+        when (intent.action) {
+            Intent.ACTION_SEND -> intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                ?.let { viewModel.setIncomingUris(listOf(it)) }
+            Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                ?.let { viewModel.setIncomingUris(it) }
         }
     }
 }
@@ -231,6 +226,31 @@ fun Path.deleteRecursively(fileSystem: FileSystem = fs) {
     fileSystem.delete(this)
 }
 
+fun pathAncestors(from: Path?, upTo: Path?): List<Path> = buildList {
+    var p = from
+    while (p != null) {
+        add(0, p)
+        if (p == upTo) break
+        p = p.parent
+    }
+}
+
+fun dropTarget(
+    onDragStateChange: (Boolean) -> Unit,
+    onDrop: (List<Path>) -> Unit
+) = object : DragAndDropTarget {
+    override fun onDrop(event: DragAndDropEvent): Boolean {
+        onDragStateChange(false)
+        val clipData = event.toAndroidDragEvent().clipData ?: return false
+        if (clipData.itemCount == 0) return false
+        onDrop((0 until clipData.itemCount).map { clipData.getItemAt(it).text.toString().toPath() })
+        return true
+    }
+    override fun onEntered(event: DragAndDropEvent) { onDragStateChange(true) }
+    override fun onExited(event: DragAndDropEvent) { onDragStateChange(false) }
+    override fun onEnded(event: DragAndDropEvent) { onDragStateChange(false) }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DirectoryPage(viewModel: FilesViewModel) {
@@ -302,13 +322,9 @@ fun DirectoryPage(viewModel: FilesViewModel) {
     }
 
     val zipToUnzip = remember(selectedPaths, currentFileSystem) {
-        if (selectedPaths.size == 1 && !selectedPaths.first()
-                .isDirectory(currentFileSystem) && selectedPaths.first().name.endsWith(
-                ".zip", ignoreCase = true
-            )
-        ) {
-            selectedPaths.first()
-        } else null
+        selectedPaths.singleOrNull()?.takeIf {
+            !it.isDirectory(currentFileSystem) && it.name.endsWith(".zip", ignoreCase = true)
+        }
     }
 
     val treeLauncher =
@@ -329,38 +345,13 @@ fun DirectoryPage(viewModel: FilesViewModel) {
 
     val breadcrumbs = remember(currentDirectory, zipPath, currentFileSystem) {
         if (zipPath == null) {
-            val list = mutableListOf<Path>()
-            var temp: Path? = currentDirectory
-            while (temp != null) {
-                list.add(0, temp)
-                if (temp == root) break
-                temp = temp.parent
-            }
-            list.map { Triple(it, fs, if (it == root) Build.MODEL else it.name) }
+            pathAncestors(currentDirectory, root)
+                .map { Triple(it, fs, if (it == root) Build.MODEL else it.name) }
         } else {
-            val systemList = mutableListOf<Path>()
-            var tempSystem: Path? = zipPath?.parent
-            while (tempSystem != null) {
-                systemList.add(0, tempSystem)
-                if (tempSystem == root) break
-                tempSystem = tempSystem.parent
-            }
-
-            val zipList = mutableListOf<Path>()
-            var tempZip: Path? = currentDirectory
-            while (tempZip != null) {
-                zipList.add(0, tempZip)
-                tempZip = tempZip.parent
-            }
-
-            systemList.map {
-                Triple(
-                    it, fs, if (it == root) Build.MODEL else it.name
-                )
-            } + zipList.map {
-                Triple(
-                    it, currentFileSystem, it.name.ifEmpty { zipPath!!.name })
-            }
+            pathAncestors(zipPath?.parent, root)
+                .map { Triple(it, fs, if (it == root) Build.MODEL else it.name) } +
+            pathAncestors(currentDirectory, null)
+                .map { Triple(it, currentFileSystem, it.name.ifEmpty { zipPath!!.name }) }
         }
     }
 
@@ -402,46 +393,12 @@ fun DirectoryPage(viewModel: FilesViewModel) {
                                         !isReadOnly && event.mimeTypes().contains(
                                             ClipDescription.MIMETYPE_TEXT_PLAIN
                                         )
-                                    }, target = remember(
-                                        path, fileSystem
-                                    ) {
-                                        object : DragAndDropTarget {
-                                            override fun onDrop(
-                                                event: DragAndDropEvent
-                                            ): Boolean {
-                                                isBreadcrumbDraggingOver = false
-                                                val dragEvent = event.toAndroidDragEvent()
-                                                val clipData = dragEvent.clipData
-                                                if (clipData != null && clipData.itemCount > 0) {
-                                                    val sources = (0 until clipData.itemCount).map {
-                                                        clipData.getItemAt(
-                                                            it
-                                                        ).text.toString().toPath()
-                                                    }
-                                                    viewModel.moveToBreadcrumb(sources, path)
-                                                    return true
-                                                }
-                                                return false
-                                            }
-
-                                            override fun onEntered(
-                                                event: DragAndDropEvent
-                                            ) {
-                                                isBreadcrumbDraggingOver = true
-                                            }
-
-                                            override fun onExited(
-                                                event: DragAndDropEvent
-                                            ) {
-                                                isBreadcrumbDraggingOver = false
-                                            }
-
-                                            override fun onEnded(
-                                                event: DragAndDropEvent
-                                            ) {
-                                                isBreadcrumbDraggingOver = false
-                                            }
-                                        }
+                                    },
+                                    target = remember(path, fileSystem) {
+                                        dropTarget(
+                                            onDragStateChange = { isBreadcrumbDraggingOver = it },
+                                            onDrop = { sources -> viewModel.moveToBreadcrumb(sources, path) }
+                                        )
                                     })
                                 .clickable {
                                     viewModel.navigateTo(path, fileSystem)
@@ -633,43 +590,10 @@ fun DirectoryItem(
                             ClipDescription.MIMETYPE_TEXT_PLAIN
                         )
                     }, target = remember(file) {
-                        object : DragAndDropTarget {
-                            override fun onDrop(
-                                event: DragAndDropEvent
-                            ): Boolean {
-                                isDraggingOver = false
-                                val dragEvent = event.toAndroidDragEvent()
-                                val clipData = dragEvent.clipData
-                                if (clipData != null && clipData.itemCount > 0) {
-                                    val sources = (0 until clipData.itemCount).map {
-                                        clipData.getItemAt(
-                                            it
-                                        ).text.toString().toPath()
-                                    }
-                                    currentOnMove(sources)
-                                    return true
-                                }
-                                return false
-                            }
-
-                            override fun onEntered(
-                                event: DragAndDropEvent
-                            ) {
-                                isDraggingOver = true
-                            }
-
-                            override fun onExited(
-                                event: DragAndDropEvent
-                            ) {
-                                isDraggingOver = false
-                            }
-
-                            override fun onEnded(
-                                event: DragAndDropEvent
-                            ) {
-                                isDraggingOver = false
-                            }
-                        }
+                        dropTarget(
+                            onDragStateChange = { isDraggingOver = it },
+                            onDrop = { currentOnMove(it) }
+                        )
                     })
                 } else Modifier
             )

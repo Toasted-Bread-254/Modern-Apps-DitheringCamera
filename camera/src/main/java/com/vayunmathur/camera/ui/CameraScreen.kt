@@ -262,9 +262,7 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
     // Sync controller's zoom state back to ViewModel (for pinch-to-zoom)
     DisposableEffect(controller, lifecycleOwner) {
         val observer = androidx.lifecycle.Observer<androidx.camera.core.ZoomState> { state ->
-            if (state != null) {
-                viewModel.setZoomRatio(state.zoomRatio)
-            }
+            state?.let { viewModel.setZoomRatio(it.zoomRatio) }
         }
         controller.zoomState.observe(lifecycleOwner, observer)
         onDispose { controller.zoomState.removeObserver(observer) }
@@ -276,21 +274,14 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
 
     LaunchedEffect(zoomRatio) {
         val zoomState = controller.zoomState.value
-        val currentZoom = zoomState?.zoomRatio ?: 0f
-        if (kotlin.math.abs(currentZoom - zoomRatio) > 0.05f) {
-            if (zoomState != null) {
-                val clamped = zoomRatio.coerceIn(zoomState.minZoomRatio, zoomState.maxZoomRatio)
-                controller.setZoomRatio(clamped)
-            } else {
-                controller.setZoomRatio(zoomRatio)
-            }
+        if (kotlin.math.abs((zoomState?.zoomRatio ?: 0f) - zoomRatio) > 0.05f) {
+            val clamped = zoomState?.let { zoomRatio.coerceIn(it.minZoomRatio, it.maxZoomRatio) } ?: zoomRatio
+            controller.setZoomRatio(clamped)
         }
     }
 
-    // Exposure compensation
     LaunchedEffect(exposureComp) {
-        val camera = controller.cameraInfo
-        if (camera != null) {
+        controller.cameraInfo?.let { camera ->
             val range = camera.exposureState.exposureCompensationRange
             val index = (exposureComp * range.upper).toInt().coerceIn(range.lower, range.upper)
             controller.cameraControl?.setExposureCompensationIndex(index)
@@ -298,42 +289,46 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
     }
 
     LaunchedEffect(cameraMode) {
-        if (cameraMode == CameraMode.SLOW_MO) {
-            maskBitmap = null
-            controller.setEnabledUseCases(0)
-            controller.clearImageAnalysisAnalyzer()
-            viewModel.setQrResult(null)
-    } else if (cameraMode == CameraMode.PHOTO || cameraMode == CameraMode.PORTRAIT || cameraMode == CameraMode.PANORAMA || cameraMode == CameraMode.PHOTOSPHERE) {
-            controller.setEnabledUseCases(CameraController.IMAGE_CAPTURE or CameraController.IMAGE_ANALYSIS)
-            when (cameraMode) {
-                CameraMode.PORTRAIT -> {
-                    controller.setImageAnalysisAnalyzer(
-                        ContextCompat.getMainExecutor(context),
-                        BokehAnalyzer(context) { mask -> maskBitmap = mask }
-                    )
-                }
-                CameraMode.PANORAMA, CameraMode.PHOTOSPHERE -> {
-                    maskBitmap = null
-                    controller.setImageAnalysisAnalyzer(
-                        ContextCompat.getMainExecutor(context)
-                    ) @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class) { imageProxy ->
-                        viewModel.panoramaEngine.latestFrame = imageProxy.toBitmap()
-                        imageProxy.close()
+        when {
+            cameraMode == CameraMode.SLOW_MO -> {
+                maskBitmap = null
+                controller.setEnabledUseCases(0)
+                controller.clearImageAnalysisAnalyzer()
+                viewModel.setQrResult(null)
+            }
+            isPhotoType -> {
+                controller.setEnabledUseCases(CameraController.IMAGE_CAPTURE or CameraController.IMAGE_ANALYSIS)
+                when (cameraMode) {
+                    CameraMode.PORTRAIT -> {
+                        controller.setImageAnalysisAnalyzer(
+                            ContextCompat.getMainExecutor(context),
+                            BokehAnalyzer(context) { mask -> maskBitmap = mask }
+                        )
+                    }
+                    CameraMode.PANORAMA, CameraMode.PHOTOSPHERE -> {
+                        maskBitmap = null
+                        controller.setImageAnalysisAnalyzer(
+                            ContextCompat.getMainExecutor(context)
+                        ) @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class) { imageProxy ->
+                            viewModel.panoramaEngine.latestFrame = imageProxy.toBitmap()
+                            imageProxy.close()
+                        }
+                    }
+                    else -> {
+                        maskBitmap = null
+                        controller.setImageAnalysisAnalyzer(
+                            ContextCompat.getMainExecutor(context),
+                            QrAnalyzer { text -> viewModel.setQrResult(text) }
+                        )
                     }
                 }
-                else -> {
-                    maskBitmap = null
-                    controller.setImageAnalysisAnalyzer(
-                        ContextCompat.getMainExecutor(context),
-                        QrAnalyzer { text -> viewModel.setQrResult(text) }
-                    )
-                }
             }
-        } else {
-            maskBitmap = null
-            controller.setEnabledUseCases(CameraController.VIDEO_CAPTURE)
-            controller.clearImageAnalysisAnalyzer()
-            viewModel.setQrResult(null)
+            else -> {
+                maskBitmap = null
+                controller.setEnabledUseCases(CameraController.VIDEO_CAPTURE)
+                controller.clearImageAnalysisAnalyzer()
+                viewModel.setQrResult(null)
+            }
         }
     }
 
@@ -585,9 +580,9 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
                 )
             }
 
-            if (qrResult != null) {
+            qrResult?.let { qr ->
                 QrResultOverlay(
-                    text = qrResult!!,
+                    text = qr,
                     onDismiss = { viewModel.setQrResult(null) },
                     context = context,
                     modifier = Modifier
@@ -620,11 +615,7 @@ private fun TopBar(
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val flashBg = when (flashMode) {
-            FlashMode.ON -> Color(0xFF3C3C3C)
-            FlashMode.OFF -> Color.Transparent
-            FlashMode.AUTO -> Color(0xFF3C3C3C)
-        }
+        val flashBg = if (flashMode == FlashMode.OFF) Color.Transparent else Color(0xFF3C3C3C)
         IconButton(
             onClick = onFlashToggle,
             modifier = Modifier

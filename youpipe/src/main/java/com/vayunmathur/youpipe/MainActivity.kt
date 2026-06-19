@@ -118,14 +118,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-fun getRoute(uri: Uri?): Route {
-    if(uri != null) {
-        if("watch" in uri.pathSegments && "v" in uri.queryParameterNames) {
-            return Route.VideoPage(videoURLtoID(uri.toString()))
-        }
-    }
-    return Route.SearchPage
-}
+fun getRoute(uri: Uri?): Route =
+    if (uri != null && "watch" in uri.pathSegments && "v" in uri.queryParameterNames)
+        Route.VideoPage(videoURLtoID(uri.toString()))
+    else Route.SearchPage
 
 @Serializable
 sealed interface Route: NavKey {

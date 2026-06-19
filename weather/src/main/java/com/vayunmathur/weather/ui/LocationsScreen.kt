@@ -65,6 +65,55 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 
 /**
+ * Composable helper that provides a device-location request action with
+ * permission handling. Returns the onClick lambda and a loading flag.
+ * Used by both [LocationsScreen] and [EmptyHome][com.vayunmathur.weather.ui.EmptyHome].
+ */
+@Composable
+internal fun rememberRequestDeviceLocation(
+    viewModel: WeatherViewModel,
+): Pair<() -> Unit, Boolean> {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var loading by remember { mutableStateOf(false) }
+
+    val fetchLocation: () -> Unit = {
+        loading = true
+        scope.launch {
+            val loc = LocationProvider.currentLocation(context)
+            if (loc != null) {
+                viewModel.setCurrentLocation("Current location", loc.latitude, loc.longitude)
+            } else {
+                Toast.makeText(context, "Couldn't determine location", Toast.LENGTH_SHORT).show()
+            }
+            loading = false
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { granted ->
+        if (granted.values.any { it }) {
+            fetchLocation()
+        } else {
+            Toast.makeText(context, "Location permission denied", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val onClick = {
+        if (LocationProvider.hasPermission(context)) {
+            fetchLocation()
+        } else {
+            permissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+            )
+        }
+    }
+
+    return onClick to loading
+}
+
+/**
  * Locations drawer content. Renders inside [HomePage]'s
  * `DismissibleNavigationDrawer`. Scaffold with a back/close top bar,
  * a scrollable list of [LocationItem]s, and a full-width "Search location"
@@ -89,46 +138,8 @@ fun LocationsScreen(
 
     var longPressedLocation: SavedLocation? by remember { mutableStateOf(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
 
-    var deviceLocationLoading by remember { mutableStateOf(false) }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) { granted ->
-        if (granted.values.any { it }) {
-            deviceLocationLoading = true
-            scope.launch {
-                val loc = LocationProvider.currentLocation(context)
-                if (loc != null) {
-                    viewModel.setCurrentLocation(name = "Current location", latitude = loc.latitude, longitude = loc.longitude)
-                } else {
-                    Toast.makeText(context, "Couldn't determine location", Toast.LENGTH_SHORT).show()
-                }
-                deviceLocationLoading = false
-            }
-        } else {
-            Toast.makeText(context, "Location permission denied", Toast.LENGTH_SHORT).show()
-        }
-    }
-    val onAddCurrentLocation = {
-        if (LocationProvider.hasPermission(context)) {
-            deviceLocationLoading = true
-            scope.launch {
-                val loc = LocationProvider.currentLocation(context)
-                if (loc != null) {
-                    viewModel.setCurrentLocation(name = "Current location", latitude = loc.latitude, longitude = loc.longitude)
-                }
-                deviceLocationLoading = false
-            }
-            Unit
-        } else {
-            permissionLauncher.launch(
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-            )
-        }
-    }
+    val (onAddCurrentLocation, deviceLocationLoading) = rememberRequestDeviceLocation(viewModel)
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,

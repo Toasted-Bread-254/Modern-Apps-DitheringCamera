@@ -74,7 +74,7 @@ fun PasskeyPage(
             DetailCard(stringResource(R.string.passkey_user_display_name), passkey.userDisplayName)
             DetailCard(
                 stringResource(R.string.passkey_credential_id),
-                passkey.credentialId.take(20) + if (passkey.credentialId.length > 20) "…" else ""
+                passkey.credentialId.let { if (it.length > 20) it.take(20) + "…" else it }
             )
             DetailCard(stringResource(R.string.passkey_created), dateFormat.format(Date(passkey.creationTime)))
             DetailCard(stringResource(R.string.passkey_last_used), dateFormat.format(Date(passkey.lastUsedTime)))

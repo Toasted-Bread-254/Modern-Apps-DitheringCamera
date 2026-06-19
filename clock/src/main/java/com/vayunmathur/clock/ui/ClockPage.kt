@@ -62,28 +62,21 @@ fun ClockPage(backStack: NavBackStack<Route>, ds: DataStoreUtils, clockViewModel
     }) { paddingValues ->
         LazyColumn(Modifier.fillMaxWidth(), contentPadding = paddingValues, verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             item {
+                val is24h = DateFormat.is24HourFormat(context)
+                val timeFormat = LocalTime.Format {
+                    if (is24h) hour(Padding.ZERO) else amPmHour(Padding.NONE)
+                    chars(":")
+                    minute()
+                    chars(":")
+                    second()
+                }
                 Row(verticalAlignment = Alignment.Bottom) {
-                    if(DateFormat.is24HourFormat(context)) {
-                        Text(time.time.format(LocalTime.Format {
-                            hour(Padding.ZERO)
-                            chars(":")
-                            minute()
-                            chars(":")
-                            second()
-                        }), style = MaterialTheme.typography.displayLarge)
-                    } else {
-                        Text(time.time.format(LocalTime.Format {
-                            amPmHour(Padding.NONE)
-                            chars(":")
-                            minute()
-                            chars(":")
-                            second()
-                        }), style = MaterialTheme.typography.displayLarge)
+                    Text(time.time.format(timeFormat), style = MaterialTheme.typography.displayLarge)
+                    if (!is24h) {
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            if (time.time.hour >= 12) stringResource(R.string.time_pm) else stringResource(
-                                R.string.time_am
-                            ), style = MaterialTheme.typography.displayMedium
+                            if (time.time.hour >= 12) stringResource(R.string.time_pm) else stringResource(R.string.time_am),
+                            style = MaterialTheme.typography.displayMedium
                         )
                     }
                 }

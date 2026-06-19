@@ -162,7 +162,7 @@ fun ImageAdjustments.applyToBitmap(bitmap: Bitmap): Bitmap {
     var result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
 
     val cm = toColorMatrix()
-    if (cm.array.contentEquals(ColorMatrix().array).not()) {
+    if (!cm.array.contentEquals(ColorMatrix().array)) {
         val canvas = Canvas(result)
         val paint = Paint().apply {
             colorFilter = ColorMatrixColorFilter(cm)
@@ -170,16 +170,8 @@ fun ImageAdjustments.applyToBitmap(bitmap: Bitmap): Bitmap {
         canvas.drawBitmap(result, 0f, 0f, paint)
     }
 
-    if (sharpness > 0f) {
-        result = applySharpen(result, sharpness / 100f)
-    }
-
-    if (vignette > 0f) {
-        applyVignette(result, vignette / 100f)
-    }
-
-    if (grain > 0f) {
-        applyGrain(result, grain / 100f)
+    if (hasPixelEffects()) {
+        result = applyPixelEffects(result)
     }
 
     return result
@@ -189,14 +181,17 @@ fun ImageAdjustments.hasPixelEffects(): Boolean =
     sharpness != 0f || vignette != 0f || grain != 0f
 
 fun ImageAdjustments.applyPixelEffects(bitmap: Bitmap): Bitmap {
-    var result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+    if (!hasPixelEffects()) return bitmap
+    var result = bitmap
     if (sharpness > 0f) {
-        result = applySharpen(result, sharpness / 100f)
+        result = applySharpen(if (result === bitmap) bitmap.copy(Bitmap.Config.ARGB_8888, true) else result, sharpness / 100f)
     }
     if (vignette > 0f) {
+        if (result === bitmap) result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         applyVignette(result, vignette / 100f)
     }
     if (grain > 0f) {
+        if (result === bitmap) result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
         applyGrain(result, grain / 100f)
     }
     return result

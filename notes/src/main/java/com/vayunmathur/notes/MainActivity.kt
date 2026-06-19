@@ -40,28 +40,22 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // Migrate notes from old database (used default name "passwords-db") to "notes-db"
         val oldDbFile = getDatabasePath("passwords-db")
-        var oldNotes = emptyList<Note>()
-        if (oldDbFile.exists()) {
+        val oldNotes = if (oldDbFile.exists()) {
             try {
                 val oldDb = buildDatabase<NoteDatabase>()
-                oldNotes = runBlocking { oldDb.noteDao().getAll() }
-                closeCachedDatabase<NoteDatabase>()
-            } catch (_: Exception) { }
-        }
+                runBlocking { oldDb.noteDao().getAll() }.also {
+                    closeCachedDatabase<NoteDatabase>()
+                }
+            } catch (_: Exception) { emptyList() }
+        } else emptyList()
 
         val db = buildDatabase<NoteDatabase>(dbName = "notes-db")
         noteDao = db.noteDao()
 
-        if (oldNotes.isNotEmpty()) {
-            runBlocking { noteDao.upsertAll(oldNotes) }
-        }
         if (oldDbFile.exists()) {
-            oldDbFile.delete()
-            File("${oldDbFile.path}-wal").delete()
-            File("${oldDbFile.path}-shm").delete()
-            File("${oldDbFile.path}-journal").delete()
+            if (oldNotes.isNotEmpty()) runBlocking { noteDao.upsertAll(oldNotes) }
+            listOf("", "-wal", "-shm", "-journal").forEach { File("${oldDbFile.path}$it").delete() }
         }
 
         handleIntent(intent)
@@ -83,12 +77,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        intent?.let {
-            val uris = IntentHelper.getUrisFromIntent(it)
-            if (uris.isNotEmpty()) {
-                notesViewModel.importFiles(uris)
-            }
-        }
+        intent?.let { notesViewModel.importFiles(IntentHelper.getUrisFromIntent(it)) }
     }
 }
 

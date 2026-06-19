@@ -28,12 +28,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.vayunmathur.email.data.EmailDatabase
 import com.vayunmathur.email.data.EmailSyncWorker
 import com.vayunmathur.library.ui.*
 import com.vayunmathur.library.util.*
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
@@ -83,22 +80,23 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        val data = intent?.data
+        if (intent == null) return
 
-        val accountEmail = intent?.getStringExtra("accountEmail")
-        val threadId = intent?.getStringExtra("threadId")
-        if (accountEmail != null && threadId != null) {
-            IntentState.navigationRoute = Route.MessageThread(accountEmail, threadId)
-        } else if (intent?.getBooleanExtra("compose", false) == true) {
-            IntentState.navigationRoute = Route.Composer()
-        }
-
-        if (intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SENDTO) {
-            val to = if (intent.action == Intent.ACTION_SENDTO) data?.schemeSpecificPart ?: "" else ""
-            val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT) ?: ""
-            val body = intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""
-
-            IntentState.navigationRoute = Route.Composer(to, subject, body)
+        val accountEmail = intent.getStringExtra("accountEmail")
+        val threadId = intent.getStringExtra("threadId")
+        when {
+            accountEmail != null && threadId != null ->
+                IntentState.navigationRoute = Route.MessageThread(accountEmail, threadId)
+            intent.getBooleanExtra("compose", false) ->
+                IntentState.navigationRoute = Route.Composer()
+            intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SENDTO -> {
+                val to = if (intent.action == Intent.ACTION_SENDTO) intent.data?.schemeSpecificPart ?: "" else ""
+                IntentState.navigationRoute = Route.Composer(
+                    to = to,
+                    subject = intent.getStringExtra(Intent.EXTRA_SUBJECT) ?: "",
+                    body = intent.getStringExtra(Intent.EXTRA_TEXT) ?: "",
+                )
+            }
         }
     }
 }

@@ -197,8 +197,7 @@ private fun PageIndicator(
     currentPage: Int,
     modifier: Modifier = Modifier
 ) {
-    val activeColor = Color(0xFF0B57D0)
-    val inactiveColor = Color(0xFF0B57D0).copy(alpha = 0.5f)
+    val color = Color(0xFF0B57D0)
 
     Row(
         modifier = modifier.height(24.dp),
@@ -206,13 +205,12 @@ private fun PageIndicator(
         verticalAlignment = Alignment.CenterVertically
     ) {
         repeat(pageCount) { index ->
-            val isActive = index == currentPage
             Box(
                 modifier = Modifier
                     .padding(horizontal = 2.dp)
                     .size(6.dp)
                     .clip(CircleShape)
-                    .background(if (isActive) activeColor else inactiveColor)
+                    .background(color.copy(alpha = if (index == currentPage) 1f else 0.5f))
             )
         }
     }

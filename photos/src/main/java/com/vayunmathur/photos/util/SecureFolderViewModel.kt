@@ -108,9 +108,9 @@ class SecureFolderViewModel(application: Application) : AndroidViewModel(applica
      */
     fun requestThumbnail(thumbnailPath: String, password: String) {
         synchronized(thumbCache) {
-            thumbCache[thumbnailPath]?.let {
-                if (_thumbnails.value[thumbnailPath] !== it) {
-                    _thumbnails.update { it + (thumbnailPath to thumbCache[thumbnailPath]!!) }
+            thumbCache[thumbnailPath]?.let { cached ->
+                if (_thumbnails.value[thumbnailPath] !== cached) {
+                    _thumbnails.update { it + (thumbnailPath to cached) }
                 }
                 return
             }

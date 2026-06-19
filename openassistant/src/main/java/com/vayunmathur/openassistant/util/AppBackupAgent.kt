@@ -6,20 +6,11 @@ import java.io.File
 
 class AppBackupAgent : BaseBackupAgent() {
     override val dbConfigs: List<Pair<String, String>>
-        get() {
+        get() = runCatching {
             val helper = DatabaseHelper(this)
-            return if (helper.isKeyGenerated()) {
-                try {
-                    val pass = helper.getPassphrase()
-                    listOf("passwords-db" to pass)
-                } catch (e: Exception) {
-                    emptyList()
-                }
-            } else {
-                emptyList()
-            }
-        }
+            if (helper.isKeyGenerated()) listOf("passwords-db" to helper.getPassphrase())
+            else emptyList()
+        }.getOrDefault(emptyList())
 
-    override val extraFiles: List<File>
-        get() = emptyList()
+    override val extraFiles: List<File> get() = emptyList()
 }

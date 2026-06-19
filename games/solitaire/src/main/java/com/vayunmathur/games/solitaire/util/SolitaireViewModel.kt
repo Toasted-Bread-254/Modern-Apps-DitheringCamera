@@ -40,12 +40,12 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun getStats(mode: GameMode): GameStats = statsRepository.getStats(mode)
 
-    fun hasActiveGame(): Boolean {
-        val state = _uiState.value
-        return state.gameMode != null && when (state.gameMode) {
-            GameMode.KLONDIKE -> state.klondike?.isWon == false
-            GameMode.SPIDER -> state.spider?.isWon == false
-            GameMode.FREECELL -> state.freeCell?.isWon == false
+    fun hasActiveGame(): Boolean = with(_uiState.value) {
+        when (gameMode) {
+            GameMode.KLONDIKE -> klondike?.isWon == false
+            GameMode.SPIDER -> spider?.isWon == false
+            GameMode.FREECELL -> freeCell?.isWon == false
+            null -> false
         }
     }
 
@@ -105,7 +105,7 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
                 ))
             }
         } else {
-            val drawCount = if (state.drawMode == DrawMode.DRAW_THREE) 3 else 1
+        val drawCount = if (state.drawMode == DrawMode.DRAW_THREE) 3 else 1
             val drawn = state.stock.takeLast(drawCount).reversed()
             _uiState.update {
                 it.copy(klondike = state.copy(
@@ -272,28 +272,20 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
         checkKlondikeWin()
     }
 
-    private fun canPlaceOnKlondikeTableau(card: Card, pile: TableauPile): Boolean {
-        if (pile.faceUp.isEmpty() && pile.faceDown.isEmpty()) return card.rank == Rank.KING
-        if (pile.faceUp.isEmpty()) return false
-        val top = pile.faceUp.last()
-        return top.isOneHigherThan(card) && card.alternatesColorWith(top)
+    private fun canPlaceOnKlondikeTableau(card: Card, pile: TableauPile): Boolean = when {
+        pile.faceUp.isEmpty() && pile.faceDown.isEmpty() -> card.rank == Rank.KING
+        pile.faceUp.isEmpty() -> false
+        else -> pile.faceUp.last().isOneHigherThan(card) && card.alternatesColorWith(pile.faceUp.last())
     }
 
-    private fun canPlaceOnFoundation(card: Card, foundation: List<Card>): Boolean {
-        if (foundation.isEmpty()) return card.rank == Rank.ACE
-        val top = foundation.last()
-        return card.suit == top.suit && card.rank.value == top.rank.value + 1
-    }
+    private fun canPlaceOnFoundation(card: Card, foundation: List<Card>): Boolean =
+        if (foundation.isEmpty()) card.rank == Rank.ACE
+        else card.suit == foundation.last().suit && card.isOneHigherThan(foundation.last())
 
-    private fun autoFlip(pile: TableauPile): TableauPile {
-        if (pile.faceUp.isEmpty() && pile.faceDown.isNotEmpty()) {
-            return pile.copy(
-                faceDown = pile.faceDown.dropLast(1),
-                faceUp = listOf(pile.faceDown.last())
-            )
-        }
-        return pile
-    }
+    private fun autoFlip(pile: TableauPile): TableauPile =
+        if (pile.faceUp.isEmpty() && pile.faceDown.isNotEmpty())
+            pile.copy(faceDown = pile.faceDown.dropLast(1), faceUp = listOf(pile.faceDown.last()))
+        else pile
 
     private fun checkKlondikeWin() {
         val state = _uiState.value.klondike ?: return
@@ -373,18 +365,13 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
         checkSpiderCompletedSuits()
     }
 
-    private fun isSpiderSequence(cards: List<Card>): Boolean {
-        for (i in 0 until cards.size - 1) {
-            if (cards[i].suit != cards[i + 1].suit) return false
-            if (cards[i].rank.value != cards[i + 1].rank.value + 1) return false
-        }
-        return true
-    }
+    private fun isSpiderSequence(cards: List<Card>): Boolean =
+        cards.zipWithNext().all { (a, b) -> a.suit == b.suit && a.isOneHigherThan(b) }
 
-    private fun canPlaceOnSpiderTableau(card: Card, pile: TableauPile): Boolean {
-        if (pile.faceUp.isEmpty() && pile.faceDown.isEmpty()) return true
-        if (pile.faceUp.isEmpty()) return false
-        return pile.faceUp.last().rank.value == card.rank.value + 1
+    private fun canPlaceOnSpiderTableau(card: Card, pile: TableauPile): Boolean = when {
+        pile.faceUp.isEmpty() && pile.faceDown.isEmpty() -> true
+        pile.faceUp.isEmpty() -> false
+        else -> pile.faceUp.last().rank.value == card.rank.value + 1
     }
 
     private fun checkSpiderCompletedSuits() {
@@ -540,19 +527,11 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    private fun isFreeCellSequence(cards: List<Card>): Boolean {
-        for (i in 0 until cards.size - 1) {
-            if (!cards[i].alternatesColorWith(cards[i + 1])) return false
-            if (cards[i].rank.value != cards[i + 1].rank.value + 1) return false
-        }
-        return true
-    }
+    private fun isFreeCellSequence(cards: List<Card>): Boolean =
+        cards.zipWithNext().all { (a, b) -> a.alternatesColorWith(b) && a.isOneHigherThan(b) }
 
-    private fun canPlaceOnFreeCellTableau(card: Card, pile: List<Card>): Boolean {
-        if (pile.isEmpty()) return true
-        val top = pile.last()
-        return card.alternatesColorWith(top) && top.rank.value == card.rank.value + 1
-    }
+    private fun canPlaceOnFreeCellTableau(card: Card, pile: List<Card>): Boolean =
+        pile.isEmpty() || (card.alternatesColorWith(pile.last()) && pile.last().isOneHigherThan(card))
 
     private fun checkFreeCellWin() {
         val state = _uiState.value.freeCell ?: return
@@ -704,11 +683,18 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun incrementTimer() {
         _uiState.update { state ->
-            state.copy(
-                klondike = state.klondike?.let { if (!it.isWon) it.copy(elapsedSeconds = it.elapsedSeconds + 1) else it },
-                spider = state.spider?.let { if (!it.isWon) it.copy(elapsedSeconds = it.elapsedSeconds + 1) else it },
-                freeCell = state.freeCell?.let { if (!it.isWon) it.copy(elapsedSeconds = it.elapsedSeconds + 1) else it }
-            )
+            when (state.gameMode) {
+                GameMode.KLONDIKE -> state.copy(
+                    klondike = state.klondike?.let { if (!it.isWon) it.copy(elapsedSeconds = it.elapsedSeconds + 1) else it }
+                )
+                GameMode.SPIDER -> state.copy(
+                    spider = state.spider?.let { if (!it.isWon) it.copy(elapsedSeconds = it.elapsedSeconds + 1) else it }
+                )
+                GameMode.FREECELL -> state.copy(
+                    freeCell = state.freeCell?.let { if (!it.isWon) it.copy(elapsedSeconds = it.elapsedSeconds + 1) else it }
+                )
+                null -> state
+            }
         }
     }
 
@@ -739,8 +725,9 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
             GameMode.FREECELL -> achievementsManager.onAchievementUnlocked("freecell_first")
         }
         if (!usedUndo) achievementsManager.onAchievementUnlocked("no_undo")
-        achievementsManager.onProgressUpdated("wins_10", statsRepository.getTotalGamesWon())
-        achievementsManager.onProgressUpdated("wins_50", statsRepository.getTotalGamesWon())
+        val totalWins = statsRepository.getTotalGamesWon()
+        achievementsManager.onProgressUpdated("wins_10", totalWins)
+        achievementsManager.onProgressUpdated("wins_50", totalWins)
         achievementsManager.onProgressUpdated("win_streak_5", statsRepository.getBestWinStreak())
     }
 }

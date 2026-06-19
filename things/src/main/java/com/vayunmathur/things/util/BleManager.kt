@@ -91,9 +91,8 @@ class BleManager(private val activity: MainActivity) {
             val service = g.getService(SERVICE_UUID) ?: return
             val char = service.getCharacteristic(CHAR_UUID) ?: return
             g.setCharacteristicNotification(char, true)
-            val desc = char.getDescriptor(CCCD_UUID)
-            if (desc != null) {
-                g.writeDescriptor(desc, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            char.getDescriptor(CCCD_UUID)?.let {
+                g.writeDescriptor(it, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
             }
         }
 

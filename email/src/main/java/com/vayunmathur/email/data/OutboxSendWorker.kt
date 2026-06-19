@@ -61,8 +61,7 @@ class OutboxSendWorker(
                 continue
             }
             val uris = decodePaths(entry.attachmentLocalPaths).map { Uri.fromFile(File(it)) }
-            val sendResult = trySend(manager, account, entry, uris)
-            when (sendResult) {
+            when (val sendResult = trySend(manager, account, entry, uris)) {
                 is SendResult.Success -> {
                     Log.d(TAG, "Sent outbox entry #${entry.id} to ${entry.to}")
                     attachmentDirFor(applicationContext, entry.id).deleteRecursively()
@@ -102,27 +101,25 @@ class OutboxSendWorker(
         account: com.vayunmathur.email.EmailAccount,
         entry: com.vayunmathur.email.OutboxEntry,
         uris: List<android.net.Uri>,
-    ): SendResult {
-        val result = runCatching {
-            manager.sendMessage(
-                context = applicationContext,
-                server = account.smtpServer(),
-                user = account.loginUser(),
-                auth = account.authType(),
-                to = entry.to,
-                subject = entry.subject,
-                body = entry.body,
-                cc = entry.cc,
-                attachments = uris,
-                inReplyTo = entry.inReplyTo,
-                references = entry.references,
-                from = account.email,
-            )
-        }
-        if (result.isSuccess) return SendResult.Success
-        val err = result.exceptionOrNull()
-        return SendResult.Failure(formatError(err), err)
-    }
+    ): SendResult = runCatching {
+        manager.sendMessage(
+            context = applicationContext,
+            server = account.smtpServer(),
+            user = account.loginUser(),
+            auth = account.authType(),
+            to = entry.to,
+            subject = entry.subject,
+            body = entry.body,
+            cc = entry.cc,
+            attachments = uris,
+            inReplyTo = entry.inReplyTo,
+            references = entry.references,
+            from = account.email,
+        )
+    }.fold(
+        onSuccess = { SendResult.Success },
+        onFailure = { SendResult.Failure(formatError(it), it) },
+    )
 
     private fun formatError(t: Throwable?): String {
         if (t == null) return "Unknown error"

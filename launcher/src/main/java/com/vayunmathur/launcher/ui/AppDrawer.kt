@@ -98,17 +98,6 @@ fun AppDrawer(
         apps.groupBy { it.name.first().uppercaseChar() }.toSortedMap()
     }
 
-    val letterIndexMap = remember(grouped) {
-        val map = mutableMapOf<Char, Int>()
-        var index = 0
-        grouped.forEach { (letter, items) ->
-            map[letter] = index
-            index++ // sticky header
-            index += items.size // items in rows of 4, but we're using LazyColumn with grid rows
-        }
-        map
-    }
-
     // Build flat list for LazyColumn: headers + rows of 4
     data class DrawerRow(val letter: Char? = null, val apps: List<AppInfo> = emptyList())
     val flatRows = remember(grouped) {

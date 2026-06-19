@@ -84,10 +84,9 @@ fun getResizedBitmap(context: Context, uri: Uri, maxSize: Int = 600): Bitmap? {
         options.inJustDecodeBounds = false
 
         // 3. Decode the downsampled bitmap
-        val downsampledBitmap = contentResolver.openInputStream(uri)?.use {
+        contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it, null, options)
         }
-        downsampledBitmap
     } catch (e: Exception) {
         e.printStackTrace()
         null

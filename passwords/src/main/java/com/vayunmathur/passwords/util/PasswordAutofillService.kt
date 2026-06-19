@@ -165,8 +165,8 @@ class PasswordAutofillService : AutofillService() {
 
     private fun matchesContext(storedSite: String, currentPkg: String?, currentWeb: String?): Boolean {
         val normalized = storedSite.trim().lowercase()
-            .replace("https://", "")
-            .replace("http://", "")
+            .removePrefix("https://")
+            .removePrefix("http://")
             .removeSuffix("/")
 
         if (currentPkg != null) {

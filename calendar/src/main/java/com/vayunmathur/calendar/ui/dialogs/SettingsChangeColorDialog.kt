@@ -30,6 +30,20 @@ import com.vayunmathur.calendar.util.CalendarViewModel
 import com.vayunmathur.calendar.R
 import com.vayunmathur.calendar.Route
 
+val COLOR_SWATCHES = listOf(
+    0xFFF44336.toInt(),
+    0xFFE91E63.toInt(),
+    0xFF9C27B0.toInt(),
+    0xFF3F51B5.toInt(),
+    0xFF2196F3.toInt(),
+    0xFF009688.toInt(),
+    0xFF4CAF50.toInt(),
+    0xFFFFC107.toInt(),
+    0xFFFF9800.toInt(),
+    0xFF795548.toInt(),
+    0xFF607D8B.toInt()
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsChangeColorDialog(viewModel: CalendarViewModel, backStack: NavBackStack<Route>, calendarId: Long) {
@@ -40,21 +54,6 @@ fun SettingsChangeColorDialog(viewModel: CalendarViewModel, backStack: NavBackSt
     }
     var tempColor by remember { mutableIntStateOf(cal.color) }
 
-    // predefined swatches (ARGB ints)
-    val swatches = listOf(
-        0xFFF44336.toInt(), // red
-        0xFFE91E63.toInt(), // pink
-        0xFF9C27B0.toInt(), // purple
-        0xFF3F51B5.toInt(), // indigo
-        0xFF2196F3.toInt(), // blue
-        0xFF009688.toInt(), // teal
-        0xFF4CAF50.toInt(), // green
-        0xFFFFC107.toInt(), // amber
-        0xFFFF9800.toInt(), // orange
-        0xFF795548.toInt(), // brown
-        0xFF607D8B.toInt()  // blue gray
-    )
-
     AlertDialog(
         onDismissRequest = { backStack.pop() },
         title = { Text(stringResource(R.string.change_color_for)) },
@@ -62,7 +61,7 @@ fun SettingsChangeColorDialog(viewModel: CalendarViewModel, backStack: NavBackSt
             Column {
                 // swatches row
                 LazyRow {
-                    items(swatches, key = { it }) { c ->
+                    items(COLOR_SWATCHES, key = { it }) { c ->
                         val selected = (tempColor == c)
                         Box(
                             modifier = Modifier

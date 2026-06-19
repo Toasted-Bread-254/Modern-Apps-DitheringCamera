@@ -32,6 +32,8 @@ import com.vayunmathur.youpipe.ui.VideoData
 import com.vayunmathur.youpipe.ui.VideoInfo
 import com.vayunmathur.youpipe.ui.VideoStream
 import com.vayunmathur.youpipe.ui.fromHTML
+import com.vayunmathur.youpipe.ui.getVideoCodecName
+import com.vayunmathur.youpipe.ui.getAudioCodecName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -377,86 +379,23 @@ class YouPipeViewModel(
                         val rawAudio = ex.audioStreams
 
                         if (rawVideoOnly.isNotEmpty() && rawAudio.isNotEmpty()) {
-                            videoStreams = rawVideoOnly.map { stream ->
-                                val codecStr = stream.codec ?: ""
-                                val codec = when {
-                                    codecStr.contains("av01", ignoreCase = true) -> "av1"
-                                    codecStr.contains("vp9", ignoreCase = true) || codecStr.contains("vp09", ignoreCase = true) -> "vp9"
-                                    codecStr.contains("avc", ignoreCase = true) || codecStr.contains("h264", ignoreCase = true) -> "avc"
-                                    else -> codecStr
-                                }
-                                VideoStream(
-                                    stream.content,
-                                    stream.width,
-                                    stream.height,
-                                    stream.bitrate,
-                                    stream.fps,
-                                    "${stream.height}p",
-                                    codec,
-                                    stream.itagItem?.contentLength ?: 0L
-                                )
-                            }.sortedWith(
+                            videoStreams = rawVideoOnly.map { it.toDomain() }.sortedWith(
                                 compareByDescending<VideoStream> { it.height }
-                                    .thenByDescending {
-                                        when (it.codec) {
-                                            "av1" -> 3
-                                            "vp9" -> 2
-                                            "avc" -> 1
-                                            else -> 0
-                                        }
-                                    }
+                                    .thenByDescending { codecPriority(it.codec) }
                             )
-                            audioStreams = rawAudio.map { stream ->
-                                val codecStr = stream.codec ?: ""
-                                val codec = when {
-                                    codecStr.contains("opus", ignoreCase = true) -> "opus"
-                                    codecStr.contains("mp4a", ignoreCase = true) || codecStr.contains("aac", ignoreCase = true) -> "aac"
-                                    else -> codecStr
-                                }
-                                AudioStream(
-                                    stream.content,
-                                    stream.bitrate,
-                                    stream.audioLocale?.language ?: "Default",
-                                    codec,
-                                    stream.itagItem?.contentLength ?: 0L
-                                )
-                            }.sortedWith(
+                            audioStreams = rawAudio.map { it.toDomain() }.sortedWith(
                                 compareByDescending<AudioStream> { it.bitrate }
-                                    .thenByDescending {
-                                        when (it.codec) {
-                                            "opus" -> 2
-                                            "aac" -> 1
-                                            else -> 0
-                                        }
-                                    }
+                                    .thenByDescending { audioCodecPriority(it.codec) }
                             )
                         } else {
-                            videoStreams = ex.videoStreams.map { stream ->
-                                val codecStr = stream.codec ?: ""
-                                val codec = when {
-                                    codecStr.contains("av01", ignoreCase = true) -> "av1"
-                                    codecStr.contains("vp9", ignoreCase = true) || codecStr.contains("vp09", ignoreCase = true) -> "vp9"
-                                    codecStr.contains("avc", ignoreCase = true) || codecStr.contains("h264", ignoreCase = true) -> "avc"
-                                    else -> codecStr
-                                }
-                                VideoStream(
-                                    stream.content,
-                                    stream.width,
-                                    stream.height,
-                                    stream.bitrate,
-                                    stream.fps,
-                                    "${stream.height}p",
-                                    codec,
-                                    stream.itagItem?.contentLength ?: 0L
-                                )
-                            }.sortedWith(compareByDescending { it.height })
+                            videoStreams = ex.videoStreams.map { it.toDomain() }
+                                .sortedWith(compareByDescending { it.height })
                             audioStreams = emptyList()
                         }
                     } else {
-                        videoStreams = listOf(VideoStream(downloadedVideo.filePath, 1920, 1080, 0, 30, "Downloaded", "avc", 0L))
-                        audioStreams = if (downloadedVideo.audioPath != null)
-                            listOf(AudioStream(downloadedVideo.audioPath, 0, "Default", "aac", 0L))
-                        else emptyList()
+                        val (vs, as_) = downloadedStreams(downloadedVideo)
+                        videoStreams = vs
+                        audioStreams = as_
                         segments = emptyList()
                     }
 
@@ -533,15 +472,8 @@ class YouPipeViewModel(
                         "",
                         ""
                     )
-                    _videoState.update {
-                        it.copy(
-                            data = data,
-                            videoStreams = listOf(VideoStream(video.filePath, 1920, 1080, 0, 30, "Downloaded", "avc", 0L)),
-                            audioStreams = if (video.audioPath != null)
-                                listOf(AudioStream(video.audioPath, 0, "Default", "aac", 0L))
-                            else emptyList(),
-                        )
-                    }
+                    val (vs, as_) = downloadedStreams(video)
+                    _videoState.update { it.copy(data = data, videoStreams = vs, audioStreams = as_) }
                 } else {
                     _videoState.update { it.copy(error = true) }
                     Log.e(TAG, "Video load error", e)
@@ -556,19 +488,18 @@ class YouPipeViewModel(
      * `LaunchedEffect(downloadedVideo)` in VideoPage).
      */
     fun applyDownloadedStreams(downloadedVideo: DownloadedVideo) {
-        _videoState.update {
-            it.copy(
-                videoStreams = listOf(VideoStream(downloadedVideo.filePath, 1920, 1080, 0, 30, "Downloaded", "avc", 0L)),
-                audioStreams = if (downloadedVideo.audioPath != null)
-                    listOf(AudioStream(downloadedVideo.audioPath, 0, "Default", "aac", 0L))
-                else emptyList(),
-                segments = emptyList(),
-            )
-        }
+        val (vs, as_) = downloadedStreams(downloadedVideo)
+        _videoState.update { it.copy(videoStreams = vs, audioStreams = as_, segments = emptyList()) }
     }
 
     fun clearVideoError() {
         _videoState.update { it.copy(error = false) }
+    }
+
+    private fun downloadedStreams(dv: DownloadedVideo): Pair<List<VideoStream>, List<AudioStream>> {
+        val video = listOf(VideoStream(dv.filePath, 1920, 1080, 0, 30, "Downloaded", "avc", 0L))
+        val audio = if (dv.audioPath != null) listOf(AudioStream(dv.audioPath, 0, "Default", "aac", 0L)) else emptyList()
+        return video to audio
     }
 
     // ===================== Subscription fetch progress (WorkManager) =====================
@@ -863,10 +794,7 @@ class YouPipeViewModel(
             "sponsor", "selfpromo", "interaction", "intro", "outro",
             "preview", "music_offtopic", "filler"
         )
-        val DEFAULT_SPONSOR_CATEGORIES = setOf(
-            "sponsor", "selfpromo", "interaction", "intro", "outro",
-            "preview", "music_offtopic", "filler"
-        )
+        val DEFAULT_SPONSOR_CATEGORIES = ALL_SPONSOR_CATEGORIES
 
         val SPONSOR_CATEGORY_LABELS = mapOf(
             "sponsor" to "Block Sponsors",
@@ -879,6 +807,24 @@ class YouPipeViewModel(
             "filler" to "Block Filler",
         )
     }
+}
+
+private fun org.schabi.newpipe.extractor.stream.VideoStream.toDomain() = VideoStream(
+    content, width, height, bitrate, fps, "${height}p",
+    getVideoCodecName(codec ?: ""), itagItem?.contentLength ?: 0L
+)
+
+private fun org.schabi.newpipe.extractor.stream.AudioStream.toDomain() = AudioStream(
+    content, bitrate, audioLocale?.language ?: "Default",
+    getAudioCodecName(codec ?: ""), itagItem?.contentLength ?: 0L
+)
+
+private fun codecPriority(codec: String): Int = when (codec) {
+    "av1" -> 3; "vp9" -> 2; "avc" -> 1; else -> 0
+}
+
+private fun audioCodecPriority(codec: String): Int = when (codec) {
+    "opus" -> 2; "aac" -> 1; else -> 0
 }
 
 /** Factory for constructing [YouPipeViewModel] with the DAOs. */

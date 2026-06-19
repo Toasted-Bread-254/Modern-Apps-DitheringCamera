@@ -54,19 +54,20 @@ fun WindBlock(current: Current, unit: WindUnit) {
                     topPadding = 36.dp,
                 )
             }
+            val windText = formatWind(current.windSpeed, unit)
             Row(
                 modifier = Modifier.align(Alignment.Center).offset(y = 10.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 Text(
-                    text = formatWind(current.windSpeed, unit).substringBefore(' '),
+                    text = windText.substringBefore(' '),
                     style = MaterialTheme.typography.displayMedium,
                     modifier = Modifier.alignByBaseline(),
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.width(2.dp))
                 Text(
-                    text = formatWind(current.windSpeed, unit).substringAfter(' '),
+                    text = windText.substringAfter(' '),
                     modifier = Modifier.alignByBaseline(),
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,

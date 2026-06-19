@@ -338,13 +338,11 @@ fun PuzzleInfoBox(levelIndex: Int, onLevelChange: (Int) -> Unit, isCompleted: Bo
                     contentDescription = stringResource(R.string.previous_level),
                 )
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "${levelIndex + 1}",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            Text(
+                text = "${levelIndex + 1}",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold
+            )
             IconButton(
                 onClick = { onLevelChange(levelIndex + 1) },
                 enabled = levelIndex < maxLevelIndex

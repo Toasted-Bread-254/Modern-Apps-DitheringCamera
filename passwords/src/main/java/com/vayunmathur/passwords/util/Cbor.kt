@@ -8,45 +8,28 @@ object Cbor {
     private const val TYPE_ARRAY = 0x04
     private const val TYPE_MAP = 0x05
 
-    fun encode(data: Any): ByteArray {
-        if (data is Number) {
+    fun encode(data: Any): ByteArray = when (data) {
+        is Number -> {
             val value = data.toLong()
-            return if (value >= 0) createArg(TYPE_UNSIGNED_INT, value)
+            if (value >= 0) createArg(TYPE_UNSIGNED_INT, value)
             else createArg(TYPE_NEGATIVE_INT, -1 - value)
         }
-        if (data is ByteArray) {
-            return createArg(TYPE_BYTE_STRING, data.size.toLong()) + data
-        }
-        if (data is String) {
-            return createArg(TYPE_TEXT_STRING, data.length.toLong()) + data.encodeToByteArray()
-        }
-        if (data is List<*>) {
-            var ret = createArg(TYPE_ARRAY, data.size.toLong())
-            for (i in data) ret += encode(i!!)
-            return ret
-        }
-        if (data is Map<*, *>) {
-            // CTAP2 canonical CBOR: shorter keys first, then lexicographic
-            var ret = createArg(TYPE_MAP, data.size.toLong())
-            val byteMap = linkedMapOf<ByteArray, ByteArray>()
-            for (entry in data) {
-                byteMap[encode(entry.key!!)] = encode(entry.value!!)
-            }
+        is ByteArray -> createArg(TYPE_BYTE_STRING, data.size.toLong()) + data
+        is String -> createArg(TYPE_TEXT_STRING, data.length.toLong()) + data.encodeToByteArray()
+        is List<*> -> data.fold(createArg(TYPE_ARRAY, data.size.toLong())) { acc, i -> acc + encode(i!!) }
+        is Map<*, *> -> {
+            val byteMap = data.entries.associate { (k, v) -> encode(k!!) to encode(v!!) }
             val sortedKeys = byteMap.keys.sortedWith(Comparator { a, b ->
-                if (a.size != b.size) return@Comparator a.size - b.size
-                for (i in a.indices) {
-                    val diff = (a[i].toInt() and 0xFF) - (b[i].toInt() and 0xFF)
-                    if (diff != 0) return@Comparator diff
-                }
-                0
+                if (a.size != b.size) a.size - b.size
+                else a.indices.firstNotNullOfOrNull { i ->
+                    ((a[i].toInt() and 0xFF) - (b[i].toInt() and 0xFF)).takeIf { it != 0 }
+                } ?: 0
             })
-            for (key in sortedKeys) {
-                ret += key
-                ret += byteMap[key]!!
+            sortedKeys.fold(createArg(TYPE_MAP, data.size.toLong())) { acc, key ->
+                acc + key + byteMap[key]!!
             }
-            return ret
         }
-        throw IllegalArgumentException("Unsupported CBOR type: ${data::class}")
+        else -> throw IllegalArgumentException("Unsupported CBOR type: ${data::class}")
     }
 
     private fun createArg(type: Int, arg: Long): ByteArray {
