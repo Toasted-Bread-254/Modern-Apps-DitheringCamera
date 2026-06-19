@@ -117,7 +117,7 @@ import com.vayunmathur.library.ui.IconCrop
 import com.vayunmathur.library.ui.IconDraw
 import com.vayunmathur.library.ui.IconEdit
 import com.vayunmathur.library.ui.IconEraser
-import com.vayunmathur.library.ui.IconNavigation
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import com.vayunmathur.library.ui.IconRotateLeft
 import com.vayunmathur.library.ui.IconRotateRight
 import com.vayunmathur.library.ui.IconSave
@@ -393,7 +393,9 @@ family = StockBrushes.pressurePen(),
             TopAppBar(
                 title = { Text(stringResource(R.string.title_edit_photo)) },
                 navigationIcon = {
-                    IconNavigation(backStack)
+                    IconButton(onClick = { context.finish() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                    }
                 },
                 actions = {
                     if (isCropping) {

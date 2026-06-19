@@ -35,6 +35,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,6 +69,9 @@ import com.vayunmathur.photos.R
 import com.vayunmathur.photos.data.Photo
 import com.vayunmathur.photos.util.GalleryViewModel
 import com.vayunmathur.photos.util.PhotoMapViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlin.math.absoluteValue
 import kotlin.time.Instant
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -92,6 +96,20 @@ fun PhotoPage(galleryViewModel: GalleryViewModel, photoMapViewModel: PhotoMapVie
             }
 
     var isMetadataVisible by remember { mutableStateOf(true) }
+
+    var refreshKey by remember { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshKey++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     // Persist zoom states in a map that survives as long as this screen is active
     val zoomStates = remember { mutableStateMapOf<Long, ZoomState>() }
@@ -121,6 +139,7 @@ fun PhotoPage(galleryViewModel: GalleryViewModel, photoMapViewModel: PhotoMapVie
                         currentZoom = zoomState,
                         onZoomUpdate = { newState -> zoomStates[photo.id] = newState },
                         onToggleMetadata = { isMetadataVisible = !isMetadataVisible },
+                        refreshKey = refreshKey,
                         onEditPhoto = {
                             val intent =
                                     Intent(context, EditActivity::class.java).apply {
@@ -151,6 +170,7 @@ fun PhotoDetailView(
         currentZoom: ZoomState,
         onZoomUpdate: (ZoomState) -> Unit,
         onToggleMetadata: () -> Unit,
+        refreshKey: Int = 0,
         onEditPhoto: () -> Unit
 ) {
     val countryNames by photoMapViewModel.countryNames.collectAsState()
@@ -264,8 +284,8 @@ fun PhotoDetailView(
                     model =
                             ImageRequest.Builder(context)
                                     .data(photo.uri.toUri())
-                                    .diskCacheKey("thumb_${photo.id}_${photo.dateModified}")
-                                    .memoryCacheKey("thumb_${photo.id}_${photo.dateModified}")
+                                    .diskCacheKey("thumb_${photo.id}_${photo.dateModified}_$refreshKey")
+                                    .memoryCacheKey("thumb_${photo.id}_${photo.dateModified}_$refreshKey")
                                     .build(),
                     contentDescription = null,
                     modifier =
