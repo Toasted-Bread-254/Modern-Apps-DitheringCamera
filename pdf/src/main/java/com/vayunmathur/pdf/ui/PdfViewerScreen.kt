@@ -138,39 +138,6 @@ fun PdfViewerScreen(
         }
     }
 
-    // Workaround for PDF viewer bug where panning gets stuck when viewbox goes past PDF edge
-    // The issue is that when the whole page is in view, panning left/right is disabled.
-    // If the user pans past the edge while zoomed in, the view gets stuck out of bounds.
-    // This workaround detects when the view is out of bounds and resets it to a valid position.
-    LaunchedEffect(pdfDocument) {
-        while (true) {
-            delay(300)
-            try {
-                // Try to get the PDF point at the center of the view
-                // If this returns null, the view is out of bounds and panning gestures are dropped
-                val pdfPoint = pdfState.visibleOffsetToPdfPoint(center)
-                if (pdfPoint == null) {
-                    // View is out of bounds - this happens when panning past the edge.
-                    // Reset by scrolling to the current page (or page 0 if we can't determine it).
-                    // This re-enables panning by bringing the view back into valid bounds.
-                    try {
-                        // Try to get current page from the state, or default to 0
-                        pdfState.scrollToPage(0)
-                    } catch (e: Exception) {
-                        // If scroll fails, try a different approach - scroll to position 0,0 on page 0
-                        try {
-                            pdfState.scrollToPosition(PdfPoint(0, 0f, 0f))
-                        } catch (e2: Exception) {
-                            // Last resort - ignore and hope the next check succeeds
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                // Ignore errors - this is a best-effort workaround for a library bug
-            }
-        }
-    }
-
     fun search() {
         coroutineScope.launch {
             val results = pdfDocument.searchDocument(searchText, 0 until pdfDocument.pageCount)
