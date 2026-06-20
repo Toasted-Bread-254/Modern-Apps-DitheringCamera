@@ -36,7 +36,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -170,6 +169,10 @@ private const val BOKEH_SHADER = """
     }
 """
 
+private enum class CameraSetting {
+    BRIGHTNESS, SHADOWS, WARMTH, EXPOSURE_TIME
+}
+
 @Composable
 fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
     val context = LocalContext.current
@@ -195,6 +198,7 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
     val longExposureProgress by viewModel.longExposureProgress.collectAsState()
     val longExposureRemaining by viewModel.longExposureRemaining.collectAsState()
 
+    var activeSetting by remember { mutableStateOf<CameraSetting?>(null) }
     var maskBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     val isPhotoType = cameraMode in listOf(CameraMode.PHOTO, CameraMode.PORTRAIT, CameraMode.PANORAMA, CameraMode.PHOTOSPHERE)
     val isSloMo = cameraMode == CameraMode.SLOW_MO
@@ -496,25 +500,49 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
                         )
                     }
 
-                    // Adjustment sliders on the right edge
-                    AdjustmentPanel(
-                        exposure = exposureComp,
-                        warmth = warmth,
-                        shadows = shadows,
-                        onExposureChange = { viewModel.setExposureCompensation(it) },
-                        onWarmthChange = { viewModel.setWarmth(it) },
-                        onShadowsChange = { viewModel.setShadows(it) },
+                    Column(
                         modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .matchParentSize()
-                    )
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        when (activeSetting) {
+                            null -> ZoomBar(
+                                currentZoom = zoomRatio,
+                                zoomLevels = availableZoomLevels,
+                                onZoomSelected = { viewModel.setZoomRatio(it) }
+                            )
+                            CameraSetting.BRIGHTNESS -> HorizontalSettingSlider(
+                                value = exposureComp,
+                                onValueChange = { viewModel.setExposureCompensation(it) },
+                                iconRes = R.drawable.wb_sunny_24px,
+                                label = "Brightness"
+                            )
+                            CameraSetting.SHADOWS -> HorizontalSettingSlider(
+                                value = shadows,
+                                onValueChange = { viewModel.setShadows(it) },
+                                iconRes = R.drawable.contrast_24px,
+                                label = "Shadows"
+                            )
+                            CameraSetting.WARMTH -> HorizontalSettingSlider(
+                                value = warmth,
+                                onValueChange = { viewModel.setWarmth(it) },
+                                iconRes = R.drawable.warmth_24px,
+                                label = "Warmth"
+                            )
+                            CameraSetting.EXPOSURE_TIME -> ExposureTimeBar(
+                                selectedIndex = exposureTimeIndex,
+                                onIndexChange = { viewModel.setExposureTimeIndex(it) }
+                            )
+                        }
 
-                    ZoomBar(
-                        currentZoom = zoomRatio,
-                        zoomLevels = availableZoomLevels,
-                        onZoomSelected = { viewModel.setZoomRatio(it) },
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
-                    )
+                        SettingsButtonRow(
+                            activeSetting = activeSetting,
+                            onSelect = { activeSetting = it }
+                        )
+                    }
 
                     if ((cameraMode == CameraMode.PANORAMA || cameraMode == CameraMode.PHOTOSPHERE) && (panoSweeping || panoStitching)) {
                         PanoramaOverlay(
@@ -530,11 +558,6 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
                         )
                     }
                 }
-
-                ExposureTimeBar(
-                    selectedIndex = exposureTimeIndex,
-                    onIndexChange = { viewModel.setExposureTimeIndex(it) }
-                )
 
                 ShutterRow(
                     cameraMode = cameraMode,
@@ -687,108 +710,96 @@ private fun GridOverlay(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun AdjustmentPanel(
-    exposure: Float,
-    warmth: Float,
-    shadows: Float,
-    onExposureChange: (Float) -> Unit,
-    onWarmthChange: (Float) -> Unit,
-    onShadowsChange: (Float) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier.width(36.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        VerticalSlider(
-            value = exposure,
-            onValueChange = onExposureChange,
-            iconRes = R.drawable.wb_sunny_24px,
-            label = "Brightness",
-            modifier = Modifier.weight(1f).fillMaxWidth()
-        )
-        VerticalSlider(
-            value = shadows,
-            onValueChange = onShadowsChange,
-            iconRes = R.drawable.contrast_24px,
-            label = "Shadows",
-            modifier = Modifier.weight(1f).fillMaxWidth()
-        )
-        VerticalSlider(
-            value = warmth,
-            onValueChange = onWarmthChange,
-            iconRes = R.drawable.warmth_24px,
-            label = "Warmth",
-            modifier = Modifier.weight(1f).fillMaxWidth()
-        )
-    }
-}
-
-@Composable
-private fun VerticalSlider(
+private fun HorizontalSettingSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
     iconRes: Int,
     label: String,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            painterResource(iconRes),
-            contentDescription = label,
-            tint = if (value != 0f) Color.White else Color(0xFF888888),
-            modifier = Modifier.size(14.dp).padding(top = 2.dp)
-        )
-        Canvas(
+        Box(
             modifier = Modifier
-                .weight(1f)
-                .width(36.dp)
-                .padding(vertical = 8.dp)
-                .pointerInput(Unit) {
-                    detectVerticalDragGestures { change, _ ->
-                        change.consume()
-                        val trackHeight = size.height.toFloat()
-                        val fraction = (change.position.y / trackHeight).coerceIn(0f, 1f)
-                        val newValue = 1f - fraction * 2f // top=1, middle=0, bottom=-1
-                        onValueChange(newValue.coerceIn(-1f, 1f))
-                    }
-                }
+                .size(32.dp)
+                .background(
+                    if (value != 0f) Color(0xFF3C3C3C) else Color.Transparent,
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
         ) {
-            val trackWidth = 4.dp.toPx()
-            val thumbRadius = 8.dp.toPx()
-            val trackX = size.width / 2f
-            val trackTop = thumbRadius
-            val trackBottom = size.height - thumbRadius
-            val trackHeight = trackBottom - trackTop
-            val midY = (trackTop + trackBottom) / 2f
-            val thumbY = trackTop + trackHeight * (1f - (value + 1f) / 2f)
+            Icon(
+                painterResource(iconRes),
+                contentDescription = label,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = -1f..1f,
+            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+            colors = SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = Color.White,
+                inactiveTrackColor = Color(0xFF666666)
+            )
+        )
+        Text(
+            text = if (value == 0f) "0" else "%+.1f".format(value),
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.width(40.dp),
+            textAlign = TextAlign.End
+        )
+    }
+}
 
-            // Inactive track
-            drawLine(
-                Color(0xFF666666),
-                Offset(trackX, trackTop),
-                Offset(trackX, trackBottom),
-                strokeWidth = trackWidth
-            )
-            // Active track (from center to thumb)
-            drawLine(
-                Color.White,
-                Offset(trackX, midY),
-                Offset(trackX, thumbY),
-                strokeWidth = trackWidth
-            )
-            // Center tick
-            drawLine(
-                Color(0xFFAAAAAA),
-                Offset(trackX - 6.dp.toPx(), midY),
-                Offset(trackX + 6.dp.toPx(), midY),
-                strokeWidth = 1.5.dp.toPx()
-            )
-            // Thumb
-            drawCircle(Color.White, thumbRadius, Offset(trackX, thumbY))
+@Composable
+private fun SettingsButtonRow(
+    activeSetting: CameraSetting?,
+    onSelect: (CameraSetting?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .background(Color(0x99000000), RoundedCornerShape(24.dp))
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val settings = listOf(
+            CameraSetting.BRIGHTNESS to R.drawable.wb_sunny_24px,
+            CameraSetting.SHADOWS to R.drawable.contrast_24px,
+            CameraSetting.WARMTH to R.drawable.warmth_24px,
+            CameraSetting.EXPOSURE_TIME to R.drawable.ic_timer
+        )
+        settings.forEach { (setting, iconRes) ->
+            val isActive = activeSetting == setting
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .then(
+                        if (isActive) Modifier.background(Color(0xFF3C3C3C), CircleShape)
+                        else Modifier
+                    )
+                    .clip(CircleShape)
+                    .clickable { onSelect(if (isActive) null else setting) },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painterResource(iconRes),
+                    contentDescription = null,
+                    tint = if (isActive) Color.White else Color(0xFFBBBBBB),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }
