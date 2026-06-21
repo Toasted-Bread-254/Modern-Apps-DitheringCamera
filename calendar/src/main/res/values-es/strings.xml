@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Calendario</string>
-    <string name="ok">OK</string>
+    <string name="ok">Ok</string>
     <string name="cancel">Cancelar</string>
     <string name="close">Cerrar</string>
     <string name="delete">Borrar</string>
@@ -12,9 +12,9 @@
     <string name="no_title">(Sin título)</string>
     <string name="event_not_found">Evento no encontrado</string>
     <string name="all_day">Todo el día</string>
-    <string name="does_not_repeat">No se repite</string>
+    <string name="does_not_repeat">No repetir</string>
     <string name="repeats">Se repite</string>
-    <string name="settings">Configuración</string>
+    <string name="settings">Configuración de la pantalla</string>
     <string name="repeat">Repetir</string>
     <string name="on_days_of_week">En los días de la semana</string>
     <string name="monthly_type">Tipo mensual</string>
@@ -35,4 +35,16 @@
     <string name="delete_all_events">Borrar todos los eventos</string>
     <string name="import_events_title">Importar eventos</string>
     <string name="select_calendar_to_import">Selecciona calendario para importar:</string>
+    <string name="month_year_format">%1$s %2$d</string>
+    <string name="date_range_format">%1$s - %2$s</string>
+    <string name="choose_calendar">Elige calendario</string>
+    <string name="calendar_name">Nombre del calendario</string>
+    <string name="every">Cada</string>
+    <string name="label_title">Título</string>
+    <string name="label_description">Descripción</string>
+    <string name="label_location">Lugar</string>
+    <string name="select_calendar">Seleccionar calendario</string>
+    <string name="local_account">(Local)</string>
+    <string name="until">Hasta</string>
+    <string name="new_local_calendar">Nuevo calendario local</string>
 </resources>
