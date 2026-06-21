@@ -3,6 +3,8 @@ This is a collection of apps that aims to replace the ecosystem feel of propriet
 
 Unlike other open-source ecosystems, all apps in Modern Apps are built using modern technologies: Jetpack Compose, Material 3 You, etc, which makes them "look nice" and easy to read for those who wish to audit the code.
 
+I also highly encourage people to read the code of these apps, even if you are just a beginner in Kotlin / Android app dev. All apps are structured to be as beginner friendly and readable as possible. It's good to understand the apps that are running on your phone.
+
 This ecosystem also contains apps that aren't as well covered by the open-source ecosystem - particularly Find Family (a location sharing app), YouPipe (a privacy-based youtube frontend), Email (an email client that supports push notifications and a functional dark mode widget), the upcoming Maps (which supports public transit routing, a feature missing from existing alternatives), and the upcoming Messages (a aggregator for other messaging apps).
 
 This ecosystem also includes games, which I personally believe are an important part of a good phone experience (at least the kind from the "golden age" of mobile games are), so I have remade some mobile games I enjoyed and might add more as time goes on.
@@ -47,6 +49,7 @@ Every released and planned app is listed here:
 | **Messages** | In Progress | In Progress |
 | **Music** | [![F-Droid](https://img.shields.io/badge/F--Droid-Download-blue?logo=f-droid&style=flat-square)](https://f-droid.org/packages/com.vayunmathur.music) | [![Obtainium](https://img.shields.io/badge/Obtainium-Download-purple?style=flat-square)](https://api.vayunmathur.com/obtainium-link?name=Music&packageName=com.vayunmathur.music&apk=music-release.apk) |
 | **Notes** | [![F-Droid](https://img.shields.io/badge/F--Droid-Download-blue?logo=f-droid&style=flat-square)](https://f-droid.org/packages/com.vayunmathur.notes) | [![Obtainium](https://img.shields.io/badge/Obtainium-Download-purple?style=flat-square)](https://api.vayunmathur.com/obtainium-link?name=Notes&packageName=com.vayunmathur.notes&apk=notes-release.apk) |
+| **Office (Alpha)** | Waiting to be more stable | [![Obtainium](https://img.shields.io/badge/Obtainium-Download-purple?style=flat-square)](https://api.vayunmathur.com/obtainium-link?name=Office&packageName=com.vayunmathur.office&apk=office-release.apk) |
 | **Open Assistant** | [![F-Droid](https://img.shields.io/badge/F--Droid-Download-blue?logo=f-droid&style=flat-square)](https://f-droid.org/packages/com.vayunmathur.openassistant) | [![Obtainium](https://img.shields.io/badge/Obtainium-Download-purple?style=flat-square)](https://api.vayunmathur.com/openassistant-release.apk) |
 | **Passwords** | [_Awaiting approval_](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/40543) | [![Obtainium](https://img.shields.io/badge/Obtainium-Download-purple?style=flat-square)](https://api.vayunmathur.com/obtainium-link?name=Passwords&packageName=com.vayunmathur.passwords&apk=passwords-release.apk) |
 | **PDF Reader** | [![F-Droid](https://img.shields.io/badge/F--Droid-Download-blue?logo=f-droid&style=flat-square)](https://f-droid.org/packages/com.vayunmathur.pdf) | [![Obtainium](https://img.shields.io/badge/Obtainium-Download-purple?style=flat-square)](https://api.vayunmathur.com/pdf-release.apk) |
@@ -96,6 +99,13 @@ Officially unreleased, but the apk is available for download for testing.
 
 ### In progress:
 - Use live schedules for public transit
+
+## Office
+First ever FOSS full office suite for Android that uses modern Android UI.
+
+Supports viewing and editing documents in the odf family (odt, ods, odp, odg)
+
+If you are curious about how word processors / office software works, I would *highly* encourage reading the code here. It's actually only like 6 files, so it should be quite accessible even for beginners. I try to make all my code easily accessible for beginners (one of my goals here is to build easy-to-understand reference implementations of these apps too), but I had to point this one out for those who might feel intimidated by Android's first native Android word processor.
 
 ## Messages
 The private aggregator for messaging apps. There exist other aggregators, but those apps run bridges on their own servers (privacy risk because your messages are or can be decrypted by the server), while this app runs the bridges on-device, preserving end-to-end encryption.
