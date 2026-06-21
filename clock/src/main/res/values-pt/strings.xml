@@ -17,4 +17,10 @@
     <string name="button_stop">PARAR</string>
     <string name="alarm_notification_wake_up">Acordar!</string>
     <string name="alarm_ringing_notification_title">O alarme está a tocar</string>
+    <string name="channel_alarms_name">Alarmes</string>
+    <string name="header_split">Dividir</string>
+    <string name="set_a_timer">Criar um temporizador</string>
+    <string name="timer_finished_title">Temporizador Completo</string>
+    <string name="timer_finished_text">%1$s acabou!</string>
+    <string name="label_new_timer">Novo Temporizador</string>
 </resources>
