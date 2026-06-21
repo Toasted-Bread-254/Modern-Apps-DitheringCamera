@@ -214,6 +214,16 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
     var fileMenu by remember { mutableStateOf(false) }
     var insertMenu by remember { mutableStateOf(false) }
     var viewMenu by remember { mutableStateOf(false) }
+    // Hoisted selection for the shared bottom bar (Phase 2).
+    var activeCell by remember { mutableStateOf<Triple<Int, Int, Int>?>(null) }
+    var activeSlide by remember { mutableIntStateOf(0) }
+    var activeSlideEl by remember { mutableIntStateOf(-1) }
+    var showCellTextColor by remember { mutableStateOf(false) }
+    var showCellBgColor by remember { mutableStateOf(false) }
+    var showSlideTextColor by remember { mutableStateOf(false) }
+    var chartForSlide by remember { mutableStateOf(false) }
+    var chartForSheet by remember { mutableStateOf(false) }
+    var cropImageBlock by remember { mutableIntStateOf(-1) }
 
     val isEditMode by viewModel.isEditMode.collectAsState()
     val hasUnsavedChanges by viewModel.hasUnsavedChanges.collectAsState()
@@ -251,7 +261,12 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
             try {
                 val bytes = context.contentResolver.openInputStream(it)?.use { s -> s.readBytes() } ?: return@let
                 val name = it.lastPathSegment?.substringAfterLast('/') ?: "image.png"
-                viewModel.insertImage(maxOf(0, focusedPara), name, bytes)
+                when (document) {
+                    is OdfDocument.TextDocument -> viewModel.insertImage(maxOf(0, focusedPara), name, bytes)
+                    is OdfDocument.Presentation -> viewModel.insertImageIntoSlide(activeSlide, name, bytes)
+                    is OdfDocument.Spreadsheet -> viewModel.insertImageIntoSheet(activeCell?.first ?: 0, name, bytes)
+                    else -> {}
+                }
             } catch (_: Exception) {}
         }
     }
@@ -429,7 +444,39 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                 }
             },
             bottomBar = {
-                if (isTextDoc) QuickFormatBar(document = document, runStart = activeRunStart, runEnd = activeRunEnd, selStart = selStart, selEnd = selEnd, activeTableBlock = activeTableBlock, activeTableRow = activeTableRow, activeTableCol = activeTableCol, viewModel = viewModel, onColorClick = { showColorPicker = true }, onInsertTable = { showInsertTable = true }, onFontSize = { showFontSizePicker = true })
+                if (canEdit) {
+                    val formatTarget: FormatTarget = when {
+                        isTextDoc && activeRunStart >= 0 -> FormatTarget.TextRun(activeRunStart, activeRunEnd, selStart, selEnd)
+                        isSpreadsheet && (activeCell?.second ?: -1) >= 0 -> FormatTarget.Cell(activeCell!!.first, activeCell!!.second, activeCell!!.third)
+                        isPresentation && activeSlideEl >= 0 -> FormatTarget.Element(activeSlide, activeSlideEl)
+                        else -> FormatTarget.None
+                    }
+                    val caps = when {
+                        isTextDoc -> DocCaps(insertImage = true, insertChart = true, insertTable = true)
+                        isPresentation -> DocCaps(insertImage = true, insertShape = true, insertChart = true)
+                        isSpreadsheet -> DocCaps(insertImage = true, insertShape = true, insertChart = true)
+                        else -> DocCaps()
+                    }
+                    val activeSheet = activeCell?.first ?: 0
+                    val actions = BottomBarActions(
+                        onTextColor = { showColorPicker = true },
+                        onCellTextColor = { showCellTextColor = true },
+                        onCellBgColor = { showCellBgColor = true },
+                        onSlideTextColor = { showSlideTextColor = true },
+                        onFontSize = { showFontSizePicker = true },
+                        onInsertImage = { imagePickerLauncher.launch("image/*") },
+                        onInsertShape = { kind ->
+                            when {
+                                isPresentation -> viewModel.addShapeToSlide(activeSlide, kind.name.lowercase())
+                                isSpreadsheet -> viewModel.addShapeToSheet(activeSheet, kind.name.lowercase())
+                            }
+                        },
+                        onInsertChart = { editingChartBlock = -1; chartForSlide = isPresentation; chartForSheet = isSpreadsheet; showChartEditor = true },
+                        onInsertTable = { showInsertTable = true },
+                        onDeleteElement = { if (activeSlideEl >= 0) { viewModel.deleteSlideElement(activeSlide, activeSlideEl); activeSlideEl = -1 } }
+                    )
+                    OfficeBottomBar(document, formatTarget, caps, viewModel, actions, activeTableBlock, activeTableRow, activeTableCol)
+                }
             }
         ) { paddingValues ->
             Box(Modifier.padding(paddingValues)) {
@@ -439,7 +486,8 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                         onRunTextChange = { rs, re, text -> viewModel.updateParagraphRun(rs, re, text) },
                         onCellTextChange = { bi, r, c, text -> viewModel.updateTextTableCell(bi, r, c, text) },
                         onCellFocus = { bi, r, c -> activeTableBlock = bi; activeTableRow = r; activeTableCol = c },
-                        onChartClick = { bi -> editingChartBlock = bi; showChartEditor = true })
+                        onChartClick = { bi -> editingChartBlock = bi; showChartEditor = true },
+                        onCropImage = { bi -> cropImageBlock = bi })
                     is OdfDocument.Spreadsheet -> SpreadsheetView(doc = document, searchQuery = searchQuery, fontSizeMultiplier = fontSizeMultiplier, isEditMode = isEditMode,
                         onCellTextChange = { s, r, c, t -> viewModel.updateCellText(s, r, c, t) }, onAddRow = { s, r -> viewModel.addRow(s, r) }, onAddColumn = { s -> viewModel.addColumn(s) },
                         onDeleteRow = { s, r -> viewModel.deleteRow(s, r) }, onDeleteColumn = { s, c -> viewModel.deleteColumn(s, c) },
@@ -448,14 +496,20 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                         onCellColor = { s, r, c, clr -> viewModel.setCellColor(s, r, c, clr) }, onCellBgColor = { s, r, c, clr -> viewModel.setCellBgColor(s, r, c, clr) },
                         onCellAlignment = { s, r, c, a -> viewModel.setCellAlignment(s, r, c, a) },
                         onMergeCells = { s, sr, sc, er, ec -> viewModel.mergeCells(s, sr, sc, er, ec) }, onUnmergeCells = { s, r, c -> viewModel.unmergeCells(s, r, c) },
-                        onSort = { s, col, asc -> viewModel.sortRows(s, col, asc) })
+                        onSort = { s, col, asc -> viewModel.sortRows(s, col, asc) },
+                        onCellSelected = { s, r, c -> activeCell = Triple(s, r, c) },
+                        onFloatingBoundsChange = { s, e, x, y, w, h -> viewModel.setSheetElementBounds(s, e, x, y, w, h) },
+                        onFloatingTextChange = { s, e, t -> viewModel.updateSheetElementText(s, e, t) },
+                        onFloatingDelete = { s, e -> viewModel.deleteSheetElement(s, e) })
                     is OdfDocument.Presentation -> PresentationView(doc = document, isEditMode = isEditMode,
                         onAddSlide = { viewModel.addSlide(it) }, onDeleteSlide = { viewModel.deleteSlide(it) },
                         onDuplicateSlide = { viewModel.duplicateSlide(it) }, onMoveSlideUp = { viewModel.moveSlideUp(it) }, onMoveSlideDown = { viewModel.moveSlideDown(it) },
                         onElementTextChange = { s, e, t -> viewModel.updateSlideElementText(s, e, t) }, onAddTextBox = { viewModel.addTextBoxToSlide(it) },
-                        onElementBold = { s, e -> viewModel.toggleSlideElementBold(s, e) }, onElementItalic = { s, e -> viewModel.toggleSlideElementItalic(s, e) },
-                        onElementUnderline = { s, e -> viewModel.toggleSlideElementUnderline(s, e) }, onElementColor = { s, e, c -> viewModel.setSlideElementColor(s, e, c) },
-                        onElementAlign = { s, e, a -> viewModel.setSlideElementAlignment(s, e, a) })
+                        onElementBoundsChange = { s, e, x, y, w, h -> viewModel.setSlideElementBounds(s, e, x, y, w, h) },
+                        onDeleteElement = { s, e -> viewModel.deleteSlideElement(s, e) },
+                        selectedElement = activeSlideEl,
+                        onSlideChange = { activeSlide = it },
+                        onElementSelected = { s, e -> activeSlide = s; activeSlideEl = e })
                     is OdfDocument.Drawing -> DrawingView(document)
                 }
             }
@@ -488,123 +542,36 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
             onDismiss = { showHeaderFooter = false }
         )
     }
+    if (showCellTextColor && (activeCell?.second ?: -1) >= 0) {
+        val (s, r, c) = activeCell!!
+        ColorPickerDialog("Text Color", onColorSelected = { viewModel.setCellColor(s, r, c, it) }, onDismiss = { showCellTextColor = false })
+    }
+    if (showCellBgColor && (activeCell?.second ?: -1) >= 0) {
+        val (s, r, c) = activeCell!!
+        ColorPickerDialog("Background Color", onColorSelected = { viewModel.setCellBgColor(s, r, c, it) }, onDismiss = { showCellBgColor = false })
+    }
+    if (showSlideTextColor && activeSlideEl >= 0) {
+        ColorPickerDialog("Text Color", onColorSelected = { viewModel.setSlideElementColor(activeSlide, activeSlideEl, it) }, onDismiss = { showSlideTextColor = false })
+    }
+    if (cropImageBlock >= 0) {
+        val img = ((document as? OdfDocument.TextDocument)?.content?.getOrNull(cropImageBlock) as? OdfContentBlock.Image)?.image
+        if (img != null) ImageCropDialog(image = img, onApply = { l, t, r, b -> viewModel.setImageCrop(cropImageBlock, l, t, r, b) }, onDismiss = { cropImageBlock = -1 })
+        else cropImageBlock = -1
+    }
     if (showChartEditor) {
-        val existing = if (editingChartBlock >= 0) ((document as? OdfDocument.TextDocument)?.content?.getOrNull(editingChartBlock) as? OdfContentBlock.Chart)?.chart else null
+        val existing = if (!chartForSlide && editingChartBlock >= 0) ((document as? OdfDocument.TextDocument)?.content?.getOrNull(editingChartBlock) as? OdfContentBlock.Chart)?.chart else null
         ChartEditorDialog(
             initial = existing,
-            onConfirm = { ch -> if (editingChartBlock >= 0) viewModel.updateChart(editingChartBlock, ch) else viewModel.insertChart(maxOf(0, focusedPara), ch) },
-            onDismiss = { showChartEditor = false; editingChartBlock = -1 }
+            onConfirm = { ch ->
+                when {
+                    chartForSlide -> viewModel.insertChartIntoSlide(activeSlide, ch)
+                    chartForSheet -> viewModel.insertChartIntoSheet(activeCell?.first ?: 0, ch)
+                    editingChartBlock >= 0 -> viewModel.updateChart(editingChartBlock, ch)
+                    else -> viewModel.insertChart(maxOf(0, focusedPara), ch)
+                }
+            },
+            onDismiss = { showChartEditor = false; editingChartBlock = -1; chartForSlide = false; chartForSheet = false }
         )
-    }
-}
-
-@Composable
-private fun QuickFormatBar(document: OdfDocument, runStart: Int, runEnd: Int, selStart: Int, selEnd: Int, activeTableBlock: Int, activeTableRow: Int, activeTableCol: Int, viewModel: OfficeViewModel, onColorClick: () -> Unit, onInsertTable: () -> Unit, onFontSize: () -> Unit = {}) {
-    val doc = document as? OdfDocument.TextDocument ?: return
-    val enabled = runStart >= 0
-    val focusedPara = if (enabled) viewModel.runParagraphIndexAt(runStart, runEnd, selStart) else -1
-    val para = (doc.content.getOrNull(focusedPara) as? OdfContentBlock.Paragraph)?.paragraph
-    var styleMenu by remember { mutableStateOf(false) }
-    var alignMenu by remember { mutableStateOf(false) }
-    var tableMenu by remember { mutableStateOf(false) }
-
-    val isBold = enabled && viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.bold }
-    val isItalic = enabled && viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.italic }
-    val isUnderline = enabled && viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.underline }
-    val isStrike = enabled && viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.strikethrough }
-    val isBullet = para?.style == ParagraphStyle.LIST_ITEM && para.listType == ListType.BULLET
-    val isNumbered = para?.style == ParagraphStyle.LIST_ITEM && para.listType == ListType.NUMBERED
-
-    val styleLabel = when (para?.style) {
-        ParagraphStyle.HEADING1 -> "H1"; ParagraphStyle.HEADING2 -> "H2"; ParagraphStyle.HEADING3 -> "H3"; ParagraphStyle.HEADING4 -> "H4"; else -> "Normal"
-    }
-    val alignIcon = when (para?.alignment) {
-        TextAlign.Center -> R.drawable.format_align_center_24px
-        TextAlign.End, TextAlign.Right -> R.drawable.format_align_right_24px
-        TextAlign.Justify -> R.drawable.format_align_justify_24px
-        else -> R.drawable.format_align_left_24px
-    }
-    fun setStyle(s: ParagraphStyle) { viewModel.mutateRunParagraphs(runStart, runEnd, selStart, selEnd) { it.copy(style = s) } }
-    fun setAlign(a: TextAlign) { viewModel.mutateRunParagraphs(runStart, runEnd, selStart, selEnd) { it.copy(alignment = a) } }
-
-    Surface(tonalElevation = 3.dp) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).navigationBarsPadding().imePadding().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box {
-                TextButton(onClick = { styleMenu = true }, enabled = enabled) {
-                    Text(styleLabel)
-                    Icon(painterResource(R.drawable.arrow_drop_down_24px), contentDescription = "Paragraph style")
-                }
-                DropdownMenu(expanded = styleMenu, onDismissRequest = { styleMenu = false }) {
-                    DropdownMenuItem(text = { Text("Normal") }, onClick = { styleMenu = false; setStyle(ParagraphStyle.BODY) })
-                    DropdownMenuItem(text = { Text("Heading 1") }, onClick = { styleMenu = false; setStyle(ParagraphStyle.HEADING1) })
-                    DropdownMenuItem(text = { Text("Heading 2") }, onClick = { styleMenu = false; setStyle(ParagraphStyle.HEADING2) })
-                    DropdownMenuItem(text = { Text("Heading 3") }, onClick = { styleMenu = false; setStyle(ParagraphStyle.HEADING3) })
-                    DropdownMenuItem(text = { Text("Heading 4") }, onClick = { styleMenu = false; setStyle(ParagraphStyle.HEADING4) })
-                }
-            }
-            FmtIcon(R.drawable.format_bold_24px, isBold, enabled, "Bold") { val t = !isBold; viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(bold = t) } }
-            FmtIcon(R.drawable.format_italic_24px, isItalic, enabled, "Italic") { val t = !isItalic; viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(italic = t) } }
-            FmtIcon(R.drawable.format_underlined_24px, isUnderline, enabled, "Underline") { val t = !isUnderline; viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(underline = t) } }
-            FmtIcon(R.drawable.format_strikethrough_24px, isStrike, enabled, "Strikethrough") { val t = !isStrike; viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(strikethrough = t) } }
-            FmtIcon(R.drawable.format_color_text_24px, false, enabled, "Text color") { onColorClick() }
-            Box {
-                FmtIcon(alignIcon, false, enabled, "Alignment") { alignMenu = true }
-                DropdownMenu(expanded = alignMenu, onDismissRequest = { alignMenu = false }) {
-                    DropdownMenuItem(text = { Text("Left") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_left_24px), null) }, onClick = { alignMenu = false; setAlign(TextAlign.Start) })
-                    DropdownMenuItem(text = { Text("Center") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_center_24px), null) }, onClick = { alignMenu = false; setAlign(TextAlign.Center) })
-                    DropdownMenuItem(text = { Text("Right") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_right_24px), null) }, onClick = { alignMenu = false; setAlign(TextAlign.End) })
-                    DropdownMenuItem(text = { Text("Justify") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_justify_24px), null) }, onClick = { alignMenu = false; setAlign(TextAlign.Justify) })
-                }
-            }
-            FmtIcon(R.drawable.format_list_bulleted_24px, isBullet, enabled, "Bulleted list") { if (focusedPara >= 0) viewModel.toggleListItem(focusedPara) }
-            FmtIcon(R.drawable.format_list_numbered_24px, isNumbered, enabled, "Numbered list") { if (focusedPara >= 0) viewModel.toggleNumberedList(focusedPara) }
-            FmtIcon(R.drawable.format_indent_increase_24px, false, enabled, "Increase indent") { if (focusedPara >= 0) viewModel.indentParagraph(focusedPara) }
-            FmtIcon(R.drawable.format_indent_decrease_24px, false, enabled, "Decrease indent") { if (focusedPara >= 0) viewModel.outdentParagraph(focusedPara) }
-            Box {
-                val tableEnabled = activeTableBlock >= 0
-                TextButton(onClick = { tableMenu = true }) {
-                    Text("Table")
-                    Icon(painterResource(R.drawable.arrow_drop_down_24px), contentDescription = "Table options")
-                }
-                DropdownMenu(expanded = tableMenu, onDismissRequest = { tableMenu = false }) {
-                    DropdownMenuItem(text = { Text("Insert table") }, onClick = { tableMenu = false; onInsertTable() })
-                    HorizontalDivider()
-                    DropdownMenuItem(text = { Text("Insert row below") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.textTableAddRow(activeTableBlock, activeTableRow) })
-                    DropdownMenuItem(text = { Text("Insert column right") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.textTableAddColumn(activeTableBlock, activeTableCol) })
-                    DropdownMenuItem(text = { Text("Delete row") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.textTableDeleteRow(activeTableBlock, activeTableRow) })
-                    DropdownMenuItem(text = { Text("Delete column") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.textTableDeleteColumn(activeTableBlock, activeTableCol) })
-                    HorizontalDivider()
-                    DropdownMenuItem(text = { Text("Bold cell") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.setTextTableCellSpanFormat(activeTableBlock, activeTableRow, activeTableCol) { it.copy(bold = !it.bold) } })
-                    DropdownMenuItem(text = { Text("Italic cell") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.setTextTableCellSpanFormat(activeTableBlock, activeTableRow, activeTableCol) { it.copy(italic = !it.italic) } })
-                    DropdownMenuItem(text = { Text("Merge with right") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.mergeTextTableCells(activeTableBlock, activeTableRow, activeTableCol, activeTableRow, activeTableCol + 1) })
-                    DropdownMenuItem(text = { Text("Merge with below") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.mergeTextTableCells(activeTableBlock, activeTableRow, activeTableCol, activeTableRow + 1, activeTableCol) })
-                    DropdownMenuItem(text = { Text("Unmerge cell") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.unmergeTextTableCells(activeTableBlock, activeTableRow, activeTableCol) })
-                }
-            }
-            Box {
-                var moreMenu by remember { mutableStateOf(false) }
-                FmtIcon(R.drawable.more_vert_24px, false, enabled, "More") { moreMenu = true }
-                DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
-                    DropdownMenuItem(text = { Text("Font size…") }, onClick = { moreMenu = false; onFontSize() })
-                    DropdownMenuItem(text = { Text("Clear formatting") }, onClick = { moreMenu = false; viewModel.clearRunFormatting(runStart, runEnd, selStart, selEnd) })
-                    HorizontalDivider()
-                    DropdownMenuItem(text = { Text("Demote list item") }, enabled = focusedPara >= 0, onClick = { moreMenu = false; if (focusedPara >= 0) viewModel.changeListLevel(focusedPara, 1) })
-                    DropdownMenuItem(text = { Text("Promote list item") }, enabled = focusedPara >= 0, onClick = { moreMenu = false; if (focusedPara >= 0) viewModel.changeListLevel(focusedPara, -1) })
-                    DropdownMenuItem(text = { Text("Restart numbering") }, enabled = focusedPara >= 0, onClick = { moreMenu = false; if (focusedPara >= 0) viewModel.restartNumbering(focusedPara) })
-                    HorizontalDivider()
-                    DropdownMenuItem(text = { Text("Duplicate paragraph") }, enabled = focusedPara >= 0, onClick = { moreMenu = false; viewModel.duplicateParagraph(focusedPara) })
-                    DropdownMenuItem(text = { Text("Move paragraph up") }, enabled = focusedPara > 0, onClick = { moreMenu = false; viewModel.moveParagraphUp(focusedPara) })
-                    DropdownMenuItem(text = { Text("Move paragraph down") }, enabled = focusedPara >= 0, onClick = { moreMenu = false; viewModel.moveParagraphDown(focusedPara) })
-                    DropdownMenuItem(text = { Text("Delete paragraph", color = MaterialTheme.colorScheme.error) }, enabled = focusedPara >= 0, onClick = { moreMenu = false; viewModel.deleteParagraph(focusedPara) })
-                }
-            }
-        }
-    }
-}
-
-@Composable private fun FmtIcon(res: Int, active: Boolean, enabled: Boolean, desc: String, onClick: () -> Unit) {
-    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(40.dp)) {
-        Icon(painterResource(res), contentDescription = desc, tint = if (active && enabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
     }
 }
 

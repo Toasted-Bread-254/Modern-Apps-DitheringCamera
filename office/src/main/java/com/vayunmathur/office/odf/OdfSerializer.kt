@@ -105,6 +105,8 @@ object OdfSerializer {
     private fun serializeSpreadsheet(doc: OdfDocument.Spreadsheet): String {
         val cellStyles = LinkedHashMap<String, CellStyleDef>()
         val colStyles = LinkedHashMap<String, Float>()
+        val spanStyles = mutableMapOf<String, SpanStyleDef>()
+        val paraStyles = mutableMapOf<String, ParaStyleDef>()
         val body = StringBuilder()
         for (sheet in doc.sheets) {
             body.append("""<table:table table:name="${esc(sheet.name)}">""")
@@ -143,9 +145,16 @@ object OdfSerializer {
                 }
                 body.append("</table:table-row>")
             }
+            // Floating objects anchored to the sheet (Phase 4).
+            for (element in sheet.floating) {
+                when (element) {
+                    is OdfSlideElement.Frame -> serializeFrame(body, element.frame, spanStyles, paraStyles)
+                    is OdfSlideElement.Shape -> serializeShape(body, element.shape, spanStyles, paraStyles)
+                }
+            }
             body.append("</table:table>")
         }
-        return buildDocument("office:spreadsheet", mutableMapOf(), mutableMapOf(), cellStyles, colStyles, body.toString())
+        return buildDocument("office:spreadsheet", spanStyles, paraStyles, cellStyles, colStyles, body.toString())
     }
 
     private fun serializePresentation(doc: OdfDocument.Presentation): String {
@@ -236,8 +245,22 @@ object OdfSerializer {
         sb.append("""<draw:frame""")
         if (image.width > 0) sb.append(""" svg:width="${image.width / 37.8f}cm"""")
         if (image.height > 0) sb.append(""" svg:height="${image.height / 37.8f}cm"""")
+        appendClip(sb, image)
         sb.append("""><draw:image xlink:href="${esc(image.path)}" xlink:type="simple" xlink:actuate="onLoad"/>""")
         sb.append("</draw:frame>")
+    }
+
+    /** Emits a non-standard percentage fo:clip so crop insets round-trip in this app; other suites render uncropped. (Phase 5) */
+    private fun appendClip(sb: StringBuilder, image: OdfImage) {
+        if (image.cropLeftPct > 0f || image.cropTopPct > 0f || image.cropRightPct > 0f || image.cropBottomPct > 0f) {
+            fun p(v: Float) = "${v * 100f}%"
+            sb.append(""" fo:clip="rect(${p(image.cropTopPct)} ${p(image.cropRightPct)} ${p(image.cropBottomPct)} ${p(image.cropLeftPct)})"""")
+        }
+    }
+
+    private fun chartSummary(chart: OdfChart): String {
+        val series = chart.series.joinToString(", ") { it.name }
+        return "[Chart: ${chart.type.name.lowercase()}] ${chart.title ?: ""} ${if (series.isNotEmpty()) "($series)" else ""}".trim()
     }
 
     private fun serializeFrame(
@@ -248,9 +271,16 @@ object OdfSerializer {
         sb.append("<draw:frame")
         sb.append(""" svg:x="${frame.x / 37.8f}cm" svg:y="${frame.y / 37.8f}cm"""")
         sb.append(""" svg:width="${frame.width / 37.8f}cm" svg:height="${frame.height / 37.8f}cm"""")
+        if (frame.image != null) appendClip(sb, frame.image)
         sb.append(">")
         if (frame.image != null && frame.image.path != "inline") {
             sb.append("""<draw:image xlink:href="${esc(frame.image.path)}" xlink:type="simple"/>""")
+        }
+        if (frame.chart != null) {
+            // Simplified chart persistence: a text summary so other suites show something. (Phase 5)
+            sb.append("<draw:text-box>")
+            serializeParagraph(sb, OdfParagraph(listOf(OdfSpan(text = chartSummary(frame.chart)))), styles, paraStyles, "text:p")
+            sb.append("</draw:text-box>")
         }
         if (frame.paragraphs.isNotEmpty()) {
             sb.append("<draw:text-box>")

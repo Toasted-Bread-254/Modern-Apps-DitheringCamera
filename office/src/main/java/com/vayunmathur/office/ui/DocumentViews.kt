@@ -10,6 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +46,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Surface
@@ -78,7 +81,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -97,6 +102,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -529,7 +536,8 @@ fun TextDocumentView(
     onRunTextChange: (Int, Int, String) -> Unit = { _, _, _ -> },
     onCellTextChange: (Int, Int, Int, String) -> Unit = { _, _, _, _ -> },
     onCellFocus: (Int, Int, Int) -> Unit = { _, _, _ -> },
-    onChartClick: (Int) -> Unit = {}
+    onChartClick: (Int) -> Unit = {},
+    onCropImage: (Int) -> Unit = {}
 ) {
     val segments = remember(doc.content) { buildSegments(doc.content) }
 
@@ -552,7 +560,7 @@ fun TextDocumentView(
                     is OdfContentBlock.Table -> TableView(block.table, seg.index, searchQuery, fontSizeMultiplier, onCellTextChange, onCellFocus)
                     is OdfContentBlock.Image -> {
                         var fullScreen by remember { mutableStateOf(false) }
-                        if (fullScreen) FullScreenImage(block.image) { fullScreen = false }
+                        if (fullScreen) FullScreenImage(block.image, onCrop = { fullScreen = false; onCropImage(seg.index) }) { fullScreen = false }
                         else Box(modifier = Modifier.clickable { fullScreen = true }) { OdfImageView(block.image) }
                     }
                     is OdfContentBlock.PageBreak -> PageBreakView()
@@ -862,10 +870,57 @@ private fun AnnotationPopup(content: String) {
 }
 
 @Composable
-private fun FullScreenImage(image: OdfImage, onDismiss: () -> Unit) {
+private fun FullScreenImage(image: OdfImage, onCrop: (() -> Unit)? = null, onDismiss: () -> Unit) {
     val bitmap = remember(image.path, image.imageData.size) { BitmapFactory.decodeByteArray(image.imageData, 0, image.imageData.size) }
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.9f)).clickable { onDismiss() }, contentAlignment = Alignment.Center) {
         if (bitmap != null) Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxWidth().padding(16.dp), contentScale = ContentScale.Fit)
+        if (onCrop != null) {
+            TextButton(onClick = onCrop, modifier = Modifier.align(Alignment.TopStart).padding(8.dp)) {
+                Icon(painterResource(com.vayunmathur.library.R.drawable.crop_24px), contentDescription = null, tint = Color.White)
+                Spacer(Modifier.width(4.dp))
+                Text("Crop", color = Color.White)
+            }
+        }
+    }
+}
+
+/** Non-destructive crop editor: adjust four insets with a live preview. (Phase 5) */
+@Composable
+fun ImageCropDialog(image: OdfImage, onApply: (Float, Float, Float, Float) -> Unit, onDismiss: () -> Unit) {
+    var left by remember { mutableFloatStateOf(image.cropLeftPct) }
+    var top by remember { mutableFloatStateOf(image.cropTopPct) }
+    var right by remember { mutableFloatStateOf(image.cropRightPct) }
+    var bottom by remember { mutableFloatStateOf(image.cropBottomPct) }
+    val preview = image.copy(cropLeftPct = left, cropTopPct = top, cropRightPct = right, cropBottomPct = bottom, width = 0f, height = 0f)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Crop Image") },
+        text = {
+            Column {
+                Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) { OdfImageView(preview) }
+                Spacer(Modifier.height(8.dp))
+                CropSlider("Left", left) { left = it }
+                CropSlider("Top", top) { top = it }
+                CropSlider("Right", right) { right = it }
+                CropSlider("Bottom", bottom) { bottom = it }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onApply(left, top, right, bottom); onDismiss() }) { Text("Apply") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { onApply(0f, 0f, 0f, 0f); onDismiss() }) { Text("Reset") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        }
+    )
+}
+
+@Composable
+private fun CropSlider(label: String, value: Float, onChange: (Float) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.width(64.dp), style = MaterialTheme.typography.labelMedium)
+        androidx.compose.material3.Slider(value = value, onValueChange = onChange, valueRange = 0f..0.45f, modifier = Modifier.weight(1f))
+        Text("${(value * 100).toInt()}%", Modifier.width(40.dp), style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -939,6 +994,32 @@ fun OdfImageView(image: OdfImage, modifier: Modifier = Modifier) {
     }
     if (bitmap != null) {
         val rot = if (image.rotationDegrees != 0f) Modifier.rotate(image.rotationDegrees) else Modifier
+        val hasCrop = image.cropLeftPct > 0f || image.cropTopPct > 0f || image.cropRightPct > 0f || image.cropBottomPct > 0f
+        if (hasCrop) {
+            // Non-destructive crop: draw only the visible source rectangle, scaled to fill. (Phase 5)
+            val bw = bitmap.width; val bh = bitmap.height
+            val visW = (1f - image.cropLeftPct - image.cropRightPct).coerceIn(0.05f, 1f)
+            val visH = (1f - image.cropTopPct - image.cropBottomPct).coerceIn(0.05f, 1f)
+            val srcX = (image.cropLeftPct * bw).toInt().coerceIn(0, bw - 1)
+            val srcY = (image.cropTopPct * bh).toInt().coerceIn(0, bh - 1)
+            val srcW = (visW * bw).toInt().coerceIn(1, bw - srcX)
+            val srcH = (visH * bh).toInt().coerceIn(1, bh - srcY)
+            val aspect = (srcW.toFloat() / srcH).coerceIn(0.1f, 10f)
+            val img = bitmap.asImageBitmap()
+            val sized = if (image.width > 0f && image.height > 0f)
+                modifier.width((image.width * (160f / 96f)).coerceAtMost(700f).dp).aspectRatio(aspect)
+            else modifier.fillMaxWidth().aspectRatio(aspect.coerceIn(0.3f, 4f))
+            Canvas(sized.then(rot).padding(vertical = 4.dp)) {
+                drawImage(
+                    image = img,
+                    srcOffset = IntOffset(srcX, srcY),
+                    srcSize = IntSize(srcW, srcH),
+                    dstOffset = IntOffset.Zero,
+                    dstSize = IntSize(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))
+                )
+            }
+            return
+        }
         val useExplicit = image.width > 0f && image.height > 0f
         if (useExplicit) {
             // Honor the frame's svg:width/height (px@96dpi -> dp), capped to a readable width. (A2)
@@ -1175,17 +1256,20 @@ fun SpreadsheetView(
     onCellAlignment: (Int, Int, Int, TextAlign?) -> Unit = { _, _, _, _ -> },
     onMergeCells: (Int, Int, Int, Int, Int) -> Unit = { _, _, _, _, _ -> },
     onUnmergeCells: (Int, Int, Int) -> Unit = { _, _, _ -> },
-    onSort: (Int, Int, Boolean) -> Unit = { _, _, _ -> }
+    onSort: (Int, Int, Boolean) -> Unit = { _, _, _ -> },
+    onCellSelected: (Int, Int, Int) -> Unit = { _, _, _ -> },
+    onFloatingBoundsChange: (Int, Int, Float, Float, Float, Float) -> Unit = { _, _, _, _, _, _ -> },
+    onFloatingTextChange: (Int, Int, String) -> Unit = { _, _, _ -> },
+    onFloatingDelete: (Int, Int) -> Unit = { _, _ -> }
 ) {
     if (doc.sheets.isEmpty()) { Text("Empty spreadsheet", modifier = Modifier.padding(16.dp)); return }
 
     var selectedSheet by remember { mutableIntStateOf(0) }
+    var selectedFloating by remember { mutableIntStateOf(-1) }
     var editingCell by remember { mutableStateOf<Triple<Int, Int, Int>?>(null) }
     var editText by remember { mutableStateOf(TextFieldValue("")) }
     var showRenameSheet by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf("") }
-    var showColorPicker by remember { mutableStateOf(false) }
-    var showBgColorPicker by remember { mutableStateOf(false) }
     var showSortDialog by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
@@ -1193,7 +1277,7 @@ fun SpreadsheetView(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 PrimaryScrollableTabRow(selectedTabIndex = selectedSheet, modifier = Modifier.weight(1f)) {
                     doc.sheets.forEachIndexed { index, sheet ->
-                        Tab(selected = selectedSheet == index, onClick = { selectedSheet = index; editingCell = null },
+                        Tab(selected = selectedSheet == index, onClick = { selectedSheet = index; editingCell = null; selectedFloating = -1; onCellSelected(index, -1, -1) },
                             text = { if (isEditMode) Text(sheet.name, Modifier.clickable { renameText = sheet.name; showRenameSheet = true }) else Text(sheet.name) })
                     }
                 }
@@ -1213,9 +1297,10 @@ fun SpreadsheetView(
                 onCellTextChange(si, r, c, editText.text)
                 if (r + 1 < rowCount) {
                     editingCell = Triple(si, r + 1, c)
+                    onCellSelected(si, r + 1, c)
                     val nextText = doc.sheets[si].rows.getOrNull(r + 1)?.cells?.getOrNull(c)?.let { it.formula ?: it.text } ?: ""
                     editText = TextFieldValue(nextText, TextRange(0, nextText.length))
-                } else editingCell = null
+                } else { editingCell = null; onCellSelected(si, -1, -1) }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("${columnLabel(ci)}${ri + 1}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 8.dp))
@@ -1224,19 +1309,7 @@ fun SpreadsheetView(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     keyboardActions = KeyboardActions(onNext = { commitAndAdvance() }, onDone = { commitAndAdvance() }),
                     colors = TextFieldDefaults.colors(focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant, unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant))
-                TextButton(onClick = { val (si, r, c) = editingCell!!; onCellTextChange(si, r, c, editText.text); editingCell = null }) { Text("Done") }
-            }
-            // Cell formatting toolbar
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                val (si, r, c) = editingCell!!
-                TextButton(onClick = { onCellBold(si, r, c) }) { Text("B", fontWeight = FontWeight.Bold) }
-                TextButton(onClick = { onCellItalic(si, r, c) }) { Text("I", fontStyle = FontStyle.Italic) }
-                TextButton(onClick = { showColorPicker = true }) { Text("A", color = Color.Red) }
-                TextButton(onClick = { showBgColorPicker = true }) { Text("⬛") }
-                TextButton(onClick = { onCellAlignment(si, r, c, TextAlign.Start) }) { Text("←") }
-                TextButton(onClick = { onCellAlignment(si, r, c, TextAlign.Center) }) { Text("↔") }
-                TextButton(onClick = { onCellAlignment(si, r, c, TextAlign.End) }) { Text("→") }
-                TextButton(onClick = { onUnmergeCells(si, r, c) }) { Text("⊟") }
+                TextButton(onClick = { val (si, r, c) = editingCell!!; onCellTextChange(si, r, c, editText.text); editingCell = null; onCellSelected(si, -1, -1) }) { Text("Done") }
             }
         }
 
@@ -1265,6 +1338,7 @@ fun SpreadsheetView(
             return w.dp
         }
 
+        Box(Modifier.fillMaxSize()) {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp)) {
@@ -1289,7 +1363,7 @@ fun SpreadsheetView(
                                             .fillMaxHeight()
                                             .border(if (isEditing) 2.dp else 0.5.dp, if (isEditing) MaterialTheme.colorScheme.primary else (cell.borderColor?.let { Color(it.toInt()) } ?: MaterialTheme.colorScheme.outline))
                                             .then(if (isMatch) Modifier.background(Color(0xFFFFEB3B).copy(alpha = 0.3f)) else cell.backgroundColor?.let { Modifier.background(Color(it.toInt())) } ?: Modifier)
-                                            .then(if (isEditMode) Modifier.clickable { editingCell = Triple(selectedSheet, rowIdx, cellIdx); val t = cell.formula ?: cell.text; editText = TextFieldValue(t, TextRange(0, t.length)) } else Modifier)
+                                            .then(if (isEditMode) Modifier.clickable { editingCell = Triple(selectedSheet, rowIdx, cellIdx); onCellSelected(selectedSheet, rowIdx, cellIdx); val t = cell.formula ?: cell.text; editText = TextFieldValue(t, TextRange(0, t.length)) } else Modifier)
                                             .padding(8.dp, 4.dp)
                                     ) {
                                         val displayText = OdfFormulaEngine.displayValue(sheet, rowIdx, cellIdx)
@@ -1308,6 +1382,19 @@ fun SpreadsheetView(
                 }
             }
         }
+        if (isEditMode || sheet.floating.isNotEmpty()) {
+            val rw = maxOf(1058f, sheet.floating.maxOfOrNull { val b = it.bounds(); b[0] + b[2] } ?: 0f)
+            val rh = maxOf(794f, sheet.floating.maxOfOrNull { val b = it.bounds(); b[1] + b[3] } ?: 0f)
+            FloatingElementLayer(
+                elements = sheet.floating, refW = rw, refH = rh, editMode = isEditMode, selectedIndex = selectedFloating,
+                keyPrefix = "sheet$selectedSheet", interactiveBackground = false,
+                onSelect = { selectedFloating = it },
+                onElementTextChange = { ei, t -> onFloatingTextChange(selectedSheet, ei, t) },
+                onBoundsChange = { ei, x, y, w, h -> onFloatingBoundsChange(selectedSheet, ei, x, y, w, h) },
+                onDelete = { ei -> onFloatingDelete(selectedSheet, ei); selectedFloating = -1 }
+            )
+        }
+        }
     }
 
     if (showRenameSheet) {
@@ -1315,14 +1402,6 @@ fun SpreadsheetView(
             text = { TextField(value = renameText, onValueChange = { renameText = it }, singleLine = true) },
             confirmButton = { TextButton(onClick = { onRenameSheet(selectedSheet, renameText); showRenameSheet = false }) { Text("OK") } },
             dismissButton = { TextButton(onClick = { showRenameSheet = false }) { Text("Cancel") } })
-    }
-    if (showColorPicker && editingCell != null) {
-        val (si, r, c) = editingCell!!
-        ColorPickerDialog("Text Color", onColorSelected = { onCellColor(si, r, c, it) }, onDismiss = { showColorPicker = false })
-    }
-    if (showBgColorPicker && editingCell != null) {
-        val (si, r, c) = editingCell!!
-        ColorPickerDialog("Background Color", onColorSelected = { onCellBgColor(si, r, c, it) }, onDismiss = { showBgColorPicker = false })
     }
     if (showSortDialog) {
         val maxC = doc.sheets[selectedSheet].rows.maxOfOrNull { it.cells.size } ?: 1
@@ -1349,11 +1428,11 @@ fun PresentationView(
     onMoveSlideDown: (Int) -> Unit = {},
     onElementTextChange: (slideIndex: Int, elementIndex: Int, text: String) -> Unit = { _, _, _ -> },
     onAddTextBox: (Int) -> Unit = {},
-    onElementBold: (Int, Int) -> Unit = { _, _ -> },
-    onElementItalic: (Int, Int) -> Unit = { _, _ -> },
-    onElementUnderline: (Int, Int) -> Unit = { _, _ -> },
-    onElementColor: (Int, Int, Long?) -> Unit = { _, _, _ -> },
-    onElementAlign: (Int, Int, TextAlign?) -> Unit = { _, _, _ -> }
+    onElementBoundsChange: (Int, Int, Float, Float, Float, Float) -> Unit = { _, _, _, _, _, _ -> },
+    onDeleteElement: (Int, Int) -> Unit = { _, _ -> },
+    selectedElement: Int = -1,
+    onSlideChange: (Int) -> Unit = {},
+    onElementSelected: (Int, Int) -> Unit = { _, _ -> }
 ) {
     if (doc.slides.isEmpty()) { Text("Empty presentation", modifier = Modifier.padding(16.dp)); return }
 
@@ -1361,10 +1440,8 @@ fun PresentationView(
     var showGoToSlide by remember { mutableStateOf(false) }
     var showSlideshow by remember { mutableStateOf(false) }
     var dragAccumulator by remember { mutableFloatStateOf(0f) }
-    var focusedEl by remember { mutableIntStateOf(-1) }
-    var showSlideColor by remember { mutableStateOf(false) }
     currentSlide = currentSlide.coerceIn(0, doc.slides.size - 1)
-    LaunchedEffect(currentSlide) { focusedEl = -1 }
+    LaunchedEffect(currentSlide) { onSlideChange(currentSlide); onElementSelected(currentSlide, -1) }
 
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
         // Main slide with swipe gesture
@@ -1385,8 +1462,11 @@ fun PresentationView(
                     SlideCard(
                         slide = doc.slides[currentSlide],
                         editMode = isEditMode,
+                        selectedIndex = selectedElement,
+                        onSelect = { onElementSelected(currentSlide, it) },
                         onElementTextChange = { ei, t -> onElementTextChange(currentSlide, ei, t) },
-                        onElementFocus = { focusedEl = it }
+                        onBoundsChange = { ei, x, y, w, h -> onElementBoundsChange(currentSlide, ei, x, y, w, h) },
+                        onDelete = { ei -> onDeleteElement(currentSlide, ei); onElementSelected(currentSlide, -1) }
                     )
                 }
             }
@@ -1402,22 +1482,6 @@ fun PresentationView(
                 TextButton(onClick = { onMoveSlideDown(currentSlide); if (currentSlide < doc.slides.size - 1) currentSlide++ }) { Text("↓") }
                 if (doc.slides.size > 1) TextButton(onClick = { onDeleteSlide(currentSlide); currentSlide = minOf(currentSlide, doc.slides.size - 2).coerceAtLeast(0) }) {
                     Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            }
-        }
-
-        // Slide text formatting bar (visible when a text box is focused). (I62)
-        if (isEditMode && focusedEl in doc.slides[currentSlide].elements.indices) {
-            val el = focusedEl
-            Surface(tonalElevation = 3.dp) {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { onElementBold(currentSlide, el) }) { Text("B", fontWeight = FontWeight.Bold) }
-                    TextButton(onClick = { onElementItalic(currentSlide, el) }) { Text("I", fontStyle = FontStyle.Italic) }
-                    TextButton(onClick = { onElementUnderline(currentSlide, el) }) { Text("U", textDecoration = TextDecoration.Underline) }
-                    TextButton(onClick = { showSlideColor = true }) { Text("A", color = Color.Red) }
-                    TextButton(onClick = { onElementAlign(currentSlide, el, TextAlign.Start) }) { Text("←") }
-                    TextButton(onClick = { onElementAlign(currentSlide, el, TextAlign.Center) }) { Text("↔") }
-                    TextButton(onClick = { onElementAlign(currentSlide, el, TextAlign.End) }) { Text("→") }
                 }
             }
         }
@@ -1447,10 +1511,6 @@ fun PresentationView(
 
     if (showGoToSlide) GoToSlideDialog(doc.slides.size, onGo = { currentSlide = it }, onDismiss = { showGoToSlide = false })
     if (showSlideshow) SlideshowDialog(doc.slides, currentSlide, onSlideChange = { currentSlide = it }, onDismiss = { showSlideshow = false })
-    if (showSlideColor && focusedEl in doc.slides[currentSlide].elements.indices) {
-        val el = focusedEl
-        ColorPickerDialog("Text Color", onColorSelected = { onElementColor(currentSlide, el, it); showSlideColor = false }, onDismiss = { showSlideColor = false })
-    }
 }
 
 /** Editable text field for a slide element, bound by a stable key so it resets per slide/element. (I62) */
@@ -1527,12 +1587,20 @@ fun DrawingView(doc: OdfDocument.Drawing) {
 }
 
 @Composable
-private fun SlideCard(slide: OdfSlide, editMode: Boolean = false, onElementTextChange: (Int, String) -> Unit = { _, _ -> }, onElementFocus: (Int) -> Unit = {}) {
+private fun SlideCard(
+    slide: OdfSlide,
+    editMode: Boolean = false,
+    selectedIndex: Int = -1,
+    onSelect: (Int) -> Unit = {},
+    onElementTextChange: (Int, String) -> Unit = { _, _ -> },
+    onBoundsChange: (Int, Float, Float, Float, Float) -> Unit = { _, _, _, _, _ -> },
+    onDelete: (Int) -> Unit = {}
+) {
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
         Text(slide.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         val (refW, refH) = slideBounds(slide)
         Card(modifier = Modifier.fillMaxWidth().aspectRatio((refW / refH).coerceIn(0.5f, 3f)).padding(horizontal = 8.dp), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
-            SlideCanvas(slide, refW, refH, editMode, onElementTextChange, onElementFocus)
+            SlideCanvas(slide, refW, refH, editMode, selectedIndex, onSelect, onElementTextChange, onBoundsChange, onDelete)
         }
         if (slide.notes.isNotEmpty()) {
             var expanded by remember { mutableStateOf(false) }
@@ -1558,35 +1626,142 @@ private fun slideBounds(slide: OdfSlide): Pair<Float, Float> {
 }
 
 @Composable
-private fun SlideCanvas(slide: OdfSlide, refW: Float, refH: Float, editMode: Boolean = false, onElementTextChange: (Int, String) -> Unit = { _, _ -> }, onElementFocus: (Int) -> Unit = {}) {
+private fun SlideCanvas(
+    slide: OdfSlide,
+    refW: Float,
+    refH: Float,
+    editMode: Boolean = false,
+    selectedIndex: Int = -1,
+    onSelect: (Int) -> Unit = {},
+    onElementTextChange: (Int, String) -> Unit = { _, _ -> },
+    onBoundsChange: (Int, Float, Float, Float, Float) -> Unit = { _, _, _, _, _ -> },
+    onDelete: (Int) -> Unit = {}
+) {
+    FloatingElementLayer(
+        elements = slide.elements, refW = refW, refH = refH,
+        editMode = editMode, selectedIndex = selectedIndex, keyPrefix = slide.name,
+        backgroundColor = slide.backgroundColor,
+        onSelect = onSelect, onElementTextChange = onElementTextChange,
+        onBoundsChange = onBoundsChange, onDelete = onDelete
+    )
+}
+
+/**
+ * Shared overlay that renders floating elements (frames/shapes) over a reference px@96 canvas,
+ * with tap-to-select, drag-to-move, corner resize handles and delete in edit mode. Reused by
+ * slides and (Phase 4) spreadsheet floating layers. (Phase 1)
+ */
+@Composable
+fun FloatingElementLayer(
+    elements: List<OdfSlideElement>,
+    refW: Float,
+    refH: Float,
+    editMode: Boolean,
+    selectedIndex: Int,
+    keyPrefix: String,
+    backgroundColor: Long? = null,
+    interactiveBackground: Boolean = true,
+    onSelect: (Int) -> Unit = {},
+    onElementTextChange: (Int, String) -> Unit = { _, _ -> },
+    onBoundsChange: (Int, Float, Float, Float, Float) -> Unit = { _, _, _, _, _ -> },
+    onDelete: (Int) -> Unit = {}
+) {
     BoxWithConstraints(
         Modifier.fillMaxSize()
-            .then(slide.backgroundColor?.let { Modifier.background(Color(it.toInt())) } ?: Modifier)
+            .then(backgroundColor?.let { Modifier.background(Color(it.toInt())) } ?: Modifier)
+            .then(if (editMode && interactiveBackground) Modifier.pointerInput(elements.size) { detectTapGestures { onSelect(-1) } } else Modifier)
     ) {
         val scaleW = maxWidth / refW
         val scaleH = maxHeight / refH
-        // Scale text proportionally to the slide canvas (pt -> px@96 -> scaled dp). (I60 fix)
+        val density = LocalDensity.current.density
+        val pxPerModelW = (scaleW.value * density).coerceAtLeast(0.01f)
+        val pxPerModelH = (scaleH.value * density).coerceAtLeast(0.01f)
+        // Scale text proportionally to the canvas (pt -> px@96 -> scaled dp). (I60)
         val fontScale = ((96f / 72f) * (maxWidth.value / refW)).coerceIn(0.2f, 4f)
-        slide.elements.forEachIndexed { ei, element ->
-            when (element) {
-                is OdfSlideElement.Frame -> {
-                    val f = element.frame
-                    val base = Modifier.offset(x = scaleW * f.x, y = scaleH * f.y).width((scaleW * f.width).coerceAtLeast(1.dp))
-                    if (f.image != null) {
-                        Box(base.height((scaleH * f.height).coerceAtLeast(1.dp))) { PositionedFrame(f, fontScale, editMode, "${slide.name}#$ei", { onElementTextChange(ei, it) }, { onElementFocus(ei) }) }
-                    } else {
-                        // Text frames wrap height so large fonts are not truncated.
-                        Box(base) { PositionedFrame(f, fontScale, editMode, "${slide.name}#$ei", { onElementTextChange(ei, it) }, { onElementFocus(ei) }) }
+
+        var live by remember(selectedIndex, elements) { mutableStateOf<FloatArray?>(null) }
+
+        elements.forEachIndexed { ei, element ->
+            val isSel = editMode && ei == selectedIndex
+            val b = if (isSel) (live ?: element.bounds()) else element.bounds()
+            val boxW = (scaleW * b[2]).coerceAtLeast(1.dp)
+            val boxH = (scaleH * b[3]).coerceAtLeast(1.dp)
+            // Text frames wrap height when neither selected nor editing so large fonts aren't truncated.
+            val isImageFrame = element is OdfSlideElement.Frame && (element.frame.image != null || element.frame.chart != null)
+            val fixedHeight = editMode || isImageFrame || element is OdfSlideElement.Shape
+            var base = Modifier.offset(x = scaleW * b[0], y = scaleH * b[1]).width(boxW)
+            base = if (fixedHeight) base.height(boxH) else base
+            Box(base) {
+                Box(
+                    Modifier.fillMaxSize()
+                        .then(if (editMode && !isSel) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant) else Modifier)
+                        .then(if (editMode && !isSel) Modifier.pointerInput(ei) { detectTapGestures { onSelect(ei) } } else Modifier)
+                ) {
+                    when (element) {
+                        is OdfSlideElement.Frame -> PositionedFrame(element.frame, fontScale, isSel, "$keyPrefix#$ei") { onElementTextChange(ei, it) }
+                        is OdfSlideElement.Shape -> PositionedShape(element.shape, fontScale, isSel, "$keyPrefix#$ei") { onElementTextChange(ei, it) }
                     }
                 }
-                is OdfSlideElement.Shape -> {
-                    val s = element.shape
-                    Box(Modifier.offset(x = scaleW * s.x, y = scaleH * s.y).size(width = (scaleW * s.width).coerceAtLeast(1.dp), height = (scaleH * s.height).coerceAtLeast(1.dp))) {
-                        PositionedShape(s, fontScale, editMode, "${slide.name}#$ei", { onElementTextChange(ei, it) }, { onElementFocus(ei) })
+                if (isSel) {
+                    Box(Modifier.fillMaxSize().border(2.dp, MaterialTheme.colorScheme.primary))
+                    fun startBounds() = live ?: element.bounds()
+                    fun commit() { live?.let { onBoundsChange(ei, it[0], it[1], it[2], it[3]) }; live = null }
+                    // Move handle (top center, above the box).
+                    ElementHandle(
+                        Modifier.align(Alignment.TopCenter).offset(y = (-22).dp),
+                        icon = com.vayunmathur.library.R.drawable.drag_handle_24px,
+                        onStart = { live = element.bounds() }, onEnd = { commit() }
+                    ) { dx, dy ->
+                        val c = startBounds()
+                        live = floatArrayOf(c[0] + dx / pxPerModelW, c[1] + dy / pxPerModelH, c[2], c[3])
+                    }
+                    // Corner resize handles.
+                    ElementHandle(Modifier.align(Alignment.TopStart).offset((-8).dp, (-8).dp), onStart = { live = element.bounds() }, onEnd = { commit() }) { dx, dy ->
+                        val c = startBounds(); val mdx = dx / pxPerModelW; val mdy = dy / pxPerModelH
+                        live = floatArrayOf(c[0] + mdx, c[1] + mdy, (c[2] - mdx).coerceAtLeast(20f), (c[3] - mdy).coerceAtLeast(20f))
+                    }
+                    ElementHandle(Modifier.align(Alignment.TopEnd).offset(8.dp, (-8).dp), onStart = { live = element.bounds() }, onEnd = { commit() }) { dx, dy ->
+                        val c = startBounds(); val mdx = dx / pxPerModelW; val mdy = dy / pxPerModelH
+                        live = floatArrayOf(c[0], c[1] + mdy, (c[2] + mdx).coerceAtLeast(20f), (c[3] - mdy).coerceAtLeast(20f))
+                    }
+                    ElementHandle(Modifier.align(Alignment.BottomStart).offset((-8).dp, 8.dp), onStart = { live = element.bounds() }, onEnd = { commit() }) { dx, dy ->
+                        val c = startBounds(); val mdx = dx / pxPerModelW; val mdy = dy / pxPerModelH
+                        live = floatArrayOf(c[0] + mdx, c[1], (c[2] - mdx).coerceAtLeast(20f), (c[3] + mdy).coerceAtLeast(20f))
+                    }
+                    ElementHandle(Modifier.align(Alignment.BottomEnd).offset(8.dp, 8.dp), onStart = { live = element.bounds() }, onEnd = { commit() }) { dx, dy ->
+                        val c = startBounds(); val mdx = dx / pxPerModelW; val mdy = dy / pxPerModelH
+                        live = floatArrayOf(c[0], c[1], (c[2] + mdx).coerceAtLeast(20f), (c[3] + mdy).coerceAtLeast(20f))
+                    }
+                    // Delete (top end, above the box).
+                    Box(Modifier.align(Alignment.TopEnd).offset(x = 12.dp, y = (-24).dp).size(22.dp)
+                        .background(MaterialTheme.colorScheme.errorContainer, CircleShape)
+                        .border(1.dp, MaterialTheme.colorScheme.error, CircleShape)
+                        .clickable { onDelete(ei) }, contentAlignment = Alignment.Center) {
+                        Icon(painterResource(com.vayunmathur.library.R.drawable.delete_24px), contentDescription = "Delete element", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(14.dp))
                     }
                 }
             }
         }
+    }
+}
+
+/** A small draggable selection handle (move/resize). Drag deltas are reported in pixels. (Phase 1) */
+@Composable
+private fun ElementHandle(modifier: Modifier, icon: Int? = null, onStart: () -> Unit, onEnd: () -> Unit, onDrag: (Float, Float) -> Unit) {
+    Box(
+        modifier.size(18.dp)
+            .background(MaterialTheme.colorScheme.primary, CircleShape)
+            .border(1.5.dp, Color.White, CircleShape)
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { onStart() },
+                    onDragEnd = { onEnd() },
+                    onDragCancel = { onEnd() }
+                ) { change, drag -> change.consume(); onDrag(drag.x, drag.y) }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        if (icon != null) Icon(painterResource(icon), contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
     }
 }
 
@@ -1609,23 +1784,23 @@ private fun SlideTextEditor(key: String, paragraphs: List<OdfParagraph>, fontSca
 }
 
 @Composable
-private fun PositionedFrame(frame: OdfFrame, fontScale: Float, editMode: Boolean = false, editKey: String = "", onTextChange: (String) -> Unit = {}, onFocus: () -> Unit = {}) {
+private fun PositionedFrame(frame: OdfFrame, fontScale: Float, editing: Boolean = false, editKey: String = "", onTextChange: (String) -> Unit = {}) {
     Box(Modifier.fillMaxSize()
         .then(frame.fillColor?.let { Modifier.background(Color(it.toInt())) } ?: Modifier)
-        .then(if (editMode && frame.image == null) Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant) else Modifier)
         .then(frame.strokeColor?.let { Modifier.border((frame.strokeWidth ?: 1f).dp.coerceAtLeast(0.5.dp), Color(it.toInt())) } ?: Modifier)
     ) {
         frame.image?.let { OdfImageView(it, Modifier.fillMaxSize()) }
-        if (editMode && frame.image == null) {
-            SlideTextEditor(editKey, frame.paragraphs, fontScale, onTextChange, onFocus)
-        } else {
+        frame.chart?.let { OdfChartView(it) }
+        if (editing && frame.image == null && frame.chart == null) {
+            SlideTextEditor(editKey, frame.paragraphs, fontScale, onTextChange)
+        } else if (frame.image == null && frame.chart == null) {
             Column { for (para in frame.paragraphs) ParagraphView(para, fontSizeMultiplier = fontScale) }
         }
     }
 }
 
 @Composable
-private fun PositionedShape(shape: OdfShape, fontScale: Float, editMode: Boolean = false, editKey: String = "", onTextChange: (String) -> Unit = {}, onFocus: () -> Unit = {}) {
+private fun PositionedShape(shape: OdfShape, fontScale: Float, editing: Boolean = false, editKey: String = "", onTextChange: (String) -> Unit = {}) {
     val fillColor = shape.fillColor?.let { Color(it.toInt()) } ?: Color.Transparent
     val strokeColor = shape.strokeColor?.let { Color(it.toInt()) } ?: MaterialTheme.colorScheme.outline
     val strokeW = shape.strokeWidth ?: 1f
@@ -1638,8 +1813,8 @@ private fun PositionedShape(shape: OdfShape, fontScale: Float, editMode: Boolean
                 is OdfShape.CustomShape -> { drawRect(fillColor); drawRect(strokeColor, style = Stroke(strokeW)) }
             }
         }
-        if (editMode && shape !is OdfShape.Line) {
-            Box(Modifier.padding(4.dp).align(Alignment.Center)) { SlideTextEditor(editKey, shape.text, fontScale, onTextChange, onFocus) }
+        if (editing && shape !is OdfShape.Line) {
+            Box(Modifier.padding(4.dp).align(Alignment.Center)) { SlideTextEditor(editKey, shape.text, fontScale, onTextChange) }
         } else if (shape.text.isNotEmpty()) {
             Column(Modifier.padding(4.dp).align(Alignment.Center)) { for (para in shape.text) ParagraphView(para, fontSizeMultiplier = fontScale) }
         }

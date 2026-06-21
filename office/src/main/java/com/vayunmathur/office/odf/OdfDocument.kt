@@ -151,7 +151,12 @@ data class OdfImage(
     val height: Float = 0f,
     val anchorType: String = "",
     // Rotation in degrees clockwise (E38).
-    val rotationDegrees: Float = 0f
+    val rotationDegrees: Float = 0f,
+    // Non-destructive crop insets as fractions of the source image [0,1). (Phase 5)
+    val cropLeftPct: Float = 0f,
+    val cropTopPct: Float = 0f,
+    val cropRightPct: Float = 0f,
+    val cropBottomPct: Float = 0f
 )
 
 data class OdfTable(
@@ -176,7 +181,8 @@ data class OdfTableCell(
 data class OdfSheet(
     val name: String,
     val rows: List<OdfRow>,
-    val columnWidths: List<Float?> = emptyList()
+    val columnWidths: List<Float?> = emptyList(),
+    val floating: List<OdfSlideElement> = emptyList()
 )
 
 data class OdfRow(val cells: List<OdfCell>)
@@ -226,6 +232,23 @@ sealed class OdfSlideElement {
     data class Shape(val shape: OdfShape) : OdfSlideElement()
 }
 
+/** Geometry (x, y, width, height) of a floating element, in px@96. (Phase 1) */
+fun OdfSlideElement.bounds(): FloatArray = when (this) {
+    is OdfSlideElement.Frame -> floatArrayOf(frame.x, frame.y, frame.width, frame.height)
+    is OdfSlideElement.Shape -> floatArrayOf(shape.x, shape.y, shape.width, shape.height)
+}
+
+/** Returns a copy of the element repositioned/resized to the given bounds (px@96). (Phase 1) */
+fun setElementBounds(el: OdfSlideElement, x: Float, y: Float, w: Float, h: Float): OdfSlideElement = when (el) {
+    is OdfSlideElement.Frame -> OdfSlideElement.Frame(el.frame.copy(x = x, y = y, width = w, height = h))
+    is OdfSlideElement.Shape -> OdfSlideElement.Shape(when (val s = el.shape) {
+        is OdfShape.Rect -> s.copy(x = x, y = y, width = w, height = h)
+        is OdfShape.Ellipse -> s.copy(x = x, y = y, width = w, height = h)
+        is OdfShape.Line -> s.copy(x = x, y = y, width = w, height = h)
+        is OdfShape.CustomShape -> s.copy(x = x, y = y, width = w, height = h)
+    })
+}
+
 data class OdfFrame(
     val x: Float,
     val y: Float,
@@ -233,6 +256,7 @@ data class OdfFrame(
     val height: Float,
     val paragraphs: List<OdfParagraph>,
     val image: OdfImage? = null,
+    val chart: OdfChart? = null,
     val fillColor: Long? = null,
     val strokeColor: Long? = null,
     val strokeWidth: Float? = null

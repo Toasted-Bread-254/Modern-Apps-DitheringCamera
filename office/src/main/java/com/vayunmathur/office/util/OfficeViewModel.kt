@@ -552,6 +552,17 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         updateDocument(doc.copy(content = content, images = doc.images + (path to bytes)))
     }
 
+    /** Sets non-destructive crop insets on a text-document image block. (Phase 5) */
+    fun setImageCrop(blockIndex: Int, left: Float, top: Float, right: Float, bottom: Float) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.TextDocument ?: return
+        val block = doc.content.getOrNull(blockIndex) as? OdfContentBlock.Image ?: return
+        val content = doc.content.toMutableList()
+        content[blockIndex] = OdfContentBlock.Image(block.image.copy(
+            cropLeftPct = left, cropTopPct = top, cropRightPct = right, cropBottomPct = bottom
+        ))
+        updateDocument(doc.copy(content = content))
+    }
+
     /** Inserts a horizontal rule (rendered as a bordered empty paragraph) (B19). */
     fun insertHorizontalLine(blockIndex: Int) {
         val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.TextDocument ?: return
@@ -1239,6 +1250,117 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         updateDocument(doc.copy(slides = slides))
     }
 
+    /** Adds a shape to a slide at a default centered rect. kind = "rect"|"ellipse"|"line". (Phase 3) */
+    fun addShapeToSlide(slideIndex: Int, kind: String) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Presentation ?: return
+        val slides = doc.slides.toMutableList()
+        val slide = slides.getOrNull(slideIndex) ?: return
+        val x = 329f; val y = 247f; val w = 400f; val h = 300f
+        val shape: OdfShape = when (kind) {
+            "ellipse" -> OdfShape.Ellipse(x, y, w, h, fillColor = 0xFFB3D1FFL, strokeColor = 0xFF1F6FC0L, strokeWidth = 2f)
+            "line" -> OdfShape.Line(x, y, w, 0f, strokeColor = 0xFF333333L, strokeWidth = 2f, x2 = x + w, y2 = y)
+            else -> OdfShape.Rect(x, y, w, h, fillColor = 0xFFB3D1FFL, strokeColor = 0xFF1F6FC0L, strokeWidth = 2f)
+        }
+        slides[slideIndex] = slide.copy(elements = slide.elements + OdfSlideElement.Shape(shape))
+        updateDocument(doc.copy(slides = slides))
+    }
+
+    /** Inserts an image as a floating frame on a slide. (Phase 3) */
+    fun insertImageIntoSlide(slideIndex: Int, fileName: String, bytes: ByteArray) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Presentation ?: return
+        val slides = doc.slides.toMutableList()
+        val slide = slides.getOrNull(slideIndex) ?: return
+        val safeName = fileName.substringAfterLast('/').ifBlank { "image" }
+        val path = "Pictures/$safeName"
+        val frame = OdfFrame(x = 300f, y = 200f, width = 400f, height = 300f, paragraphs = emptyList(),
+            image = OdfImage(path = path, imageData = bytes))
+        slides[slideIndex] = slide.copy(elements = slide.elements + OdfSlideElement.Frame(frame))
+        updateDocument(doc.copy(slides = slides, images = doc.images + (path to bytes)))
+    }
+
+    /** Inserts a chart as a floating frame on a slide. (Phase 3) */
+    fun insertChartIntoSlide(slideIndex: Int, chart: OdfChart) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Presentation ?: return
+        val slides = doc.slides.toMutableList()
+        val slide = slides.getOrNull(slideIndex) ?: return
+        val frame = OdfFrame(x = 250f, y = 180f, width = 520f, height = 360f, paragraphs = emptyList(), chart = chart)
+        slides[slideIndex] = slide.copy(elements = slide.elements + OdfSlideElement.Frame(frame))
+        updateDocument(doc.copy(slides = slides))
+    }
+
+    // --- Spreadsheet floating objects (Phase 4) ---
+
+    private fun mutateSheetFloating(sheetIndex: Int, transform: (List<OdfSlideElement>) -> List<OdfSlideElement>) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
+        val sheets = doc.sheets.toMutableList()
+        val sheet = sheets.getOrNull(sheetIndex) ?: return
+        sheets[sheetIndex] = sheet.copy(floating = transform(sheet.floating))
+        updateDocument(doc.copy(sheets = sheets))
+    }
+
+    fun addShapeToSheet(sheetIndex: Int, kind: String) {
+        val x = 120f; val y = 120f; val w = 300f; val h = 200f
+        val shape: OdfShape = when (kind) {
+            "ellipse" -> OdfShape.Ellipse(x, y, w, h, fillColor = 0xFFB3D1FFL, strokeColor = 0xFF1F6FC0L, strokeWidth = 2f)
+            "line" -> OdfShape.Line(x, y, w, 0f, strokeColor = 0xFF333333L, strokeWidth = 2f, x2 = x + w, y2 = y)
+            else -> OdfShape.Rect(x, y, w, h, fillColor = 0xFFB3D1FFL, strokeColor = 0xFF1F6FC0L, strokeWidth = 2f)
+        }
+        mutateSheetFloating(sheetIndex) { it + OdfSlideElement.Shape(shape) }
+    }
+
+    fun insertImageIntoSheet(sheetIndex: Int, fileName: String, bytes: ByteArray) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
+        val sheets = doc.sheets.toMutableList()
+        val sheet = sheets.getOrNull(sheetIndex) ?: return
+        val safeName = fileName.substringAfterLast('/').ifBlank { "image" }
+        val path = "Pictures/$safeName"
+        val frame = OdfFrame(x = 100f, y = 100f, width = 320f, height = 240f, paragraphs = emptyList(),
+            image = OdfImage(path = path, imageData = bytes))
+        sheets[sheetIndex] = sheet.copy(floating = sheet.floating + OdfSlideElement.Frame(frame))
+        updateDocument(doc.copy(sheets = sheets, images = doc.images + (path to bytes)))
+    }
+
+    fun insertChartIntoSheet(sheetIndex: Int, chart: OdfChart) {
+        val frame = OdfFrame(x = 80f, y = 80f, width = 480f, height = 320f, paragraphs = emptyList(), chart = chart)
+        mutateSheetFloating(sheetIndex) { it + OdfSlideElement.Frame(frame) }
+    }
+
+    fun setSheetElementBounds(sheetIndex: Int, elementIndex: Int, x: Float, y: Float, w: Float, h: Float) {
+        mutateSheetFloating(sheetIndex) { list ->
+            if (elementIndex !in list.indices) list
+            else list.toMutableList().also { it[elementIndex] = setElementBounds(it[elementIndex], x, y, w, h) }
+        }
+    }
+
+    fun deleteSheetElement(sheetIndex: Int, elementIndex: Int) {
+        mutateSheetFloating(sheetIndex) { list -> list.filterIndexed { i, _ -> i != elementIndex } }
+    }
+
+    fun updateSheetElementText(sheetIndex: Int, elementIndex: Int, newText: String) {
+        mutateSheetFloating(sheetIndex) { list ->
+            if (elementIndex !in list.indices) return@mutateSheetFloating list
+            list.toMutableList().also { it[elementIndex] = setSlideElementTextOn(it[elementIndex], newText) }
+        }
+    }
+
+    private fun setSlideElementTextOn(el: OdfSlideElement, newText: String): OdfSlideElement {
+        fun rebuild(old: List<OdfParagraph>): List<OdfParagraph> {
+            val template = old.firstOrNull()?.spans?.firstOrNull()?.copy(text = "") ?: OdfSpan(text = "")
+            val style = old.firstOrNull()?.style ?: ParagraphStyle.BODY
+            return newText.split("\n").map { line -> OdfParagraph(listOf(template.copy(text = line)), style = style) }
+        }
+        return when (el) {
+            is OdfSlideElement.Frame -> OdfSlideElement.Frame(el.frame.copy(paragraphs = rebuild(el.frame.paragraphs)))
+            is OdfSlideElement.Shape -> {
+                val s = el.shape; val t = rebuild(s.text)
+                OdfSlideElement.Shape(when (s) {
+                    is OdfShape.Rect -> s.copy(text = t); is OdfShape.Ellipse -> s.copy(text = t)
+                    is OdfShape.Line -> s.copy(text = t); is OdfShape.CustomShape -> s.copy(text = t)
+                })
+            }
+        }
+    }
+
     private fun elementParas(el: OdfSlideElement): List<OdfParagraph> = when (el) {
         is OdfSlideElement.Frame -> el.frame.paragraphs
         is OdfSlideElement.Shape -> el.shape.text
@@ -1294,6 +1416,30 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                 })
             }
         }
+        slides[slideIndex] = slide.copy(elements = elements)
+        updateDocument(doc.copy(slides = slides))
+    }
+
+    /** Moves/resizes a slide element (frame or shape). Coordinates are px@96. (Phase 1) */
+    fun setSlideElementBounds(slideIndex: Int, elementIndex: Int, x: Float, y: Float, w: Float, h: Float) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Presentation ?: return
+        val slides = doc.slides.toMutableList()
+        val slide = slides.getOrNull(slideIndex) ?: return
+        val elements = slide.elements.toMutableList()
+        val el = elements.getOrNull(elementIndex) ?: return
+        elements[elementIndex] = setElementBounds(el, x, y, w, h)
+        slides[slideIndex] = slide.copy(elements = elements)
+        updateDocument(doc.copy(slides = slides))
+    }
+
+    /** Removes a slide element. (Phase 1) */
+    fun deleteSlideElement(slideIndex: Int, elementIndex: Int) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Presentation ?: return
+        val slides = doc.slides.toMutableList()
+        val slide = slides.getOrNull(slideIndex) ?: return
+        if (elementIndex !in slide.elements.indices) return
+        val elements = slide.elements.toMutableList()
+        elements.removeAt(elementIndex)
         slides[slideIndex] = slide.copy(elements = elements)
         updateDocument(doc.copy(slides = slides))
     }

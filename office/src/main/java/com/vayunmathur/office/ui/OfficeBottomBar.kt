@@ -1,0 +1,289 @@
+package com.vayunmathur.office.ui
+
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.dp
+import com.vayunmathur.office.R
+import com.vayunmathur.office.odf.*
+import com.vayunmathur.office.util.OfficeViewModel
+
+/** What the shared bottom bar is currently formatting. (Phase 2) */
+sealed interface FormatTarget {
+    data object None : FormatTarget
+    data class TextRun(val runStart: Int, val runEnd: Int, val selStart: Int, val selEnd: Int) : FormatTarget
+    data class Cell(val sheet: Int, val row: Int, val col: Int) : FormatTarget
+    data class Element(val slide: Int, val element: Int) : FormatTarget
+}
+
+/** Which insert actions are available for the current document type. (Phase 2) */
+data class DocCaps(
+    val insertImage: Boolean = false,
+    val insertShape: Boolean = false,
+    val insertChart: Boolean = false,
+    val insertTable: Boolean = false
+)
+
+enum class ShapeKind { RECT, ELLIPSE, LINE }
+
+/** Callbacks the shared bottom bar may invoke. */
+data class BottomBarActions(
+    val onTextColor: () -> Unit = {},
+    val onCellTextColor: () -> Unit = {},
+    val onCellBgColor: () -> Unit = {},
+    val onSlideTextColor: () -> Unit = {},
+    val onFontSize: () -> Unit = {},
+    val onInsertImage: () -> Unit = {},
+    val onInsertShape: (ShapeKind) -> Unit = {},
+    val onInsertChart: () -> Unit = {},
+    val onInsertTable: () -> Unit = {},
+    val onDeleteElement: () -> Unit = {}
+)
+
+@Composable
+internal fun FmtIcon(res: Int, active: Boolean, enabled: Boolean, desc: String, onClick: () -> Unit) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(40.dp)) {
+        Icon(painterResource(res), contentDescription = desc, tint = if (active && enabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+    }
+}
+
+/**
+ * Single shared format + insert bar hosted in the Scaffold bottom bar for all document types.
+ * Renders a type-appropriate formatting branch plus a unified Insert menu. (Phase 2)
+ */
+@Composable
+fun OfficeBottomBar(
+    document: OdfDocument,
+    target: FormatTarget,
+    caps: DocCaps,
+    viewModel: OfficeViewModel,
+    actions: BottomBarActions,
+    activeTableBlock: Int = -1,
+    activeTableRow: Int = -1,
+    activeTableCol: Int = -1
+) {
+    Surface(tonalElevation = 3.dp) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).navigationBarsPadding().imePadding().padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            when (document) {
+                is OdfDocument.TextDocument -> TextFormatControls(document, target as? FormatTarget.TextRun, viewModel, activeTableBlock, activeTableRow, activeTableCol, actions)
+                is OdfDocument.Spreadsheet -> CellFormatControls(target as? FormatTarget.Cell, viewModel, actions)
+                is OdfDocument.Presentation -> ElementFormatControls(target as? FormatTarget.Element, viewModel, actions)
+                else -> {}
+            }
+            InsertControl(caps, actions)
+        }
+    }
+}
+
+@Composable
+private fun InsertControl(caps: DocCaps, actions: BottomBarActions) {
+    if (!(caps.insertImage || caps.insertShape || caps.insertChart || caps.insertTable)) return
+    var menu by remember { mutableStateOf(false) }
+    var shapeMenu by remember { mutableStateOf(false) }
+    Box {
+        FmtIcon(com.vayunmathur.library.R.drawable.add_24px, false, true, "Insert") { menu = true }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            if (caps.insertImage) DropdownMenuItem(text = { Text("Image…") }, onClick = { menu = false; actions.onInsertImage() })
+            if (caps.insertShape) DropdownMenuItem(text = { Text("Shape") }, trailingIcon = { Icon(painterResource(R.drawable.arrow_drop_down_24px), null) }, onClick = { shapeMenu = true })
+            if (caps.insertChart) DropdownMenuItem(text = { Text("Chart…") }, onClick = { menu = false; actions.onInsertChart() })
+            if (caps.insertTable) DropdownMenuItem(text = { Text("Table…") }, onClick = { menu = false; actions.onInsertTable() })
+        }
+        DropdownMenu(expanded = shapeMenu, onDismissRequest = { shapeMenu = false }) {
+            DropdownMenuItem(text = { Text("Rectangle") }, onClick = { shapeMenu = false; menu = false; actions.onInsertShape(ShapeKind.RECT) })
+            DropdownMenuItem(text = { Text("Ellipse") }, onClick = { shapeMenu = false; menu = false; actions.onInsertShape(ShapeKind.ELLIPSE) })
+            DropdownMenuItem(text = { Text("Line") }, onClick = { shapeMenu = false; menu = false; actions.onInsertShape(ShapeKind.LINE) })
+        }
+    }
+}
+
+// --- Text document branch (ported from QuickFormatBar) ---
+
+@Composable
+private fun TextFormatControls(
+    doc: OdfDocument.TextDocument,
+    target: FormatTarget.TextRun?,
+    viewModel: OfficeViewModel,
+    activeTableBlock: Int,
+    activeTableRow: Int,
+    activeTableCol: Int,
+    actions: BottomBarActions
+) {
+    val enabled = target != null
+    val runStart = target?.runStart ?: -1
+    val runEnd = target?.runEnd ?: -1
+    val selStart = target?.selStart ?: 0
+    val selEnd = target?.selEnd ?: 0
+    val focusedPara = if (enabled) viewModel.runParagraphIndexAt(runStart, runEnd, selStart) else -1
+    val para = (doc.content.getOrNull(focusedPara) as? OdfContentBlock.Paragraph)?.paragraph
+    var styleMenu by remember { mutableStateOf(false) }
+    var alignMenu by remember { mutableStateOf(false) }
+    var tableMenu by remember { mutableStateOf(false) }
+
+    val isBold = enabled && viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.bold }
+    val isItalic = enabled && viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.italic }
+    val isUnderline = enabled && viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.underline }
+    val isStrike = enabled && viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.strikethrough }
+    val isBullet = para?.style == ParagraphStyle.LIST_ITEM && para.listType == ListType.BULLET
+    val isNumbered = para?.style == ParagraphStyle.LIST_ITEM && para.listType == ListType.NUMBERED
+
+    val styleLabel = when (para?.style) {
+        ParagraphStyle.HEADING1 -> "H1"; ParagraphStyle.HEADING2 -> "H2"; ParagraphStyle.HEADING3 -> "H3"; ParagraphStyle.HEADING4 -> "H4"; else -> "Normal"
+    }
+    val alignIcon = when (para?.alignment) {
+        TextAlign.Center -> R.drawable.format_align_center_24px
+        TextAlign.End, TextAlign.Right -> R.drawable.format_align_right_24px
+        TextAlign.Justify -> R.drawable.format_align_justify_24px
+        else -> R.drawable.format_align_left_24px
+    }
+    fun setStyle(s: ParagraphStyle) { viewModel.mutateRunParagraphs(runStart, runEnd, selStart, selEnd) { it.copy(style = s) } }
+    fun setAlign(a: TextAlign) { viewModel.mutateRunParagraphs(runStart, runEnd, selStart, selEnd) { it.copy(alignment = a) } }
+
+    Box {
+        TextButton(onClick = { styleMenu = true }, enabled = enabled) {
+            Text(styleLabel)
+            Icon(painterResource(R.drawable.arrow_drop_down_24px), contentDescription = "Paragraph style")
+        }
+        DropdownMenu(expanded = styleMenu, onDismissRequest = { styleMenu = false }) {
+            DropdownMenuItem(text = { Text("Normal") }, onClick = { styleMenu = false; setStyle(ParagraphStyle.BODY) })
+            DropdownMenuItem(text = { Text("Heading 1") }, onClick = { styleMenu = false; setStyle(ParagraphStyle.HEADING1) })
+            DropdownMenuItem(text = { Text("Heading 2") }, onClick = { styleMenu = false; setStyle(ParagraphStyle.HEADING2) })
+            DropdownMenuItem(text = { Text("Heading 3") }, onClick = { styleMenu = false; setStyle(ParagraphStyle.HEADING3) })
+            DropdownMenuItem(text = { Text("Heading 4") }, onClick = { styleMenu = false; setStyle(ParagraphStyle.HEADING4) })
+        }
+    }
+    FmtIcon(R.drawable.format_bold_24px, isBold, enabled, "Bold") { val t = !isBold; viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(bold = t) } }
+    FmtIcon(R.drawable.format_italic_24px, isItalic, enabled, "Italic") { val t = !isItalic; viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(italic = t) } }
+    FmtIcon(R.drawable.format_underlined_24px, isUnderline, enabled, "Underline") { val t = !isUnderline; viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(underline = t) } }
+    FmtIcon(R.drawable.format_strikethrough_24px, isStrike, enabled, "Strikethrough") { val t = !isStrike; viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(strikethrough = t) } }
+    FmtIcon(R.drawable.format_color_text_24px, false, enabled, "Text color") { actions.onTextColor() }
+    Box {
+        FmtIcon(alignIcon, false, enabled, "Alignment") { alignMenu = true }
+        DropdownMenu(expanded = alignMenu, onDismissRequest = { alignMenu = false }) {
+            DropdownMenuItem(text = { Text("Left") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_left_24px), null) }, onClick = { alignMenu = false; setAlign(TextAlign.Start) })
+            DropdownMenuItem(text = { Text("Center") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_center_24px), null) }, onClick = { alignMenu = false; setAlign(TextAlign.Center) })
+            DropdownMenuItem(text = { Text("Right") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_right_24px), null) }, onClick = { alignMenu = false; setAlign(TextAlign.End) })
+            DropdownMenuItem(text = { Text("Justify") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_justify_24px), null) }, onClick = { alignMenu = false; setAlign(TextAlign.Justify) })
+        }
+    }
+    FmtIcon(R.drawable.format_list_bulleted_24px, isBullet, enabled, "Bulleted list") { if (focusedPara >= 0) viewModel.toggleListItem(focusedPara) }
+    FmtIcon(R.drawable.format_list_numbered_24px, isNumbered, enabled, "Numbered list") { if (focusedPara >= 0) viewModel.toggleNumberedList(focusedPara) }
+    FmtIcon(R.drawable.format_indent_increase_24px, false, enabled, "Increase indent") { if (focusedPara >= 0) viewModel.indentParagraph(focusedPara) }
+    FmtIcon(R.drawable.format_indent_decrease_24px, false, enabled, "Decrease indent") { if (focusedPara >= 0) viewModel.outdentParagraph(focusedPara) }
+    Box {
+        val tableEnabled = activeTableBlock >= 0
+        TextButton(onClick = { tableMenu = true }) {
+            Text("Table")
+            Icon(painterResource(R.drawable.arrow_drop_down_24px), contentDescription = "Table options")
+        }
+        DropdownMenu(expanded = tableMenu, onDismissRequest = { tableMenu = false }) {
+            DropdownMenuItem(text = { Text("Insert table") }, onClick = { tableMenu = false; actions.onInsertTable() })
+            HorizontalDivider()
+            DropdownMenuItem(text = { Text("Insert row below") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.textTableAddRow(activeTableBlock, activeTableRow) })
+            DropdownMenuItem(text = { Text("Insert column right") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.textTableAddColumn(activeTableBlock, activeTableCol) })
+            DropdownMenuItem(text = { Text("Delete row") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.textTableDeleteRow(activeTableBlock, activeTableRow) })
+            DropdownMenuItem(text = { Text("Delete column") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.textTableDeleteColumn(activeTableBlock, activeTableCol) })
+            HorizontalDivider()
+            DropdownMenuItem(text = { Text("Bold cell") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.setTextTableCellSpanFormat(activeTableBlock, activeTableRow, activeTableCol) { it.copy(bold = !it.bold) } })
+            DropdownMenuItem(text = { Text("Italic cell") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.setTextTableCellSpanFormat(activeTableBlock, activeTableRow, activeTableCol) { it.copy(italic = !it.italic) } })
+            DropdownMenuItem(text = { Text("Merge with right") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.mergeTextTableCells(activeTableBlock, activeTableRow, activeTableCol, activeTableRow, activeTableCol + 1) })
+            DropdownMenuItem(text = { Text("Merge with below") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.mergeTextTableCells(activeTableBlock, activeTableRow, activeTableCol, activeTableRow + 1, activeTableCol) })
+            DropdownMenuItem(text = { Text("Unmerge cell") }, enabled = tableEnabled, onClick = { tableMenu = false; viewModel.unmergeTextTableCells(activeTableBlock, activeTableRow, activeTableCol) })
+        }
+    }
+    Box {
+        var moreMenu by remember { mutableStateOf(false) }
+        FmtIcon(R.drawable.more_vert_24px, false, enabled, "More") { moreMenu = true }
+        DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
+            DropdownMenuItem(text = { Text("Font size…") }, onClick = { moreMenu = false; actions.onFontSize() })
+            DropdownMenuItem(text = { Text("Clear formatting") }, onClick = { moreMenu = false; viewModel.clearRunFormatting(runStart, runEnd, selStart, selEnd) })
+            HorizontalDivider()
+            DropdownMenuItem(text = { Text("Demote list item") }, enabled = focusedPara >= 0, onClick = { moreMenu = false; if (focusedPara >= 0) viewModel.changeListLevel(focusedPara, 1) })
+            DropdownMenuItem(text = { Text("Promote list item") }, enabled = focusedPara >= 0, onClick = { moreMenu = false; if (focusedPara >= 0) viewModel.changeListLevel(focusedPara, -1) })
+            DropdownMenuItem(text = { Text("Restart numbering") }, enabled = focusedPara >= 0, onClick = { moreMenu = false; if (focusedPara >= 0) viewModel.restartNumbering(focusedPara) })
+            HorizontalDivider()
+            DropdownMenuItem(text = { Text("Duplicate paragraph") }, enabled = focusedPara >= 0, onClick = { moreMenu = false; viewModel.duplicateParagraph(focusedPara) })
+            DropdownMenuItem(text = { Text("Move paragraph up") }, enabled = focusedPara > 0, onClick = { moreMenu = false; viewModel.moveParagraphUp(focusedPara) })
+            DropdownMenuItem(text = { Text("Move paragraph down") }, enabled = focusedPara >= 0, onClick = { moreMenu = false; viewModel.moveParagraphDown(focusedPara) })
+            DropdownMenuItem(text = { Text("Delete paragraph", color = MaterialTheme.colorScheme.error) }, enabled = focusedPara >= 0, onClick = { moreMenu = false; viewModel.deleteParagraph(focusedPara) })
+        }
+    }
+}
+
+// --- Spreadsheet cell branch ---
+
+@Composable
+private fun CellFormatControls(target: FormatTarget.Cell?, viewModel: OfficeViewModel, actions: BottomBarActions) {
+    val enabled = target != null
+    val s = target?.sheet ?: -1
+    val r = target?.row ?: -1
+    val c = target?.col ?: -1
+    var alignMenu by remember { mutableStateOf(false) }
+    FmtIcon(R.drawable.format_bold_24px, false, enabled, "Bold") { if (enabled) viewModel.setCellBold(s, r, c) }
+    FmtIcon(R.drawable.format_italic_24px, false, enabled, "Italic") { if (enabled) viewModel.setCellItalic(s, r, c) }
+    FmtIcon(R.drawable.format_color_text_24px, false, enabled, "Text color") { actions.onCellTextColor() }
+    TextButton(onClick = { actions.onCellBgColor() }, enabled = enabled) { Text("Fill") }
+    Box {
+        FmtIcon(R.drawable.format_align_left_24px, false, enabled, "Alignment") { alignMenu = true }
+        DropdownMenu(expanded = alignMenu, onDismissRequest = { alignMenu = false }) {
+            DropdownMenuItem(text = { Text("Left") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_left_24px), null) }, onClick = { alignMenu = false; if (enabled) viewModel.setCellAlignment(s, r, c, TextAlign.Start) })
+            DropdownMenuItem(text = { Text("Center") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_center_24px), null) }, onClick = { alignMenu = false; if (enabled) viewModel.setCellAlignment(s, r, c, TextAlign.Center) })
+            DropdownMenuItem(text = { Text("Right") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_right_24px), null) }, onClick = { alignMenu = false; if (enabled) viewModel.setCellAlignment(s, r, c, TextAlign.End) })
+        }
+    }
+    TextButton(onClick = { if (enabled) viewModel.unmergeCells(s, r, c) }, enabled = enabled) { Text("Unmerge") }
+}
+
+// --- Presentation element branch ---
+
+@Composable
+private fun ElementFormatControls(target: FormatTarget.Element?, viewModel: OfficeViewModel, actions: BottomBarActions) {
+    val enabled = target != null
+    val s = target?.slide ?: -1
+    val e = target?.element ?: -1
+    var alignMenu by remember { mutableStateOf(false) }
+    FmtIcon(R.drawable.format_bold_24px, false, enabled, "Bold") { if (enabled) viewModel.toggleSlideElementBold(s, e) }
+    FmtIcon(R.drawable.format_italic_24px, false, enabled, "Italic") { if (enabled) viewModel.toggleSlideElementItalic(s, e) }
+    FmtIcon(R.drawable.format_underlined_24px, false, enabled, "Underline") { if (enabled) viewModel.toggleSlideElementUnderline(s, e) }
+    FmtIcon(R.drawable.format_color_text_24px, false, enabled, "Text color") { actions.onSlideTextColor() }
+    Box {
+        FmtIcon(R.drawable.format_align_left_24px, false, enabled, "Alignment") { alignMenu = true }
+        DropdownMenu(expanded = alignMenu, onDismissRequest = { alignMenu = false }) {
+            DropdownMenuItem(text = { Text("Left") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_left_24px), null) }, onClick = { alignMenu = false; if (enabled) viewModel.setSlideElementAlignment(s, e, TextAlign.Start) })
+            DropdownMenuItem(text = { Text("Center") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_center_24px), null) }, onClick = { alignMenu = false; if (enabled) viewModel.setSlideElementAlignment(s, e, TextAlign.Center) })
+            DropdownMenuItem(text = { Text("Right") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_right_24px), null) }, onClick = { alignMenu = false; if (enabled) viewModel.setSlideElementAlignment(s, e, TextAlign.End) })
+        }
+    }
+    FmtIcon(com.vayunmathur.library.R.drawable.delete_24px, false, enabled, "Delete element") { if (enabled) actions.onDeleteElement() }
+}
