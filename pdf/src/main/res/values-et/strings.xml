@@ -21,4 +21,6 @@
     <string name="crop_image">Kadreeri pilti</string>
     <string name="continue_label">Jätka</string>
     <string name="auto_detect">Tuvasta automatselt</string>
+    <string name="pdf_save">Salvesta</string>
+    <string name="pdf_save_as_copy">Salvesta koopiana</string>
 </resources>
