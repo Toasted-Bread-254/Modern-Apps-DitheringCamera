@@ -15,16 +15,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -89,6 +93,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             DynamicTheme {
                 val hasForeground by ffViewModel.hasForeground.collectAsState()
+                val hasCoarse by ffViewModel.hasCoarse.collectAsState()
                 val hasBackground by ffViewModel.hasBackground.collectAsState()
 
                 // Automatically re-check when returning from System Settings
@@ -105,10 +110,10 @@ class MainActivity : ComponentActivity() {
 
                 if (!hasForeground || !hasBackground) {
                     NoPermissionsScreen(
-                        hasForeground = hasForeground,
+                        hasFine = hasForeground,
+                        hasCoarse = hasCoarse,
                         hasBackground = hasBackground,
-                        onForegroundGranted = { ffViewModel.refreshPermissions() },
-                        onBackgroundGranted = { ffViewModel.refreshPermissions() }
+                        onPermissionsChanged = { ffViewModel.refreshPermissions() }
                     )
                 } else {
                     val deepLinkPeerId = remember {
@@ -125,23 +130,41 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun NoPermissionsScreen(
-    hasForeground: Boolean,
+    hasFine: Boolean,
+    hasCoarse: Boolean,
     hasBackground: Boolean,
-    onForegroundGranted: () -> Unit,
-    onBackgroundGranted: () -> Unit
+    onPermissionsChanged: () -> Unit
 ) {
-    // Launcher for Fine Location
-    val foregroundLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) onForegroundGranted()
+    // The user granted location but only at an approximate (coarse) level.
+    // FindFamily requires precise (fine) location.
+    val coarseOnly = hasCoarse && !hasFine
+
+    var showUpgradeDialog by remember { mutableStateOf(false) }
+
+    // Request fine AND coarse together. On Android 12+ this is what surfaces the
+    // Precise/Approximate choice; requesting fine alone is ignored by the system.
+    val locationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        onPermissionsChanged()
+        val fineGranted = result[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val coarseGranted = result[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        // Approximate-only: prompt the user to upgrade to precise.
+        if (!fineGranted && coarseGranted) {
+            showUpgradeDialog = true
+        }
     }
 
     // Launcher for Background Location (Redirects to Settings)
     val backgroundLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) onBackgroundGranted()
+    ) { onPermissionsChanged() }
+
+    // Auto-surface the upgrade prompt when we first detect approximate-only.
+    // It re-fires only when coarseOnly transitions to true, so dismissing it
+    // doesn't immediately reopen it — the explicit button below re-opens it.
+    LaunchedEffect(coarseOnly) {
+        if (coarseOnly) showUpgradeDialog = true
     }
 
     Scaffold { padding ->
@@ -150,12 +173,33 @@ fun NoPermissionsScreen(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // STEP 1: Fine Location
+            // STEP 1: Precise (Fine) Location
             Button(
-                onClick = { foregroundLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
-                enabled = !hasForeground
+                onClick = {
+                    locationLauncher.launch(
+                        arrayOf(
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                        )
+                    )
+                },
+                enabled = !hasFine
             ) {
-                Text(if (hasForeground) stringResource(R.string.permission_fine_location_granted) else stringResource(R.string.permission_grant_fine_location))
+                Text(if (hasFine) stringResource(R.string.permission_fine_location_granted) else stringResource(R.string.permission_grant_fine_location))
+            }
+
+            // Approximate-only: explain and offer a reliable way to re-open the
+            // upgrade prompt after it has been dismissed.
+            if (coarseOnly) {
+                Text(
+                    text = stringResource(R.string.permission_approximate_only_explanation),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp)
+                )
+                Button(onClick = { showUpgradeDialog = true }) {
+                    Text(stringResource(R.string.permission_reopen_upgrade_prompt))
+                }
             }
 
             Spacer(Modifier.height(16.dp))
@@ -163,13 +207,13 @@ fun NoPermissionsScreen(
             // STEP 2: Background Location
             Button(
                 onClick = { backgroundLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION) },
-                enabled = hasForeground && !hasBackground
+                enabled = hasFine && !hasBackground
             ) {
                 val label = if (hasBackground) stringResource(R.string.permission_background_granted) else stringResource(R.string.permission_enable_all_the_time)
                 Text(label)
             }
 
-            if (hasForeground && !hasBackground) {
+            if (hasFine && !hasBackground) {
                 Text(
                     text = stringResource(R.string.permission_background_explanation),
                     textAlign = TextAlign.Center,
@@ -178,6 +222,32 @@ fun NoPermissionsScreen(
                 )
             }
         }
+    }
+
+    if (showUpgradeDialog) {
+        AlertDialog(
+            onDismissRequest = { showUpgradeDialog = false },
+            title = { Text(stringResource(R.string.permission_upgrade_dialog_title)) },
+            text = { Text(stringResource(R.string.permission_upgrade_dialog_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showUpgradeDialog = false
+                    locationLauncher.launch(
+                        arrayOf(
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                        )
+                    )
+                }) {
+                    Text(stringResource(R.string.permission_upgrade_dialog_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUpgradeDialog = false }) {
+                    Text(stringResource(R.string.permission_upgrade_dialog_dismiss))
+                }
+            }
+        )
     }
 }
 

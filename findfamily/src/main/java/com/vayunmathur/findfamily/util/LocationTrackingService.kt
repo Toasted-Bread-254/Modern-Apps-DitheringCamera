@@ -1,4 +1,5 @@
 package com.vayunmathur.findfamily.util
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -6,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Address
 import android.location.Geocoder
@@ -23,6 +25,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import kotlin.math.sqrt
 import androidx.work.CoroutineWorker
@@ -270,13 +273,35 @@ class LocationTrackingService : Service(), SensorEventListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Defensive: never run location tracking without fine-location permission.
+        // The service can be (re)started by the OS, WorkManager, or BootReceiver,
+        // and the permission may have been revoked since it was scheduled
+        // (e.g. "Only this time" grant expiring, or the user switching to
+        // approximate-only / "Ask every time" / "Don't allow").
+        if (!LocationServiceController.hasFineLocationPermission(this)) {
+            // We were started via startForegroundService and must satisfy the
+            // foreground-start contract. Use the type-less startForeground so it
+            // doesn't throw without the location permission, then stop.
+            try {
+                startForeground(NOTIFICATION_ID, createNotification())
+            } catch (_: Exception) {
+            }
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         val notification = createNotification()
 
-        startForeground(
-            NOTIFICATION_ID,
-            notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-        )
+        try {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            )
+        } catch (_: Exception) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         startTracking()
         return START_STICKY
@@ -318,6 +343,13 @@ class LocationTrackingService : Service(), SensorEventListener {
             heartbeatJob?.cancel()
             heartbeatJob = launch {
                 while (isActive) {
+                    // "Only this time" grants are revoked once the app leaves the
+                    // foreground; detect that here and shut down gracefully rather
+                    // than spinning (or crashing) on location access we can't make.
+                    if (!LocationServiceController.hasFineLocationPermission(this@LocationTrackingService)) {
+                        withContext(Dispatchers.Main) { stopSelf() }
+                        break
+                    }
                     syncHeartbeat()
                     delay(30.seconds)
                 }
@@ -524,11 +556,18 @@ class LocationTrackingService : Service(), SensorEventListener {
     override fun onDestroy() {
         super.onDestroy()
         serviceScope.cancel()
-        sensorManager.unregisterListener(this)
-        significantMotionSensor?.let {
-            sensorManager.cancelTriggerSensor(triggerEventListener, it)
+        // These are only initialized once startTracking()/registerSensors() runs.
+        // The service can be destroyed before that (e.g. stopped immediately in
+        // onStartCommand when permission is missing), so guard every access.
+        if (::sensorManager.isInitialized) {
+            sensorManager.unregisterListener(this)
+            significantMotionSensor?.let {
+                sensorManager.cancelTriggerSensor(triggerEventListener, it)
+            }
         }
-        stopTrackingUpdates()
+        if (::locationManager.isInitialized) {
+            stopTrackingUpdates()
+        }
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
 }
@@ -571,10 +610,69 @@ class ServiceRestartWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = try {
-        applicationContext.startForegroundService(Intent(applicationContext, LocationTrackingService::class.java))
+        // Reconcile the service with the current state: only run when fine
+        // location is granted AND the user is sharing with at least one person.
+        LocationServiceController.syncServiceState(applicationContext)
         Result.success()
     } catch (_: Exception) {
         Result.retry()
+    }
+}
+
+/**
+ * Single source of truth for whether the [LocationTrackingService] should be
+ * running and for (re)starting / stopping it accordingly.
+ *
+ * The service must only run when BOTH conditions hold:
+ *  - fine (precise) location permission is granted (the app does not work with
+ *    approximate-only location), and
+ *  - location sharing is enabled for at least one connected person (the
+ *    per-person "share your location with this person" toggle).
+ */
+object LocationServiceController {
+
+    fun hasFineLocationPermission(context: Context): Boolean =
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * True iff the user is sharing their location with at least one *other*
+     * person (the self user is excluded). Reads directly from the DB so the
+     * answer is correct regardless of whether the UI/ViewModel is alive.
+     */
+    suspend fun isSharingEnabled(context: Context): Boolean {
+        val selfId = DataStoreUtils.getInstance(context).getLong("userid")
+        val db = context.buildDatabase<FFDatabase>()
+        return db.userDao().getAll().any { it.sendingEnabled && it.id != selfId }
+    }
+
+    /**
+     * Start the service if eligible, otherwise make sure it is stopped. Safe to
+     * call from any context (worker, boot, ViewModel, permission refresh).
+     */
+    suspend fun syncServiceState(context: Context) {
+        val appContext = context.applicationContext
+        val eligible = hasFineLocationPermission(appContext) && isSharingEnabled(appContext)
+        val intent = Intent(appContext, LocationTrackingService::class.java)
+        withContext(Dispatchers.Main) {
+            if (eligible) {
+                try {
+                    appContext.startForegroundService(intent)
+                } catch (_: Exception) {
+                }
+            } else {
+                appContext.stopService(intent)
+            }
+        }
+    }
+
+    /** Unconditionally stop the service. */
+    fun stop(context: Context) {
+        context.applicationContext.stopService(
+            Intent(context.applicationContext, LocationTrackingService::class.java)
+        )
     }
 }
 

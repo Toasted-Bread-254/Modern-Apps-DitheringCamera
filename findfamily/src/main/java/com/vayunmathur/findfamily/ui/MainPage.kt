@@ -320,7 +320,7 @@ fun MainPage(
                                         Checkbox(
                                             user.sendingEnabled,
                                             { send ->
-                                                ffViewModel.upsertUser(user.copy(sendingEnabled = send))
+                                                ffViewModel.setUserSharing(user, send)
                                             })
                                     }
                                 }

@@ -24,6 +24,12 @@
     <string name="permission_background_granted">✅ Background Granted</string>
     <string name="permission_enable_all_the_time">2. Enable \'Allow all the time\'</string>
     <string name="permission_background_explanation">To enable background tracking, please select \'Allow all the time\' in the next screen.</string>
+    <string name="permission_approximate_only_explanation">FindFamily only works with precise (fine) location. You granted approximate location only — please upgrade to precise location to continue.</string>
+    <string name="permission_reopen_upgrade_prompt">Upgrade to precise location</string>
+    <string name="permission_upgrade_dialog_title">Precise location required</string>
+    <string name="permission_upgrade_dialog_message">FindFamily needs precise (fine) location to share your exact position. Please allow precise location.</string>
+    <string name="permission_upgrade_dialog_confirm">Allow precise location</string>
+    <string name="permission_upgrade_dialog_dismiss">Not now</string>
 
     <!-- MainPage FAB menu -->
     <string name="fab_person">Person</string>

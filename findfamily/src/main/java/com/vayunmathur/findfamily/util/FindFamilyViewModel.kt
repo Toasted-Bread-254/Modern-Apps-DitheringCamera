@@ -110,12 +110,19 @@ class FindFamilyViewModel(
     // ------------------------------------------------------------------
 
     fun deleteUser(user: User) {
-        viewModelScope.launch(Dispatchers.IO) { userDao.delete(user) }
+        viewModelScope.launch(Dispatchers.IO) {
+            userDao.delete(user)
+            LocationServiceController.syncServiceState(ctx)
+        }
     }
 
     fun upsertUser(user: User, onDone: () -> Unit = {}) {
         viewModelScope.launch(Dispatchers.IO) {
             userDao.upsert(user)
+            // A new/updated connection can change whether sharing is enabled, so
+            // reconcile the tracking service (e.g. start it after the first
+            // person is added).
+            LocationServiceController.syncServiceState(ctx)
             withContext(Dispatchers.Main) { onDone() }
         }
     }
@@ -246,6 +253,16 @@ class FindFamilyViewModel(
     )
     val hasForeground: StateFlow<Boolean> = _hasForeground.asStateFlow()
 
+    private val _hasCoarse = MutableStateFlow(
+        ContextCompat.checkSelfPermission(
+            ctx,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+    )
+    /** Approximate (coarse) location permission. The app requires fine; this is
+     * only used to detect the "approximate only" case and prompt for an upgrade. */
+    val hasCoarse: StateFlow<Boolean> = _hasCoarse.asStateFlow()
+
     private val _hasBackground = MutableStateFlow(
         ContextCompat.checkSelfPermission(
             ctx,
@@ -254,16 +271,40 @@ class FindFamilyViewModel(
     )
     val hasBackground: StateFlow<Boolean> = _hasBackground.asStateFlow()
 
-    /** Re-read both permission flags from the OS. Call on resume. */
+    /** Re-read all permission flags from the OS and reconcile the tracking
+     * service. Call on resume so returning from Settings (grant, revoke,
+     * downgrade to approximate, "Only this time" expiry) takes effect. */
     fun refreshPermissions() {
         _hasForeground.value = ContextCompat.checkSelfPermission(
             ctx,
             Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
+        _hasCoarse.value = ContextCompat.checkSelfPermission(
+            ctx,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
         _hasBackground.value = ContextCompat.checkSelfPermission(
             ctx,
             Manifest.permission.ACCESS_BACKGROUND_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
+        syncLocationService()
+    }
+
+    /** Reconcile the background service with the current permission + sharing
+     * state (start if eligible, stop otherwise). */
+    fun syncLocationService() {
+        viewModelScope.launch(Dispatchers.IO) {
+            LocationServiceController.syncServiceState(ctx)
+        }
+    }
+
+    /** Toggle per-person location sharing and reconcile the service so it stops
+     * when nobody is being shared with and starts when sharing is (re)enabled. */
+    fun setUserSharing(user: User, enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            userDao.upsert(user.copy(sendingEnabled = enabled))
+            LocationServiceController.syncServiceState(ctx)
+        }
     }
 
     // ------------------------------------------------------------------
