@@ -36,6 +36,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +50,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.vayunmathur.library.ui.DynamicTheme
 import com.vayunmathur.library.ui.PermissionsChecker
+import com.vayunmathur.library.util.DataStoreUtils
 import com.vayunmathur.library.util.MainNavigation
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.util.NavKey
@@ -69,8 +71,12 @@ import com.vayunmathur.photos.util.PhotoMapViewModel
 import com.vayunmathur.photos.util.PhotoMapViewModelFactory
 import com.vayunmathur.photos.util.SecureFolderViewModel
 import com.vayunmathur.photos.util.SecureFolderViewModelFactory
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.serialization.Serializable
+import kotlin.math.roundToInt
 import com.vayunmathur.library.R as LibraryR
+
+private const val COLUMN_COUNT_KEY = "photos_column_count"
 
 val LocalColumnCount = staticCompositionLocalOf<MutableFloatState> {
     error("No LocalColumnCount provided")
@@ -95,9 +101,17 @@ class MainActivity : FragmentActivity() {
         val db = buildDatabase<PhotoDatabase>()
         photoDao = db.photoDao()
         ImageLoader.init(this)
+        val dataStore = DataStoreUtils.getInstance(applicationContext)
         setContent {
             DynamicTheme {
-                val columnCount = rememberSaveable { mutableFloatStateOf(3f) }
+                val columnCount = rememberSaveable {
+                    mutableFloatStateOf(dataStore.getLong(COLUMN_COUNT_KEY)?.toFloat() ?: 3f)
+                }
+                LaunchedEffect(Unit) {
+                    snapshotFlow { columnCount.floatValue.roundToInt().coerceIn(2, 8) }
+                        .distinctUntilChanged()
+                        .collect { dataStore.setLong(COLUMN_COUNT_KEY, it.toLong()) }
+                }
                 CompositionLocalProvider(LocalColumnCount provides columnCount) {
                     PermissionsWrapper()
                 }
