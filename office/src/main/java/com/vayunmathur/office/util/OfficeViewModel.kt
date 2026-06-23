@@ -36,6 +36,11 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     private val _nightMode = MutableStateFlow(false)
     val nightMode: StateFlow<Boolean> = _nightMode
 
+    // Incremented whenever the document changes shape via undo/redo so the UI can
+    // reset/clamp hoisted selection state (active cell/slide/element). (A4)
+    private val _selectionInvalidation = MutableStateFlow(0)
+    val selectionInvalidation: StateFlow<Int> = _selectionInvalidation
+
     var documentUri: Uri? = null
         private set
 
@@ -111,6 +116,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         _canUndo.value = undoStack.isNotEmpty()
         _canRedo.value = redoStack.isNotEmpty()
         _hasUnsavedChanges.value = true
+        _selectionInvalidation.value++
     }
 
     fun redo() {
@@ -121,6 +127,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         _canUndo.value = undoStack.isNotEmpty()
         _canRedo.value = redoStack.isNotEmpty()
         _hasUnsavedChanges.value = true
+        _selectionInvalidation.value++
     }
 
     private fun updateDocument(newDoc: OdfDocument) {
@@ -544,12 +551,25 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     /** Inserts an image (already-read bytes) after the given block (B14). */
     fun insertImage(blockIndex: Int, fileName: String, bytes: ByteArray) {
         val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.TextDocument ?: return
-        val safeName = fileName.substringAfterLast('/').ifBlank { "image" }
-        val path = "Pictures/$safeName"
+        val path = uniqueImagePath(doc.images.keys, fileName)
         val content = doc.content.toMutableList()
         val at = (blockIndex + 1).coerceIn(0, content.size)
         content.add(at, OdfContentBlock.Image(OdfImage(path = path, imageData = bytes)))
         updateDocument(doc.copy(content = content, images = doc.images + (path to bytes)))
+    }
+
+    /** Generates a unique package path for a newly-inserted image so two inserts never collide. (A6) */
+    private fun uniqueImagePath(existing: Set<String>, fileName: String): String {
+        val safe = fileName.substringAfterLast('/').ifBlank { "image" }
+        val base = safe.substringBeforeLast('.', safe)
+        val ext = safe.substringAfterLast('.', "")
+        var candidate = "Pictures/$safe"
+        var n = 1
+        while (candidate in existing) {
+            candidate = if (ext.isNotEmpty()) "Pictures/${base}_$n.$ext" else "Pictures/${base}_$n"
+            n++
+        }
+        return candidate
     }
 
     /** Sets non-destructive crop insets on a text-document image block. (Phase 5) */
@@ -986,10 +1006,11 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     fun updateCellText(sheetIndex: Int, rowIndex: Int, cellIndex: Int, newText: String) {
         val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
         val sheets = doc.sheets.toMutableList()
-        val sheet = sheets[sheetIndex]
+        val sheet = sheets.getOrNull(sheetIndex) ?: return
         val rows = sheet.rows.toMutableList()
-        val row = rows[rowIndex]
+        val row = rows.getOrNull(rowIndex) ?: return
         val cells = row.cells.toMutableList()
+        if (cellIndex !in cells.indices) return
         cells[cellIndex] = if (newText.startsWith("=")) {
             // Typed formula (H49): store as OpenFormula, drop cached numeric value.
             cells[cellIndex].copy(text = newText, formula = newText, valueType = "float", numberValue = null)
@@ -1006,7 +1027,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     fun addRow(sheetIndex: Int, afterRowIndex: Int) {
         val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
         val sheets = doc.sheets.toMutableList()
-        val sheet = sheets[sheetIndex]
+        val sheet = sheets.getOrNull(sheetIndex) ?: return
         val rows = sheet.rows.toMutableList()
         val colCount = rows.getOrNull(afterRowIndex)?.cells?.size ?: 1
         rows.add(afterRowIndex + 1, OdfRow(List(colCount) { OdfCell(text = "") }))
@@ -1017,7 +1038,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     fun addColumn(sheetIndex: Int) {
         val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
         val sheets = doc.sheets.toMutableList()
-        val sheet = sheets[sheetIndex]
+        val sheet = sheets.getOrNull(sheetIndex) ?: return
         val rows = sheet.rows.map { row -> OdfRow(row.cells + OdfCell(text = "")) }
         sheets[sheetIndex] = sheet.copy(rows = rows)
         updateDocument(doc.copy(sheets = sheets))
@@ -1026,8 +1047,8 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     fun deleteRow(sheetIndex: Int, rowIndex: Int) {
         val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
         val sheets = doc.sheets.toMutableList()
-        val sheet = sheets[sheetIndex]
-        if (sheet.rows.size <= 1) return
+        val sheet = sheets.getOrNull(sheetIndex) ?: return
+        if (sheet.rows.size <= 1 || rowIndex !in sheet.rows.indices) return
         val rows = sheet.rows.toMutableList()
         rows.removeAt(rowIndex)
         sheets[sheetIndex] = sheet.copy(rows = rows)
@@ -1037,7 +1058,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     fun deleteColumn(sheetIndex: Int, colIndex: Int) {
         val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
         val sheets = doc.sheets.toMutableList()
-        val sheet = sheets[sheetIndex]
+        val sheet = sheets.getOrNull(sheetIndex) ?: return
         val rows = sheet.rows.map { row ->
             val cells = row.cells.toMutableList()
             if (colIndex < cells.size && cells.size > 1) cells.removeAt(colIndex)
@@ -1050,7 +1071,8 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     fun renameSheet(sheetIndex: Int, newName: String) {
         val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
         val sheets = doc.sheets.toMutableList()
-        sheets[sheetIndex] = sheets[sheetIndex].copy(name = newName)
+        val sheet = sheets.getOrNull(sheetIndex) ?: return
+        sheets[sheetIndex] = sheet.copy(name = newName)
         updateDocument(doc.copy(sheets = sheets))
     }
 
@@ -1064,7 +1086,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
 
     fun deleteSheet(sheetIndex: Int) {
         val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
-        if (doc.sheets.size <= 1) return
+        if (doc.sheets.size <= 1 || sheetIndex !in doc.sheets.indices) return
         val sheets = doc.sheets.toMutableList()
         sheets.removeAt(sheetIndex)
         updateDocument(doc.copy(sheets = sheets))
@@ -1095,10 +1117,61 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         modifyCell(doc, sheetIndex, rowIndex, cellIndex) { it.copy(alignment = alignment) }
     }
 
+    /** Sets a cell border color. (C2) */
+    fun setCellBorder(sheetIndex: Int, rowIndex: Int, cellIndex: Int, color: Long?) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
+        modifyCell(doc, sheetIndex, rowIndex, cellIndex) { it.copy(borderColor = color) }
+    }
+
+    /** Sets a cell's number/date/currency/percentage display format. (C2/B6) */
+    fun setCellNumberFormat(sheetIndex: Int, rowIndex: Int, cellIndex: Int, format: OdfNumberFormat?) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
+        modifyCell(doc, sheetIndex, rowIndex, cellIndex) {
+            it.copy(numberFormat = format, valueType = when {
+                format == null -> it.valueType
+                format.isDate -> "date"
+                format.percent -> "percentage"
+                format.currencySymbol != null -> "currency"
+                else -> "float"
+            })
+        }
+    }
+
+    /** Fills the source cell down to the last row of the sheet. (C2) */
+    fun fillDownToEnd(sheetIndex: Int, srcRow: Int, col: Int) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
+        val last = doc.sheets.getOrNull(sheetIndex)?.rows?.lastIndex ?: return
+        fillDown(sheetIndex, srcRow, col, last)
+    }
+
+    /** Copies the source cell's value/formula/format down to the rows below it in the same column. (C2) */
+    fun fillDown(sheetIndex: Int, srcRow: Int, col: Int, toRow: Int) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
+        val sheets = doc.sheets.toMutableList()
+        val sheet = sheets.getOrNull(sheetIndex) ?: return
+        val src = sheet.rows.getOrNull(srcRow)?.cells?.getOrNull(col) ?: return
+        if (toRow <= srcRow) return
+        val rows = sheet.rows.toMutableList()
+        for (r in (srcRow + 1)..toRow) {
+            val row = rows.getOrNull(r) ?: continue
+            if (col !in row.cells.indices) continue
+            val cells = row.cells.toMutableList()
+            cells[col] = cells[col].copy(
+                text = src.text, formula = src.formula, valueType = src.valueType,
+                numberValue = src.numberValue, numberFormat = src.numberFormat,
+                bold = src.bold, italic = src.italic, textColor = src.textColor,
+                backgroundColor = src.backgroundColor, alignment = src.alignment
+            )
+            rows[r] = OdfRow(cells)
+        }
+        sheets[sheetIndex] = sheet.copy(rows = rows)
+        updateDocument(doc.copy(sheets = sheets))
+    }
+
     fun mergeCells(sheetIndex: Int, startRow: Int, startCol: Int, endRow: Int, endCol: Int) {
         val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
         val sheets = doc.sheets.toMutableList()
-        val sheet = sheets[sheetIndex]
+        val sheet = sheets.getOrNull(sheetIndex) ?: return
         val rows = sheet.rows.toMutableList()
         val colSpan = endCol - startCol + 1
         val rowSpan = endRow - startRow + 1
@@ -1140,7 +1213,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     fun sortRows(sheetIndex: Int, colIndex: Int, ascending: Boolean) {
         val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
         val sheets = doc.sheets.toMutableList()
-        val sheet = sheets[sheetIndex]
+        val sheet = sheets.getOrNull(sheetIndex) ?: return
         val sorted = sheet.rows.sortedWith(compareBy<OdfRow> {
             val text = it.cells.getOrNull(colIndex)?.text ?: ""
             text.toDoubleOrNull() ?: Double.MAX_VALUE
@@ -1151,9 +1224,11 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun modifyCell(doc: OdfDocument.Spreadsheet, sheetIndex: Int, rowIndex: Int, cellIndex: Int, transform: (OdfCell) -> OdfCell) {
         val sheets = doc.sheets.toMutableList()
-        val sheet = sheets[sheetIndex]
+        val sheet = sheets.getOrNull(sheetIndex) ?: return
         val rows = sheet.rows.toMutableList()
-        val cells = rows[rowIndex].cells.toMutableList()
+        val row = rows.getOrNull(rowIndex) ?: return
+        val cells = row.cells.toMutableList()
+        if (cellIndex !in cells.indices) return
         cells[cellIndex] = transform(cells[cellIndex])
         rows[rowIndex] = OdfRow(cells)
         sheets[sheetIndex] = sheet.copy(rows = rows)
@@ -1270,8 +1345,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Presentation ?: return
         val slides = doc.slides.toMutableList()
         val slide = slides.getOrNull(slideIndex) ?: return
-        val safeName = fileName.substringAfterLast('/').ifBlank { "image" }
-        val path = "Pictures/$safeName"
+        val path = uniqueImagePath(doc.images.keys, fileName)
         val frame = OdfFrame(x = 300f, y = 200f, width = 400f, height = 300f, paragraphs = emptyList(),
             image = OdfImage(path = path, imageData = bytes))
         slides[slideIndex] = slide.copy(elements = slide.elements + OdfSlideElement.Frame(frame))
@@ -1312,8 +1386,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Spreadsheet ?: return
         val sheets = doc.sheets.toMutableList()
         val sheet = sheets.getOrNull(sheetIndex) ?: return
-        val safeName = fileName.substringAfterLast('/').ifBlank { "image" }
-        val path = "Pictures/$safeName"
+        val path = uniqueImagePath(doc.images.keys, fileName)
         val frame = OdfFrame(x = 100f, y = 100f, width = 320f, height = 240f, paragraphs = emptyList(),
             image = OdfImage(path = path, imageData = bytes))
         sheets[sheetIndex] = sheet.copy(floating = sheet.floating + OdfSlideElement.Frame(frame))
@@ -1440,6 +1513,46 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         if (elementIndex !in slide.elements.indices) return
         val elements = slide.elements.toMutableList()
         elements.removeAt(elementIndex)
+        slides[slideIndex] = slide.copy(elements = elements)
+        updateDocument(doc.copy(slides = slides))
+    }
+
+    /** Duplicates a slide element, offset slightly so it's visible. (C1) */
+    fun duplicateSlideElement(slideIndex: Int, elementIndex: Int) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Presentation ?: return
+        val slides = doc.slides.toMutableList()
+        val slide = slides.getOrNull(slideIndex) ?: return
+        val el = slide.elements.getOrNull(elementIndex) ?: return
+        val b = el.bounds()
+        val copy = setElementBounds(el, b[0] + 20f, b[1] + 20f, b[2], b[3])
+        val elements = slide.elements.toMutableList()
+        elements.add(elementIndex + 1, copy)
+        slides[slideIndex] = slide.copy(elements = elements)
+        updateDocument(doc.copy(slides = slides))
+    }
+
+    /** Reorders a slide element in document order (= ODF render z-order). delta<0 = back, delta>0 = front. (C1) */
+    fun reorderSlideElement(slideIndex: Int, elementIndex: Int, toFront: Boolean) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Presentation ?: return
+        val slides = doc.slides.toMutableList()
+        val slide = slides.getOrNull(slideIndex) ?: return
+        if (elementIndex !in slide.elements.indices) return
+        val elements = slide.elements.toMutableList()
+        val item = elements.removeAt(elementIndex)
+        if (toFront) elements.add(item) else elements.add(0, item)
+        slides[slideIndex] = slide.copy(elements = elements)
+        updateDocument(doc.copy(slides = slides))
+    }
+
+    /** Rotates an image element on a slide by the given delta degrees. (C4) */
+    fun rotateSlideImage(slideIndex: Int, elementIndex: Int, deltaDegrees: Float) {
+        val doc = (_state.value as? ViewState.Loaded)?.document as? OdfDocument.Presentation ?: return
+        val slides = doc.slides.toMutableList()
+        val slide = slides.getOrNull(slideIndex) ?: return
+        val el = slide.elements.getOrNull(elementIndex) as? OdfSlideElement.Frame ?: return
+        val img = el.frame.image ?: return
+        val elements = slide.elements.toMutableList()
+        elements[elementIndex] = OdfSlideElement.Frame(el.frame.copy(image = img.copy(rotationDegrees = (img.rotationDegrees + deltaDegrees) % 360f)))
         slides[slideIndex] = slide.copy(elements = elements)
         updateDocument(doc.copy(slides = slides))
     }

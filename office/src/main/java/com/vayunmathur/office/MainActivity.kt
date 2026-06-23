@@ -75,6 +75,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -220,6 +221,7 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
     var activeSlideEl by remember { mutableIntStateOf(-1) }
     var showCellTextColor by remember { mutableStateOf(false) }
     var showCellBgColor by remember { mutableStateOf(false) }
+    var showCellBorderColor by remember { mutableStateOf(false) }
     var showSlideTextColor by remember { mutableStateOf(false) }
     var showSlideFillColor by remember { mutableStateOf(false) }
     var showSlideStrokeColor by remember { mutableStateOf(false) }
@@ -235,6 +237,20 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
     val autoSaveEnabled by viewModel.autoSaveEnabled.collectAsState()
+    val nightMode by viewModel.nightMode.collectAsState()
+    var showWordBar by remember { mutableStateOf(false) }
+    var findMatches by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var findIndex by remember { mutableIntStateOf(0) }
+    val selectionInvalidation by viewModel.selectionInvalidation.collectAsState()
+
+    // A4: reset hoisted selection whenever the document changes shape (undo/redo) so
+    // formatting/color/delete never target a stale cell/element.
+    LaunchedEffect(selectionInvalidation) {
+        activeCell = null
+        activeSlideEl = -1
+        activeRunStart = -1; activeRunEnd = -1
+        activeTableBlock = -1; activeTableRow = -1; activeTableCol = -1
+    }
 
     val isTextDoc = document is OdfDocument.TextDocument
     val isSpreadsheet = document is OdfDocument.Spreadsheet
@@ -354,6 +370,7 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                                     DropdownMenuItem(text = { Text("Save") }, enabled = hasUnsavedChanges, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.save_24px), null) }, onClick = { fileMenu = false; viewModel.save() })
                                     DropdownMenuItem(text = { Text("Save As…") }, onClick = { fileMenu = false; saveAsLauncher.launch(document.title) })
                                     DropdownMenuItem(text = { Text(stringResource(R.string.print_doc)) }, onClick = { fileMenu = false; printDocument(activity, document) })
+                                    DropdownMenuItem(text = { Text("Export to PDF…") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.outline_file_download_24), null) }, onClick = { fileMenu = false; printDocument(activity, document) })
                                     viewModel.documentUri?.let { uri ->
                                         DropdownMenuItem(text = { Text(stringResource(R.string.share)) }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.share_24px), null) }, onClick = { fileMenu = false; context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "*/*"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, null)) })
                                     }
@@ -393,6 +410,8 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                                 DropdownMenu(expanded = viewMenu, onDismissRequest = { viewMenu = false }) {
                                     if (isTextDoc && (headings.isNotEmpty() || bookmarks.isNotEmpty())) DropdownMenuItem(text = { Text(stringResource(R.string.outline)) }, onClick = { viewMenu = false; scope.launch { drawerState.open() } })
                                     DropdownMenuItem(text = { Text("Zoom text") }, onClick = { viewMenu = false; showFontControl = !showFontControl })
+                                    DropdownMenuItem(text = { Text(if (nightMode) "✓ Night reading mode" else "Night reading mode") }, onClick = { viewMenu = false; viewModel.toggleNightMode() })
+                                    if (isTextDoc) DropdownMenuItem(text = { Text(if (showWordBar) "✓ Word count bar" else "Word count bar") }, onClick = { viewMenu = false; showWordBar = !showWordBar })
                                     if (isTextDoc && wordCount > 0) DropdownMenuItem(text = { Text("$wordCount words · $charCount chars · ~${readingTime} min") }, enabled = false, onClick = { })
                                     if (isPresentation) DropdownMenuItem(text = { Text("Presentation timer") }, onClick = { viewMenu = false; showTimer = !showTimer })
                                 }
@@ -420,6 +439,21 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                                         IconButton(onClick = { showSearch = false; searchQuery = ""; showReplaceBar = false }) { Icon(painterResource(com.vayunmathur.library.R.drawable.close_24px), contentDescription = "Close search") }
                                     }
                                 })
+                            if (isTextDoc && searchQuery.isNotEmpty()) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    fun jump(delta: Int) {
+                                        val matches = viewModel.findMatchBlocks(searchQuery, matchCase, wholeWord)
+                                        findMatches = matches
+                                        if (matches.isEmpty()) return
+                                        findIndex = ((findIndex + delta) % matches.size + matches.size) % matches.size
+                                        scope.launch { listState.animateScrollToItem(matches[findIndex].coerceIn(0, (document as OdfDocument.TextDocument).content.size - 1)) }
+                                    }
+                                    val total = remember(searchQuery, matchCase, wholeWord, document) { viewModel.findMatchBlocks(searchQuery, matchCase, wholeWord).size }
+                                    TextButton(onClick = { jump(-1) }) { Text("◀ Prev") }
+                                    TextButton(onClick = { jump(1) }) { Text("Next ▶") }
+                                    Text(if (total > 0) "${(findIndex % total) + 1}/$total" else "0/0", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
                             AnimatedVisibility(visible = showReplaceBar && searchQuery.isNotEmpty()) {
                                 Column {
                                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -443,6 +477,13 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                             Text("A", style = MaterialTheme.typography.headlineSmall)
                             Spacer(Modifier.width(8.dp))
                             TextButton(onClick = { fontSizeMultiplier = 1f }) { Text(stringResource(R.string.reset)) }
+                        }
+                    }
+                    AnimatedVisibility(visible = showWordBar && isTextDoc) {
+                        Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+                            Text("$wordCount words · $charCount characters · ~$readingTime min read",
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
                         }
                     }
                 }
@@ -479,7 +520,8 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                         },
                         onInsertChart = { editingChartBlock = -1; chartForSlide = isPresentation; chartForSheet = isSpreadsheet; showChartEditor = true },
                         onInsertTable = { showInsertTable = true },
-                        onDeleteElement = { if (activeSlideEl >= 0) { viewModel.deleteSlideElement(activeSlide, activeSlideEl); activeSlideEl = -1 } }
+                        onDeleteElement = { if (activeSlideEl >= 0) { viewModel.deleteSlideElement(activeSlide, activeSlideEl); activeSlideEl = -1 } },
+                        onCellBorder = { showCellBorderColor = true }
                     )
                     OfficeBottomBar(document, formatTarget, caps, viewModel, actions, activeTableBlock, activeTableRow, activeTableCol)
                 }
@@ -520,6 +562,8 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                         onCropImage = { s, e -> cropSlideTarget = s to e })
                     is OdfDocument.Drawing -> DrawingView(document)
                 }
+                // Night reading mode: a view-only dimming scrim (does not modify or save the document). (C4)
+                if (nightMode) Box(Modifier.matchParentSize().background(Color(0x660E1116)))
             }
         }
     }
@@ -557,6 +601,10 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
     if (showCellBgColor && (activeCell?.second ?: -1) >= 0) {
         val (s, r, c) = activeCell!!
         ColorPickerDialog("Background Color", onColorSelected = { viewModel.setCellBgColor(s, r, c, it) }, onDismiss = { showCellBgColor = false })
+    }
+    if (showCellBorderColor && (activeCell?.second ?: -1) >= 0) {
+        val (s, r, c) = activeCell!!
+        ColorPickerDialog("Border Color", onColorSelected = { viewModel.setCellBorder(s, r, c, it) }, onDismiss = { showCellBorderColor = false })
     }
     if (showSlideTextColor && activeSlideEl >= 0) {
         ColorPickerDialog("Text Color", onColorSelected = { viewModel.setSlideElementColor(activeSlide, activeSlideEl, it) }, onDismiss = { showSlideTextColor = false })

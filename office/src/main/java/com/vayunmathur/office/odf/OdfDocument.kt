@@ -85,7 +85,9 @@ data class OdfParagraph(
     val listNumberPrefix: String = "",
     val listNumberSuffix: String = ".",
     // Tab stop positions in px (96dpi). (A4)
-    val tabStops: List<Float> = emptyList()
+    val tabStops: List<Float> = emptyList(),
+    // Emit fo:break-before="page" on this paragraph's style. (B4)
+    val breakBeforePage: Boolean = false
 )
 
 enum class ParagraphStyle { HEADING1, HEADING2, HEADING3, HEADING4, BODY, LIST_ITEM, TABLE_HEADER }
@@ -152,6 +154,10 @@ data class OdfImage(
     val anchorType: String = "",
     // Rotation in degrees clockwise (E38).
     val rotationDegrees: Float = 0f,
+    // Natural (intrinsic) pixel size of the source image, used to convert crop
+    // fractions to absolute ODF fo:clip lengths. 0 = unknown. (A7)
+    val naturalWidthPx: Float = 0f,
+    val naturalHeightPx: Float = 0f,
     // Non-destructive crop insets as fractions of the source image [0,1). (Phase 5)
     val cropLeftPct: Float = 0f,
     val cropTopPct: Float = 0f,

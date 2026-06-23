@@ -68,7 +68,8 @@ data class BottomBarActions(
     val onInsertShape: (ShapeKind) -> Unit = {},
     val onInsertChart: () -> Unit = {},
     val onInsertTable: () -> Unit = {},
-    val onDeleteElement: () -> Unit = {}
+    val onDeleteElement: () -> Unit = {},
+    val onCellBorder: () -> Unit = {}
 )
 
 @Composable
@@ -265,6 +266,24 @@ private fun CellFormatControls(target: FormatTarget.Cell?, viewModel: OfficeView
         }
     }
     TextButton(onClick = { if (enabled) viewModel.unmergeCells(s, r, c) }, enabled = enabled) { Text("Unmerge") }
+    Box {
+        var moreMenu by remember { mutableStateOf(false) }
+        var numMenu by remember { mutableStateOf(false) }
+        FmtIcon(R.drawable.more_vert_24px, false, enabled, "More") { moreMenu = true }
+        DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
+            DropdownMenuItem(text = { Text("Fill down") }, enabled = enabled, onClick = { moreMenu = false; if (enabled) viewModel.fillDownToEnd(s, r, c) })
+            DropdownMenuItem(text = { Text("Border color…") }, enabled = enabled, onClick = { moreMenu = false; actions.onCellBorder() })
+            DropdownMenuItem(text = { Text("Number format") }, trailingIcon = { Icon(painterResource(R.drawable.arrow_drop_down_24px), null) }, enabled = enabled, onClick = { numMenu = true })
+        }
+        DropdownMenu(expanded = numMenu, onDismissRequest = { numMenu = false }) {
+            DropdownMenuItem(text = { Text("General") }, onClick = { numMenu = false; moreMenu = false; if (enabled) viewModel.setCellNumberFormat(s, r, c, null) })
+            DropdownMenuItem(text = { Text("Number (2 dp)") }, onClick = { numMenu = false; moreMenu = false; if (enabled) viewModel.setCellNumberFormat(s, r, c, OdfNumberFormat(decimals = 2, grouping = true)) })
+            DropdownMenuItem(text = { Text("Integer") }, onClick = { numMenu = false; moreMenu = false; if (enabled) viewModel.setCellNumberFormat(s, r, c, OdfNumberFormat(decimals = 0)) })
+            DropdownMenuItem(text = { Text("Percent") }, onClick = { numMenu = false; moreMenu = false; if (enabled) viewModel.setCellNumberFormat(s, r, c, OdfNumberFormat(decimals = 0, percent = true)) })
+            DropdownMenuItem(text = { Text("Currency ($)") }, onClick = { numMenu = false; moreMenu = false; if (enabled) viewModel.setCellNumberFormat(s, r, c, OdfNumberFormat(decimals = 2, currencySymbol = "$", grouping = true)) })
+            DropdownMenuItem(text = { Text("Date") }, onClick = { numMenu = false; moreMenu = false; if (enabled) viewModel.setCellNumberFormat(s, r, c, OdfNumberFormat(isDate = true)) })
+        }
+    }
 }
 
 // --- Presentation element branch ---
@@ -290,4 +309,14 @@ private fun ElementFormatControls(target: FormatTarget.Element?, viewModel: Offi
         }
     }
     FmtIcon(com.vayunmathur.library.R.drawable.delete_24px, false, enabled, "Delete element") { if (enabled) actions.onDeleteElement() }
+    Box {
+        var moreMenu by remember { mutableStateOf(false) }
+        FmtIcon(R.drawable.more_vert_24px, false, enabled, "More") { moreMenu = true }
+        DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
+            DropdownMenuItem(text = { Text("Duplicate") }, enabled = enabled, onClick = { moreMenu = false; if (enabled) viewModel.duplicateSlideElement(s, e) })
+            DropdownMenuItem(text = { Text("Bring to front") }, enabled = enabled, onClick = { moreMenu = false; if (enabled) viewModel.reorderSlideElement(s, e, true) })
+            DropdownMenuItem(text = { Text("Send to back") }, enabled = enabled, onClick = { moreMenu = false; if (enabled) viewModel.reorderSlideElement(s, e, false) })
+            DropdownMenuItem(text = { Text("Rotate 90°") }, enabled = enabled, onClick = { moreMenu = false; if (enabled) viewModel.rotateSlideImage(s, e, 90f) })
+        }
+    }
 }

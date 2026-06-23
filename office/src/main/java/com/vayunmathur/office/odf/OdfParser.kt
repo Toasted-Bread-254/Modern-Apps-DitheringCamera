@@ -54,9 +54,9 @@ object OdfParser {
         val type = detectType(contentXml)
         return when (type) {
             DocType.TEXT -> parseTextDocument(contentXml, styleMap, listStyleMap, fileName, metadata, images, headerFooter, objectContents)
-            DocType.SPREADSHEET -> parseSpreadsheet(contentXml, styleMap, numberStyleMap, fileName, metadata, images)
-            DocType.PRESENTATION -> parsePresentation(contentXml, styleMap, fileName, metadata, images)
-            DocType.DRAWING -> parseDrawing(contentXml, styleMap, fileName, metadata, images)
+            DocType.SPREADSHEET -> parseSpreadsheet(contentXml, styleMap, numberStyleMap, fileName, metadata, images, objectContents)
+            DocType.PRESENTATION -> parsePresentation(contentXml, styleMap, fileName, metadata, images, objectContents)
+            DocType.DRAWING -> parseDrawing(contentXml, styleMap, fileName, metadata, images, objectContents)
         }
     }
 
@@ -179,6 +179,31 @@ object OdfParser {
         return floatArrayOf(left, top, right, bottom)
     }
 
+    /** Parses fo:clip="rect(top right bottom left)" absolute lengths into [left, top, right, bottom] fractions
+     *  using the natural image size (px@96). Returns null if no crop. (A7) */
+    private fun parseClipLengths(value: String?, wPx: Float, hPx: Float): FloatArray? {
+        if (value == null || wPx <= 0f || hPx <= 0f) return null
+        val inner = value.substringAfter("rect(", "").substringBefore(")")
+        if (inner.isBlank()) return null
+        val parts = inner.trim().split(Regex("[ ,]+"))
+        if (parts.size < 4) return null
+        // If any token is a percentage, fall back to percent parsing.
+        if (parts.any { it.trim().endsWith("%") }) return parseClip(value)
+        fun frac(token: String, basePx: Float): Float = (parseDimension(token.trim()) / basePx).coerceIn(0f, 0.95f)
+        val top = frac(parts[0], hPx); val right = frac(parts[1], wPx); val bottom = frac(parts[2], hPx); val left = frac(parts[3], wPx)
+        if (top == 0f && right == 0f && bottom == 0f && left == 0f) return null
+        return floatArrayOf(left, top, right, bottom)
+    }
+
+    /** Decodes the intrinsic pixel size of an encoded image without allocating the full bitmap. (A7) */
+    private fun decodeNaturalSize(bytes: ByteArray): Pair<Float, Float> {
+        return try {
+            val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+            opts.outWidth.toFloat() to opts.outHeight.toFloat()
+        } catch (_: Exception) { 0f to 0f }
+    }
+
     /** Converts an ODF draw:transform rotate(theta) into degrees clockwise for Compose (E38). */
     private fun parseRotationDegrees(transform: String?): Float {
         if (transform == null) return 0f
@@ -220,7 +245,8 @@ object OdfParser {
         val paragraphBorderColor: Long? = null,
         val tabStops: List<Float> = emptyList(),
         val dataStyleName: String? = null,
-        val cellWrap: Boolean = false
+        val cellWrap: Boolean = false,
+        val clip: String? = null
     )
 
     private fun parseStyles(xml: String): Map<String, StyleInfo> {
@@ -258,6 +284,7 @@ object OdfParser {
         var lineHeightPercent: Float? = null
         var paraBorderColor: Long? = null
         val tabStops = mutableListOf<Float>()
+        var clipVal: String? = null
 
         val depth = parser.depth
         var eventType = parser.next()
@@ -318,6 +345,7 @@ object OdfParser {
                         }
                         getAttr(parser, "stroke-color")?.let { drawStrokeColor = parseColor(it) }
                         getAttr(parser, "stroke-width")?.let { drawStrokeWidth = parseDimension(it) }
+                        getAttr(parser, "clip")?.let { clipVal = it }
                     }
                     "table-cell-properties" -> {
                         getAttr(parser, "background-color")?.let { if (it != "transparent") cellBgColor = parseColor(it) }
@@ -339,7 +367,7 @@ object OdfParser {
             textAlign, marginLeft, marginTop, marginBottom, textIndent, paraBgColor,
             breakBefore, breakAfter, drawFillColor, drawStrokeColor, drawStrokeWidth,
             cellBgColor, cellBorderColor, writingMode, columnWidth,
-            lineHeightPercent, paraBorderColor, tabStops, null, cellWrap
+            lineHeightPercent, paraBorderColor, tabStops, null, cellWrap, clipVal
         )
     }
 
@@ -379,7 +407,8 @@ object OdfParser {
                 paragraphBorderColor = info.paragraphBorderColor ?: parent.paragraphBorderColor,
                 tabStops = if (info.tabStops.isNotEmpty()) info.tabStops else parent.tabStops,
                 dataStyleName = info.dataStyleName ?: parent.dataStyleName,
-                cellWrap = info.cellWrap || parent.cellWrap
+                cellWrap = info.cellWrap || parent.cellWrap,
+                clip = info.clip ?: parent.clip
             )
         }
         return info
@@ -610,6 +639,7 @@ object OdfParser {
         var pendingFrameW = 0f
         var pendingFrameH = 0f
         var pendingFrameClip: String? = null
+        var pendingFrameStyleClip: String? = null
 
         while (!(eventType == XmlPullParser.END_TAG && parser.depth == depth && parser.name == endTag)) {
             when (eventType) {
@@ -635,14 +665,17 @@ object OdfParser {
                         pendingFrameW = parseDimension(getAttr(parser, "width"))
                         pendingFrameH = parseDimension(getAttr(parser, "height"))
                         pendingFrameClip = getAttr(parser, "clip")
+                        pendingFrameStyleClip = resolveStyle(getAttr(parser, "style-name"), styles).clip
                     }
                     "image" -> {
                         val href = getAttr(parser, "href")
                         val w = pendingFrameW
                         val h = pendingFrameH
-                        val clip = parseClip(pendingFrameClip)
                         if (href != null && images.containsKey(href)) {
-                            var img = OdfImage(path = href, imageData = images[href]!!, width = w, height = h)
+                            val bytes = images[href]!!
+                            val (nw, nh) = decodeNaturalSize(bytes)
+                            val clip = parseClip(pendingFrameClip) ?: parseClipLengths(pendingFrameStyleClip, nw, nh)
+                            var img = OdfImage(path = href, imageData = bytes, width = w, height = h, naturalWidthPx = nw, naturalHeightPx = nh)
                             if (clip != null) img = img.copy(cropLeftPct = clip[0], cropTopPct = clip[1], cropRightPct = clip[2], cropBottomPct = clip[3])
                             imagesOut?.add(img)
                             skipElement(parser)
@@ -656,7 +689,9 @@ object OdfParser {
                                     if (imgEvent == XmlPullParser.TEXT) {
                                         try {
                                             val bytes = Base64.decode(parser.text.trim(), Base64.DEFAULT)
-                                            var img = OdfImage(path = "inline", imageData = bytes, width = w, height = h)
+                                            val (nw, nh) = decodeNaturalSize(bytes)
+                                            val clip = parseClip(pendingFrameClip) ?: parseClipLengths(pendingFrameStyleClip, nw, nh)
+                                            var img = OdfImage(path = "inline", imageData = bytes, width = w, height = h, naturalWidthPx = nw, naturalHeightPx = nh)
                                             if (clip != null) img = img.copy(cropLeftPct = clip[0], cropTopPct = clip[1], cropRightPct = clip[2], cropBottomPct = clip[3])
                                             imagesOut?.add(img)
                                         } catch (_: Exception) {}
@@ -1128,7 +1163,7 @@ object OdfParser {
 
     private fun parseSpreadsheet(
         xml: String, styles: Map<String, StyleInfo>, numberStyles: Map<String, OdfNumberFormat>,
-        title: String, metadata: OdfMetadata, images: Map<String, ByteArray>
+        title: String, metadata: OdfMetadata, images: Map<String, ByteArray>, objectContents: Map<String, String> = emptyMap()
     ): OdfDocument.Spreadsheet {
         val sheets = mutableListOf<OdfSheet>()
         val parser = newParser(xml)
@@ -1137,7 +1172,7 @@ object OdfParser {
         while (eventType != XmlPullParser.END_DOCUMENT) {
             if (eventType == XmlPullParser.START_TAG && parser.name == "table" && parser.namespace?.contains("table") == true) {
                 val name = getAttr(parser, "name") ?: "Sheet ${sheets.size + 1}"
-                val result = parseSheetContent(parser, styles, numberStyles, images)
+                val result = parseSheetContent(parser, styles, numberStyles, images, objectContents)
                 sheets.add(OdfSheet(name, result.first, result.second, result.third))
             }
             eventType = parser.next()
@@ -1145,7 +1180,7 @@ object OdfParser {
         return OdfDocument.Spreadsheet(title, sheets, metadata, images)
     }
 
-    private fun parseSheetContent(parser: XmlPullParser, styles: Map<String, StyleInfo>, numberStyles: Map<String, OdfNumberFormat>, images: Map<String, ByteArray>): Triple<List<OdfRow>, List<Float?>, List<OdfSlideElement>> {
+    private fun parseSheetContent(parser: XmlPullParser, styles: Map<String, StyleInfo>, numberStyles: Map<String, OdfNumberFormat>, images: Map<String, ByteArray>, objectContents: Map<String, String> = emptyMap()): Triple<List<OdfRow>, List<Float?>, List<OdfSlideElement>> {
         val rows = mutableListOf<OdfRow>()
         val columnWidths = mutableListOf<Float?>()
         val floating = mutableListOf<OdfSlideElement>()
@@ -1167,7 +1202,7 @@ object OdfParser {
                         val cells = parseSpreadsheetCells(parser, styles, numberStyles)
                         repeat(repeated.coerceAtMost(1000)) { rows.add(OdfRow(cells)) }
                     }
-                    "frame" -> if (isDraw) floating.add(OdfSlideElement.Frame(parseSingleFrame(parser, styles, images)))
+                    "frame" -> if (isDraw) floating.add(OdfSlideElement.Frame(parseSingleFrame(parser, styles, images, objectContents)))
                     "rect" -> if (isDraw) floating.add(OdfSlideElement.Shape(parseShape(parser, styles, "rect")))
                     "ellipse" -> if (isDraw) floating.add(OdfSlideElement.Shape(parseShape(parser, styles, "ellipse")))
                     "line" -> if (isDraw) floating.add(OdfSlideElement.Shape(parseShape(parser, styles, "line")))
@@ -1238,17 +1273,19 @@ object OdfParser {
 
     private fun parsePresentation(
         xml: String, styles: Map<String, StyleInfo>,
-        title: String, metadata: OdfMetadata, images: Map<String, ByteArray>
+        title: String, metadata: OdfMetadata, images: Map<String, ByteArray>,
+        objectContents: Map<String, String> = emptyMap()
     ): OdfDocument.Presentation =
-        OdfDocument.Presentation(title, parseSlides(xml, styles, images), metadata, images)
+        OdfDocument.Presentation(title, parseSlides(xml, styles, images, objectContents), metadata, images)
 
     private fun parseDrawing(
         xml: String, styles: Map<String, StyleInfo>,
-        title: String, metadata: OdfMetadata, images: Map<String, ByteArray>
+        title: String, metadata: OdfMetadata, images: Map<String, ByteArray>,
+        objectContents: Map<String, String> = emptyMap()
     ): OdfDocument.Drawing =
-        OdfDocument.Drawing(title, parseSlides(xml, styles, images), metadata, images)
+        OdfDocument.Drawing(title, parseSlides(xml, styles, images, objectContents), metadata, images)
 
-    private fun parseSlides(xml: String, styles: Map<String, StyleInfo>, images: Map<String, ByteArray>): List<OdfSlide> {
+    private fun parseSlides(xml: String, styles: Map<String, StyleInfo>, images: Map<String, ByteArray>, objectContents: Map<String, String> = emptyMap()): List<OdfSlide> {
         val slides = mutableListOf<OdfSlide>()
         val parser = newParser(xml)
         var eventType = parser.eventType
@@ -1258,7 +1295,7 @@ object OdfParser {
                 val name = getAttr(parser, "name") ?: "Slide ${slides.size + 1}"
                 val drawStyleName = getAttr(parser, "style-name")
                 val resolved = resolveStyle(drawStyleName, styles)
-                val result = parseSlideContent(parser, styles, images)
+                val result = parseSlideContent(parser, styles, images, objectContents)
                 slides.add(OdfSlide(
                     name = name, elements = result.elements,
                     backgroundColor = resolved.drawFillColor, notes = result.notes
@@ -1271,7 +1308,7 @@ object OdfParser {
 
     private data class SlideParseResult(val elements: List<OdfSlideElement>, val notes: List<OdfParagraph>)
 
-    private fun parseSlideContent(parser: XmlPullParser, styles: Map<String, StyleInfo>, images: Map<String, ByteArray>): SlideParseResult {
+    private fun parseSlideContent(parser: XmlPullParser, styles: Map<String, StyleInfo>, images: Map<String, ByteArray>, objectContents: Map<String, String> = emptyMap()): SlideParseResult {
         val elements = mutableListOf<OdfSlideElement>()
         val notes = mutableListOf<OdfParagraph>()
         val depth = parser.depth
@@ -1279,7 +1316,7 @@ object OdfParser {
 
         while (!(eventType == XmlPullParser.END_TAG && parser.depth == depth)) {
             if (eventType == XmlPullParser.START_TAG) when (parser.name) {
-                "frame" -> elements.add(OdfSlideElement.Frame(parseSingleFrame(parser, styles, images)))
+                "frame" -> elements.add(OdfSlideElement.Frame(parseSingleFrame(parser, styles, images, objectContents)))
                 "rect" -> elements.add(OdfSlideElement.Shape(parseShape(parser, styles, "rect")))
                 "ellipse" -> elements.add(OdfSlideElement.Shape(parseShape(parser, styles, "ellipse")))
                 "line" -> elements.add(OdfSlideElement.Shape(parseShape(parser, styles, "line")))
@@ -1289,7 +1326,7 @@ object OdfParser {
                     var noteEvent = parser.next()
                     while (!(noteEvent == XmlPullParser.END_TAG && parser.depth == noteDepth)) {
                         if (noteEvent == XmlPullParser.START_TAG && parser.name == "frame") {
-                            val frame = parseSingleFrame(parser, styles, images)
+                            val frame = parseSingleFrame(parser, styles, images, objectContents)
                             for (para in frame.paragraphs) {
                                 if (para.spans.isNotEmpty()) notes.add(para)
                             }
@@ -1303,7 +1340,7 @@ object OdfParser {
         return SlideParseResult(elements, notes)
     }
 
-    private fun parseSingleFrame(parser: XmlPullParser, styles: Map<String, StyleInfo>, images: Map<String, ByteArray>): OdfFrame {
+    private fun parseSingleFrame(parser: XmlPullParser, styles: Map<String, StyleInfo>, images: Map<String, ByteArray>, objectContents: Map<String, String> = emptyMap()): OdfFrame {
         val x = parseDimension(getAttr(parser, "x"))
         val y = parseDimension(getAttr(parser, "y"))
         val w = parseDimension(getAttr(parser, "width"))
@@ -1315,6 +1352,7 @@ object OdfParser {
 
         val paragraphs = mutableListOf<OdfParagraph>()
         var image: OdfImage? = null
+        var chart: OdfChart? = null
         val depth = parser.depth
         var eventType = parser.next()
 
@@ -1333,10 +1371,18 @@ object OdfParser {
                         boxEvent = parser.next()
                     }
                 }
+                "object" -> {
+                    // Embedded chart object referenced by ./Object N. (A8)
+                    val href = getAttr(parser, "href")?.removePrefix("./")
+                    val xml = href?.let { objectContents["$it/content.xml"] }
+                    if (xml != null) parseChart(xml)?.let { chart = it }
+                }
                 "image" -> {
                     val href = getAttr(parser, "href")
                     if (href != null && images.containsKey(href)) {
-                        image = OdfImage(path = href, imageData = images[href]!!, width = w, height = h, rotationDegrees = rot)
+                        val bytes = images[href]!!
+                        val (nw, nh) = decodeNaturalSize(bytes)
+                        image = OdfImage(path = href, imageData = bytes, width = w, height = h, rotationDegrees = rot, naturalWidthPx = nw, naturalHeightPx = nh)
                     }
                     val imgDepth = parser.depth
                     var imgEvent = parser.next()
@@ -1346,7 +1392,8 @@ object OdfParser {
                             if (imgEvent == XmlPullParser.TEXT) {
                                 try {
                                     val bytes = Base64.decode(parser.text.trim(), Base64.DEFAULT)
-                                    image = OdfImage(path = "inline", imageData = bytes, width = w, height = h, rotationDegrees = rot)
+                                    val (nw, nh) = decodeNaturalSize(bytes)
+                                    image = OdfImage(path = "inline", imageData = bytes, width = w, height = h, rotationDegrees = rot, naturalWidthPx = nw, naturalHeightPx = nh)
                                 } catch (_: Exception) { }
                             }
                         }
@@ -1360,10 +1407,12 @@ object OdfParser {
             }
             eventType = parser.next()
         }
-        if (clip != null && image != null) {
-            image = image.copy(cropLeftPct = clip[0], cropTopPct = clip[1], cropRightPct = clip[2], cropBottomPct = clip[3])
+        if (image != null) {
+            // Prefer the legacy inline percent clip; otherwise resolve absolute lengths from the graphic style. (A7)
+            val frac = clip ?: parseClipLengths(resolved.clip, image.naturalWidthPx, image.naturalHeightPx)
+            if (frac != null) image = image.copy(cropLeftPct = frac[0], cropTopPct = frac[1], cropRightPct = frac[2], cropBottomPct = frac[3])
         }
-        return OdfFrame(x, y, w, h, paragraphs, image, fillColor = resolved.drawFillColor, strokeColor = resolved.drawStrokeColor, strokeWidth = resolved.drawStrokeWidth)
+        return OdfFrame(x, y, w, h, paragraphs, image, chart = chart, fillColor = resolved.drawFillColor, strokeColor = resolved.drawStrokeColor, strokeWidth = resolved.drawStrokeWidth)
     }
 
     private fun parseListInFrame(parser: XmlPullParser, styles: Map<String, StyleInfo>, images: Map<String, ByteArray>, paragraphs: MutableList<OdfParagraph>) {

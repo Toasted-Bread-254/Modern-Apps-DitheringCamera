@@ -1,9 +1,16 @@
 package com.vayunmathur.office.odf
 
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.exp
+import kotlin.math.floor
+import kotlin.math.ln
+import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.roundToLong
+import kotlin.math.sign
 import kotlin.math.sqrt
+import kotlin.math.truncate
 
 /**
  * Minimal OpenFormula evaluator for spreadsheet cells (H49).
@@ -258,6 +265,49 @@ object OdfFormulaEngine {
                     "AND" -> if (nums.isNotEmpty() && nums.all { it != 0.0 }) 1.0 else 0.0
                     "OR" -> if (nums.any { it != 0.0 }) 1.0 else 0.0
                     "NOT" -> if ((flat.firstOrNull() ?: 0.0) == 0.0) 1.0 else 0.0
+                    "PRODUCT" -> if (nums.isEmpty()) 0.0 else nums.fold(1.0) { a, b -> a * b }
+                    "MEDIAN" -> if (nums.isEmpty()) Double.NaN else {
+                        val s = nums.sorted(); val n = s.size
+                        if (n % 2 == 1) s[n / 2] else (s[n / 2 - 1] + s[n / 2]) / 2.0
+                    }
+                    "STDEV" -> if (nums.size < 2) Double.NaN else {
+                        val m = nums.average(); sqrt(nums.sumOf { (it - m).pow(2) } / (nums.size - 1))
+                    }
+                    "VAR" -> if (nums.size < 2) Double.NaN else {
+                        val m = nums.average(); nums.sumOf { (it - m).pow(2) } / (nums.size - 1)
+                    }
+                    "INT" -> floor(flat.firstOrNull() ?: 0.0)
+                    "TRUNC" -> truncate(flat.firstOrNull() ?: 0.0)
+                    "SIGN" -> sign(flat.firstOrNull() ?: 0.0)
+                    "EXP" -> exp(flat.firstOrNull() ?: 0.0)
+                    "LN" -> ln(flat.firstOrNull() ?: 0.0)
+                    "LOG10" -> log10(flat.firstOrNull() ?: 0.0)
+                    "LOG" -> {
+                        val v = args.getOrNull(0)?.firstOrNull() ?: 0.0
+                        val base = args.getOrNull(1)?.firstOrNull() ?: 10.0
+                        ln(v) / ln(base)
+                    }
+                    "CEILING" -> {
+                        val v = args.getOrNull(0)?.firstOrNull() ?: 0.0
+                        val step = args.getOrNull(1)?.firstOrNull() ?: 1.0
+                        if (step == 0.0) 0.0 else ceil(v / step) * step
+                    }
+                    "FLOOR" -> {
+                        val v = args.getOrNull(0)?.firstOrNull() ?: 0.0
+                        val step = args.getOrNull(1)?.firstOrNull() ?: 1.0
+                        if (step == 0.0) 0.0 else floor(v / step) * step
+                    }
+                    "ROUNDUP" -> {
+                        val v = args.getOrNull(0)?.firstOrNull() ?: 0.0
+                        val d = (args.getOrNull(1)?.firstOrNull() ?: 0.0).toInt()
+                        val factor = 10.0.pow(d); ceil(abs(v) * factor) / factor * sign(v).let { if (it == 0.0) 1.0 else it }
+                    }
+                    "ROUNDDOWN" -> {
+                        val v = args.getOrNull(0)?.firstOrNull() ?: 0.0
+                        val d = (args.getOrNull(1)?.firstOrNull() ?: 0.0).toInt()
+                        val factor = 10.0.pow(d); floor(abs(v) * factor) / factor * sign(v).let { if (it == 0.0) 1.0 else it }
+                    }
+                    "COUNTBLANK" -> 0.0
                     else -> Double.NaN
                 }
             }

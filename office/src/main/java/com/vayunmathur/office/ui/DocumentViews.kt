@@ -1272,6 +1272,10 @@ fun SpreadsheetView(
     var renameText by remember { mutableStateOf("") }
     var showSortDialog by remember { mutableStateOf(false) }
 
+    // A3: keep the selected sheet/floating indices valid after undo/redo shrinks the lists.
+    selectedSheet = selectedSheet.coerceIn(0, doc.sheets.size - 1)
+    if (selectedFloating >= doc.sheets[selectedSheet].floating.size) selectedFloating = -1
+
     Column(modifier = Modifier.fillMaxSize()) {
         if (doc.sheets.size > 1 || isEditMode) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1338,63 +1342,71 @@ fun SpreadsheetView(
             return w.dp
         }
 
-        Box(Modifier.fillMaxSize()) {
+        // A1: anchor floating objects inside the scrolled grid content (rides both scroll axes).
+        // Map model px@96 -> grid content dp by sizing the overlay to the content and passing the
+        // content's dp dimensions as the reference space.
+        val hScroll = rememberScrollState()
+        var contentWidthDp = 40f
+        for (col in 0 until maxCols) contentWidthDp += colWidthDp(col, 1).value
+        val contentHeightDp = 26f + sheet.rows.size * 33f
+
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             item {
-                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp)) {
-                    Column {
-                        Row {
-                            Box(Modifier.defaultMinSize(minWidth = 40.dp).background(MaterialTheme.colorScheme.surfaceVariant).border(0.5.dp, MaterialTheme.colorScheme.outline).padding(4.dp), contentAlignment = Alignment.Center) { Text("") }
-                            for (col in 0 until maxCols) Box(Modifier.width(colWidthDp(col, 1)).background(MaterialTheme.colorScheme.surfaceVariant).border(0.5.dp, MaterialTheme.colorScheme.outline).padding(4.dp), contentAlignment = Alignment.Center) {
-                                Text(columnLabel(col), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        for ((rowIdx, row) in sheet.rows.withIndex()) {
-                            Row(Modifier.height(IntrinsicSize.Min)) {
-                                Box(Modifier.defaultMinSize(minWidth = 40.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceVariant).border(0.5.dp, MaterialTheme.colorScheme.outline).padding(4.dp), contentAlignment = Alignment.Center) {
-                                    Text("${rowIdx + 1}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Row(Modifier.horizontalScroll(hScroll).padding(horizontal = 4.dp)) {
+                    Box {
+                        Column {
+                            Row {
+                                Box(Modifier.defaultMinSize(minWidth = 40.dp).background(MaterialTheme.colorScheme.surfaceVariant).border(0.5.dp, MaterialTheme.colorScheme.outline).padding(4.dp), contentAlignment = Alignment.Center) { Text("") }
+                                for (col in 0 until maxCols) Box(Modifier.width(colWidthDp(col, 1)).background(MaterialTheme.colorScheme.surfaceVariant).border(0.5.dp, MaterialTheme.colorScheme.outline).padding(4.dp), contentAlignment = Alignment.Center) {
+                                    Text(columnLabel(col), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                                 }
-                                for ((cellIdx, cell) in row.cells.withIndex()) {
-                                    if (cell.isCovered) continue
-                                    val isEditing = editingCell?.let { it.first == selectedSheet && it.second == rowIdx && it.third == cellIdx } == true
-                                    val isMatch = searchQuery.isNotEmpty() && cell.text.contains(searchQuery, ignoreCase = true)
-                                    Box(
-                                        Modifier.width(colWidthDp(cellIdx, cell.spannedColumns))
-                                            .fillMaxHeight()
-                                            .border(if (isEditing) 2.dp else 0.5.dp, if (isEditing) MaterialTheme.colorScheme.primary else (cell.borderColor?.let { Color(it.toInt()) } ?: MaterialTheme.colorScheme.outline))
-                                            .then(if (isMatch) Modifier.background(Color(0xFFFFEB3B).copy(alpha = 0.3f)) else cell.backgroundColor?.let { Modifier.background(Color(it.toInt())) } ?: Modifier)
-                                            .then(if (isEditMode) Modifier.clickable { editingCell = Triple(selectedSheet, rowIdx, cellIdx); onCellSelected(selectedSheet, rowIdx, cellIdx); val t = cell.formula ?: cell.text; editText = TextFieldValue(t, TextRange(0, t.length)) } else Modifier)
-                                            .padding(8.dp, 4.dp)
-                                    ) {
-                                        val displayText = OdfFormulaEngine.displayValue(sheet, rowIdx, cellIdx)
-                                        val cellAlign = cell.alignment ?: if (OdfFormulaEngine.isNumeric(sheet, rowIdx, cellIdx)) TextAlign.End else null
-                                        Text(displayText,
-                                            style = MaterialTheme.typography.bodyMedium.let { if (fontSizeMultiplier != 1f && it.fontSize != TextUnit.Unspecified) it.copy(fontSize = it.fontSize * fontSizeMultiplier) else it },
-                                            fontWeight = if (cell.bold) FontWeight.Bold else null,
-                                            fontStyle = if (cell.italic) FontStyle.Italic else null,
-                                            color = cell.textColor?.let { Color(it.toInt()) } ?: Color.Unspecified,
-                                            textAlign = cellAlign, maxLines = if (cell.wrap) Int.MAX_VALUE else 3)
+                            }
+                            for ((rowIdx, row) in sheet.rows.withIndex()) {
+                                Row(Modifier.height(IntrinsicSize.Min)) {
+                                    Box(Modifier.defaultMinSize(minWidth = 40.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceVariant).border(0.5.dp, MaterialTheme.colorScheme.outline).padding(4.dp), contentAlignment = Alignment.Center) {
+                                        Text("${rowIdx + 1}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    }
+                                    for ((cellIdx, cell) in row.cells.withIndex()) {
+                                        if (cell.isCovered) continue
+                                        val isEditing = editingCell?.let { it.first == selectedSheet && it.second == rowIdx && it.third == cellIdx } == true
+                                        val isMatch = searchQuery.isNotEmpty() && cell.text.contains(searchQuery, ignoreCase = true)
+                                        Box(
+                                            Modifier.width(colWidthDp(cellIdx, cell.spannedColumns))
+                                                .fillMaxHeight()
+                                                .border(if (isEditing) 2.dp else 0.5.dp, if (isEditing) MaterialTheme.colorScheme.primary else (cell.borderColor?.let { Color(it.toInt()) } ?: MaterialTheme.colorScheme.outline))
+                                                .then(if (isMatch) Modifier.background(Color(0xFFFFEB3B).copy(alpha = 0.3f)) else cell.backgroundColor?.let { Modifier.background(Color(it.toInt())) } ?: Modifier)
+                                                .then(if (isEditMode) Modifier.clickable { editingCell = Triple(selectedSheet, rowIdx, cellIdx); selectedFloating = -1; onCellSelected(selectedSheet, rowIdx, cellIdx); val t = cell.formula ?: cell.text; editText = TextFieldValue(t, TextRange(0, t.length)) } else Modifier)
+                                                .padding(8.dp, 4.dp)
+                                        ) {
+                                            val displayText = OdfFormulaEngine.displayValue(sheet, rowIdx, cellIdx)
+                                            val cellAlign = cell.alignment ?: if (OdfFormulaEngine.isNumeric(sheet, rowIdx, cellIdx)) TextAlign.End else null
+                                            Text(displayText,
+                                                style = MaterialTheme.typography.bodyMedium.let { if (fontSizeMultiplier != 1f && it.fontSize != TextUnit.Unspecified) it.copy(fontSize = it.fontSize * fontSizeMultiplier) else it },
+                                                fontWeight = if (cell.bold) FontWeight.Bold else null,
+                                                fontStyle = if (cell.italic) FontStyle.Italic else null,
+                                                color = cell.textColor?.let { Color(it.toInt()) } ?: Color.Unspecified,
+                                                textAlign = cellAlign, maxLines = if (cell.wrap) Int.MAX_VALUE else 3)
+                                        }
                                     }
                                 }
                             }
                         }
+                        if (isEditMode || sheet.floating.isNotEmpty()) {
+                            FloatingElementLayer(
+                                elements = sheet.floating, refW = contentWidthDp, refH = contentHeightDp,
+                                modifier = Modifier.matchParentSize(),
+                                editMode = isEditMode, selectedIndex = selectedFloating,
+                                keyPrefix = "sheet$selectedSheet", interactiveBackground = false,
+                                onSelect = { selectedFloating = it },
+                                onElementTextChange = { ei, t -> onFloatingTextChange(selectedSheet, ei, t) },
+                                onBoundsChange = { ei, x, y, w, h -> onFloatingBoundsChange(selectedSheet, ei, x, y, w, h) },
+                                onDelete = { ei -> onFloatingDelete(selectedSheet, ei); selectedFloating = -1 },
+                                onCropImage = { ei -> onFloatingCrop(selectedSheet, ei) }
+                            )
+                        }
                     }
                 }
             }
-        }
-        if (isEditMode || sheet.floating.isNotEmpty()) {
-            val rw = maxOf(1058f, sheet.floating.maxOfOrNull { val b = it.bounds(); b[0] + b[2] } ?: 0f)
-            val rh = maxOf(794f, sheet.floating.maxOfOrNull { val b = it.bounds(); b[1] + b[3] } ?: 0f)
-            FloatingElementLayer(
-                elements = sheet.floating, refW = rw, refH = rh, editMode = isEditMode, selectedIndex = selectedFloating,
-                keyPrefix = "sheet$selectedSheet", interactiveBackground = false,
-                onSelect = { selectedFloating = it },
-                onElementTextChange = { ei, t -> onFloatingTextChange(selectedSheet, ei, t) },
-                onBoundsChange = { ei, x, y, w, h -> onFloatingBoundsChange(selectedSheet, ei, x, y, w, h) },
-                onDelete = { ei -> onFloatingDelete(selectedSheet, ei); selectedFloating = -1 },
-                onCropImage = { ei -> onFloatingCrop(selectedSheet, ei) }
-            )
-        }
         }
     }
 
@@ -1664,6 +1676,7 @@ fun FloatingElementLayer(
     editMode: Boolean,
     selectedIndex: Int,
     keyPrefix: String,
+    modifier: Modifier = Modifier.fillMaxSize(),
     backgroundColor: Long? = null,
     interactiveBackground: Boolean = true,
     onSelect: (Int) -> Unit = {},
@@ -1673,7 +1686,7 @@ fun FloatingElementLayer(
     onCropImage: (Int) -> Unit = {}
 ) {
     BoxWithConstraints(
-        Modifier.fillMaxSize()
+        modifier
             .then(backgroundColor?.let { Modifier.background(Color(it.toInt())) } ?: Modifier)
             .then(if (editMode && interactiveBackground) Modifier.pointerInput(elements.size) { detectTapGestures { onSelect(-1) } } else Modifier)
     ) {
