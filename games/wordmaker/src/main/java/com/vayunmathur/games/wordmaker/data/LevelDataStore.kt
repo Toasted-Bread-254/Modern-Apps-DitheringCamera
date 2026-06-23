@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +24,9 @@ class LevelDataStore(context: Context) {
         private val TOTAL_BONUS_WORDS_KEY = intPreferencesKey("total_bonus_words")
         private val TAP_TO_SPELL_KEY = booleanPreferencesKey("tap_to_spell")
         private val REVEALED_HINTS_KEY = stringSetPreferencesKey("revealed_hints")
+        private val GAME_MODE_KEY = stringPreferencesKey("game_mode")
+        private val DIFFICULTY_KEY = stringPreferencesKey("competitive_difficulty")
+        private val COMPETITIVE_SCORE_KEY = intPreferencesKey("competitive_score")
     }
 
     val currentLevel: Flow<Int> = appContext.dataStore.data.map { it[LEVEL_KEY] ?: 1 }
@@ -32,6 +36,16 @@ class LevelDataStore(context: Context) {
     val totalBonusWords: Flow<Int> = appContext.dataStore.data.map { it[TOTAL_BONUS_WORDS_KEY] ?: 0 }
 
     val tapToSpell: Flow<Boolean> = appContext.dataStore.data.map { it[TAP_TO_SPELL_KEY] ?: false }
+
+    val gameMode: Flow<GameMode> = appContext.dataStore.data.map { prefs ->
+        prefs[GAME_MODE_KEY]?.let { runCatching { GameMode.valueOf(it) }.getOrNull() } ?: GameMode.CASUAL
+    }
+
+    val difficulty: Flow<Difficulty> = appContext.dataStore.data.map { prefs ->
+        prefs[DIFFICULTY_KEY]?.let { runCatching { Difficulty.valueOf(it) }.getOrNull() } ?: Difficulty.MEDIUM
+    }
+
+    val competitiveScore: Flow<Int> = appContext.dataStore.data.map { it[COMPETITIVE_SCORE_KEY] ?: 0 }
 
     val revealedHints: Flow<Set<Pair<Int, Int>>> = appContext.dataStore.data.map { prefs ->
         prefs[REVEALED_HINTS_KEY]?.mapNotNull { s ->
@@ -43,6 +57,25 @@ class LevelDataStore(context: Context) {
 
     suspend fun setTapToSpell(enabled: Boolean) {
         appContext.dataStore.edit { it[TAP_TO_SPELL_KEY] = enabled }
+    }
+
+    suspend fun setGameMode(mode: GameMode) {
+        appContext.dataStore.edit { it[GAME_MODE_KEY] = mode.name }
+    }
+
+    suspend fun setDifficulty(difficulty: Difficulty) {
+        appContext.dataStore.edit { it[DIFFICULTY_KEY] = difficulty.name }
+    }
+
+    /** Applies [delta] to the persisted competitive score, clamped so it never drops below zero. */
+    suspend fun addToCompetitiveScore(delta: Int): Int {
+        var newScore = 0
+        appContext.dataStore.edit { settings ->
+            val current = settings[COMPETITIVE_SCORE_KEY] ?: 0
+            newScore = (current + delta).coerceAtLeast(0)
+            settings[COMPETITIVE_SCORE_KEY] = newScore
+        }
+        return newScore
     }
 
     suspend fun addRevealedHint(row: Int, col: Int) {

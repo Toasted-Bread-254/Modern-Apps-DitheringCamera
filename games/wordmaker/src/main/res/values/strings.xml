@@ -14,4 +14,13 @@
     <string name="hint_confirmation">Are you sure you want to use a hint?</string>
     <string name="yes">Yes</string>
     <string name="no">No</string>
+    <string name="mode_casual">Casual</string>
+    <string name="mode_competitive">Competitive</string>
+    <string name="difficulty_easy">Easy</string>
+    <string name="difficulty_medium">Medium</string>
+    <string name="difficulty_hard">Hard</string>
+    <string name="competitive_score">Score: %1$d</string>
+    <string name="competitive_level">Round %1$d</string>
+    <string name="time_up">Time\'s up!</string>
+    <string name="next_round">Next Round</string>
 </resources>

@@ -34,6 +34,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -42,6 +44,7 @@ import androidx.compose.material3.MaterialTheme.colorScheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -76,6 +79,8 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vayunmathur.games.wordmaker.data.CrosswordData
+import com.vayunmathur.games.wordmaker.data.Difficulty
+import com.vayunmathur.games.wordmaker.data.GameMode
 import com.vayunmathur.games.wordmaker.data.LevelDataStore
 import com.vayunmathur.games.wordmaker.ui.SettingsPage
 import com.vayunmathur.games.wordmaker.util.AppBackupAgent
@@ -228,31 +233,40 @@ fun WordGameScreen(
     val tapToSpell by viewModel.tapToSpell.collectAsState()
     val revealedHints by viewModel.revealedHints.collectAsState()
     val hintCooldownEnd by viewModel.hintCooldownEnd.collectAsState()
-    var showBonusWordsDialog by remember(currentLevel) { mutableStateOf(false) }
-    var showHintDialog by remember(currentLevel) { mutableStateOf(false) }
+    val gameMode by viewModel.gameMode.collectAsState()
+    val difficulty by viewModel.difficulty.collectAsState()
+    val competitiveScore by viewModel.competitiveScore.collectAsState()
+    val competitiveLevelNumber by viewModel.competitiveLevelNumber.collectAsState()
+    val competitiveDeadline by viewModel.competitiveDeadline.collectAsState()
+    val isCompetitive = gameMode == GameMode.COMPETITIVE
+    val levelKey = if (isCompetitive) "c$competitiveLevelNumber" else "n$currentLevel"
+    var showBonusWordsDialog by remember(levelKey) { mutableStateOf(false) }
+    var showHintDialog by remember(levelKey) { mutableStateOf(false) }
     var remainingCooldown by remember { mutableLongStateOf(0L) }
+    var remainingTime by remember(levelKey) { mutableLongStateOf(0L) }
+    var timedOut by remember(levelKey) { mutableStateOf(false) }
     val density = LocalDensity.current
     var rootOffset by remember { mutableStateOf(Offset.Zero) }
     var wordWithDefinition by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
 
     // Animation state
     val coroutineScope = rememberCoroutineScope()
-    var animatedWord by remember(currentLevel) { mutableStateOf<String?>(null) }
-    val animationProgress = remember(currentLevel) { Animatable(0f) }
-    var wordBoxOffset by remember(currentLevel) { mutableStateOf(Offset.Zero) }
-    var bonusButtonOffset by remember(currentLevel) { mutableStateOf(Offset.Zero) }
-    var crosswordCellPositions by remember(currentLevel) {
+    var animatedWord by remember(levelKey) { mutableStateOf<String?>(null) }
+    val animationProgress = remember(levelKey) { Animatable(0f) }
+    var wordBoxOffset by remember(levelKey) { mutableStateOf(Offset.Zero) }
+    var bonusButtonOffset by remember(levelKey) { mutableStateOf(Offset.Zero) }
+    var crosswordCellPositions by remember(levelKey) {
         mutableStateOf<Map<Pair<Int, Int>, Offset>>(
             emptyMap()
         )
     }
-    var letterChooserPositions by remember(currentLevel) {
+    var letterChooserPositions by remember(levelKey) {
         mutableStateOf<Map<Int, Offset>>(
             emptyMap()
         )
     }
-    var wordToAnimate by remember(currentLevel) { mutableStateOf<WordToAnimate?>(null) }
-    var animatedLetters by remember(currentLevel) { mutableStateOf<List<AnimatedLetter>>(emptyList()) }
+    var wordToAnimate by remember(levelKey) { mutableStateOf<WordToAnimate?>(null) }
+    var animatedLetters by remember(levelKey) { mutableStateOf<List<AnimatedLetter>>(emptyList()) }
 
     // Animatables for shaking (we'll animate them directly when submission fails)
     val wordShakeAnim = remember { Animatable(0f) }
@@ -303,14 +317,33 @@ fun WordGameScreen(
     val isWon = crosswordData.winsWith(foundWords)
 
     LaunchedEffect(isWon) {
-        if (isWon) {
-            if (currentLevel == 1) achievementsManager.onAchievementUnlocked("level_1_done")
-            if (currentLevel == 861) achievementsManager.onAchievementUnlocked("manual_levels_done")
+        if (!isWon) return@LaunchedEffect
+        if (isCompetitive) {
+            viewModel.onCompetitiveWin()
+            return@LaunchedEffect
+        }
+        if (currentLevel == 1) achievementsManager.onAchievementUnlocked("level_1_done")
+        if (currentLevel == 861) achievementsManager.onAchievementUnlocked("manual_levels_done")
 
-            achievementsManager.onProgressUpdated("manual_levels_done", currentLevel)
-            achievementsManager.onProgressUpdated("level_50", currentLevel)
-            achievementsManager.onProgressUpdated("level_100", currentLevel)
-            achievementsManager.onProgressUpdated("level_500", currentLevel)
+        achievementsManager.onProgressUpdated("manual_levels_done", currentLevel)
+        achievementsManager.onProgressUpdated("level_50", currentLevel)
+        achievementsManager.onProgressUpdated("level_100", currentLevel)
+        achievementsManager.onProgressUpdated("level_500", currentLevel)
+    }
+
+    LaunchedEffect(competitiveDeadline, isCompetitive, isWon, levelKey) {
+        if (!isCompetitive || isWon || competitiveDeadline <= 0L) {
+            if (competitiveDeadline <= 0L && !isWon) remainingTime = 0L
+            return@LaunchedEffect
+        }
+        while (true) {
+            remainingTime = (competitiveDeadline - System.currentTimeMillis()).coerceAtLeast(0)
+            if (remainingTime <= 0L) break
+            delay(200)
+        }
+        if (!isWon) {
+            timedOut = true
+            viewModel.onCompetitiveTimeout()
         }
     }
 
@@ -326,7 +359,12 @@ fun WordGameScreen(
         Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.level_number, currentLevel)) },
+                title = {
+                    GameModeDropdown(
+                        selected = gameMode,
+                        onSelected = { viewModel.setGameMode(it) }
+                    )
+                },
                 actions = {
                     IconButton(onClick = onOpenGameCenter) {
                         Icon(painterResource(id = android.R.drawable.btn_star_big_on), "Achievements")
@@ -350,6 +388,15 @@ fun WordGameScreen(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                if (isCompetitive) {
+                    CompetitiveStatusBar(
+                        difficulty = difficulty,
+                        onDifficultySelected = { viewModel.setDifficulty(it) },
+                        score = competitiveScore,
+                        roundNumber = competitiveLevelNumber,
+                        remainingTimeMs = remainingTime
+                    )
+                }
                 Box(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.Center
@@ -385,10 +432,24 @@ fun WordGameScreen(
                     if (isWon) {
                         Button(
                             onClick = {
-                                viewModel.saveLevel(currentLevel + 1)
+                                if (isCompetitive) viewModel.loadNextCompetitiveLevel()
+                                else viewModel.saveLevel(currentLevel + 1)
                             }
                         ) {
-                            Text(stringResource(R.string.next_level))
+                            Text(stringResource(if (isCompetitive) R.string.next_round else R.string.next_level))
+                        }
+                    } else if (isCompetitive && timedOut) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                stringResource(R.string.time_up),
+                                color = colorScheme.error,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 24.sp
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Button(onClick = { viewModel.loadNextCompetitiveLevel() }) {
+                                Text(stringResource(R.string.next_round))
+                            }
                         }
                     } else {
                         LetterChooser(
@@ -462,7 +523,7 @@ fun WordGameScreen(
                 Icon(painterResource(R.drawable.outline_book_2_24), null)
             }
 
-            if (!isWon) {
+            if (!isWon && !isCompetitive) {
                 val hintEnabled = remainingCooldown <= 0L
                 Box(
                     modifier = Modifier
@@ -553,6 +614,98 @@ fun WordGameScreen(
                     textColor = colorScheme.onPrimary)
             }
         }
+    }
+}
+
+@Composable
+fun GameModeDropdown(selected: GameMode, onSelected: (GameMode) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { expanded = true }) {
+            Text(
+                stringResource(
+                    if (selected == GameMode.COMPETITIVE) R.string.mode_competitive else R.string.mode_casual
+                ),
+                fontWeight = FontWeight.Bold
+            )
+            Text("  ▾", fontWeight = FontWeight.Bold)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.mode_casual)) },
+                onClick = {
+                    expanded = false
+                    onSelected(GameMode.CASUAL)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.mode_competitive)) },
+                onClick = {
+                    expanded = false
+                    onSelected(GameMode.COMPETITIVE)
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun DifficultyDropdown(selected: Difficulty, onSelected: (Difficulty) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    fun label(d: Difficulty) = when (d) {
+        Difficulty.EASY -> R.string.difficulty_easy
+        Difficulty.MEDIUM -> R.string.difficulty_medium
+        Difficulty.HARD -> R.string.difficulty_hard
+    }
+    Box {
+        TextButton(onClick = { expanded = true }) {
+            Text(stringResource(label(selected)))
+            Text(" ▾")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            Difficulty.values().forEach { d ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(label(d))) },
+                    onClick = {
+                        expanded = false
+                        onSelected(d)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CompetitiveStatusBar(
+    difficulty: Difficulty,
+    onDifficultySelected: (Difficulty) -> Unit,
+    score: Int,
+    roundNumber: Int,
+    remainingTimeMs: Long
+) {
+    val totalSeconds = (remainingTimeMs / 1000L).toInt()
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    val timeColor = if (totalSeconds <= 10) colorScheme.error else colorScheme.onSurface
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        DifficultyDropdown(selected = difficulty, onSelected = onDifficultySelected)
+        Spacer(Modifier.width(8.dp))
+        Text(stringResource(R.string.competitive_level, roundNumber))
+        Spacer(Modifier.weight(1f))
+        Text(stringResource(R.string.competitive_score, score))
+        Spacer(Modifier.width(16.dp))
+        Text(
+            text = "%d:%02d".format(minutes, seconds),
+            fontWeight = FontWeight.Bold,
+            fontSize = 20.sp,
+            color = timeColor
+        )
     }
 }
 
