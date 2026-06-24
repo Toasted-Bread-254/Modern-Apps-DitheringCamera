@@ -5,14 +5,30 @@ import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.core.app.NotificationCompat
+import androidx.core.net.toUri
 import com.vayunmathur.clock.R
+import com.vayunmathur.clock.data.ClockDatabase
+import com.vayunmathur.library.util.buildDatabase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/** Sentinel [com.vayunmathur.clock.data.Alarm.ringtoneUri] value meaning "no sound". */
+const val RINGTONE_SILENT = "silent"
 
 class AlarmSoundService : Service() {
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
+    private var started = false
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // 1. Create the channel (Safe to call multiple times)
@@ -30,21 +46,43 @@ class AlarmSoundService : Service() {
         // 3. This is the "Contract" with the OS. Do this before MediaPlayer.
         startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
 
-        // 4. Now handle the hardware
-        if (mediaPlayer == null) {
-            playAlarm()
-        }
-        if (vibrator == null) {
-            startVibration()
+        // 4. Now handle the hardware, using this alarm's per-alarm settings.
+        if (!started) {
+            started = true
+            val alarmId = intent?.getLongExtra("ALARM_ID", -1L) ?: -1L
+            scope.launch {
+                val alarm = if (alarmId != -1L) {
+                    runCatching {
+                        buildDatabase<ClockDatabase>(useDeviceProtectedStorage = true)
+                            .alarmDao().get(alarmId)
+                    }.getOrNull()
+                } else null
+
+                val ringtoneUri = alarm?.ringtoneUri
+                val vibrate = alarm?.vibrate ?: true
+                val gradualSeconds = alarm?.gradualVolumeSeconds ?: 0
+
+                withContext(Dispatchers.Main) {
+                    if (ringtoneUri != RINGTONE_SILENT) {
+                        playAlarm(resolveRingtone(ringtoneUri), gradualSeconds)
+                    }
+                    if (vibrate) startVibration()
+                }
+            }
         }
 
         return START_STICKY
     }
 
-    private fun playAlarm() {
-        val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+    private fun resolveRingtone(uriString: String?): Uri? = when (uriString) {
+        null -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        RINGTONE_SILENT -> null
+        else -> runCatching { uriString.toUri() }.getOrNull()
+    }
 
+    private fun playAlarm(alarmUri: Uri?, gradualSeconds: Int) {
+        alarmUri ?: return
         mediaPlayer = MediaPlayer().apply {
             setDataSource(applicationContext, alarmUri)
             setAudioAttributes(
@@ -55,7 +93,24 @@ class AlarmSoundService : Service() {
             )
             isLooping = true
             prepare()
+            if (gradualSeconds > 0) setVolume(0f, 0f)
             start()
+        }
+        if (gradualSeconds > 0) rampVolume(gradualSeconds)
+    }
+
+    /** Fade the alarm in from silent to full over [seconds]. */
+    private fun rampVolume(seconds: Int) {
+        scope.launch {
+            val steps = 20
+            val stepDelay = (seconds * 1000L) / steps
+            for (i in 1..steps) {
+                val volume = i / steps.toFloat()
+                withContext(Dispatchers.Main) {
+                    runCatching { mediaPlayer?.setVolume(volume, volume) }
+                }
+                delay(stepDelay)
+            }
         }
     }
 
@@ -66,6 +121,7 @@ class AlarmSoundService : Service() {
     }
 
     override fun onDestroy() {
+        scope.cancel()
         mediaPlayer?.stop()
         mediaPlayer?.release()
         vibrator?.cancel()

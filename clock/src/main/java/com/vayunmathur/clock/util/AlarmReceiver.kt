@@ -57,7 +57,9 @@ class AlarmReceiver : BroadcastReceiver() {
         notificationManager.notify(alarmId.toInt(), builder.build())
 
         // 4. Start the Sound Service immediately so we hear it even if Activity doesn't launch
-        val serviceIntent = Intent(context, AlarmSoundService::class.java)
+        val serviceIntent = Intent(context, AlarmSoundService::class.java).apply {
+            putExtra("ALARM_ID", alarmId)
+        }
         context.startForegroundService(serviceIntent)
 
         // 5. Try to start the activity explicitly (useful if screen is already on)

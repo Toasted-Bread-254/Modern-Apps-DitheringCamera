@@ -30,9 +30,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -43,7 +48,9 @@ import com.vayunmathur.clock.R
 import com.vayunmathur.clock.Route
 import com.vayunmathur.clock.data.Alarm
 import com.vayunmathur.library.ui.IconAdd
+import com.vayunmathur.library.ui.IconChevronRight
 import com.vayunmathur.library.ui.IconDelete
+import com.vayunmathur.library.ui.IconSettings
 import com.vayunmathur.clock.util.ClockViewModel
 import com.vayunmathur.library.util.BottomNavBar
 import com.vayunmathur.library.util.ResultEffect
@@ -58,18 +65,42 @@ fun AlarmPage(backStack: NavBackStack<Route>, clockViewModel: ClockViewModel, ne
     val alarms by clockViewModel.alarms.collectAsState()
     val context = LocalContext.current
     val alarmScheduler = remember { AlarmScheduler.get() }
+
+    // One ringtone picker for the whole page; tracks which alarm is choosing.
+    var pickingAlarmId by remember { mutableStateOf<Long?>(null) }
+    val ringtoneLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val picked = ringtonePickerResult(result.data)
+            clockViewModel.alarms.value.firstOrNull { it.id == pickingAlarmId }?.let { target ->
+                clockViewModel.upsert(target.copy(ringtoneUri = picked))
+            }
+        }
+        pickingAlarmId = null
+    }
+    val onPickRingtone: (Alarm) -> Unit = { alarm ->
+        pickingAlarmId = alarm.id
+        ringtoneLauncher.launch(ringtonePickerIntent(alarm.ringtoneUri))
+    }
+
     ResultEffect<LocalTime>("alarm_time") {
         var daysMask = 0
         newAlarmParams?.days?.forEach { day ->
             daysMask = daysMask or (1 shl (day - 1))
         }
-        val newAlarm = Alarm(it, newAlarmParams?.message ?: "", true, daysMask)
+        val newAlarm = clockViewModel.buildDefaultAlarm(it, newAlarmParams?.message ?: "", daysMask)
         clockViewModel.upsert(newAlarm) { id ->
             alarmScheduler.schedule(context, newAlarm.copy(id = id))
         }
     }
     Scaffold(topBar = {
-        TopAppBar({Text(stringResource(R.string.label_alarm))})
+        TopAppBar(
+            title = { Text(stringResource(R.string.label_alarm)) },
+            actions = {
+                IconButton(onClick = { backStack.add(Route.AlarmSettings) }) { IconSettings() }
+            },
+        )
     }, bottomBar = {
         BottomNavBar(backStack, mainPages(), Route.Alarm)
     }, floatingActionButton = {
@@ -100,7 +131,7 @@ fun AlarmPage(backStack: NavBackStack<Route>, clockViewModel: ClockViewModel, ne
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(alarms, key = { it.id }) { alarm ->
-                    AlarmCard(backStack, alarm, clockViewModel, alarmScheduler)
+                    AlarmCard(backStack, alarm, clockViewModel, alarmScheduler, onPickRingtone)
                 }
             }
         }
@@ -113,9 +144,11 @@ fun AlarmCard(
     backStack: NavBackStack<Route>,
     alarm: Alarm,
     clockViewModel: ClockViewModel,
-    alarmScheduler: AlarmScheduler
+    alarmScheduler: AlarmScheduler,
+    onPickRingtone: (Alarm) -> Unit,
 ) {
     val context = LocalContext.current
+    var expanded by remember { androidx.compose.runtime.mutableStateOf(false) }
     ResultEffect<LocalTime>("alarm_set_time_${alarm.id}") {
         val newAlarm = alarm.copy(time = it)
         if(newAlarm.enabled) {
@@ -181,6 +214,9 @@ fun AlarmCard(
                     }) {
                         IconDelete()
                     }
+                    IconButton({ expanded = !expanded }) {
+                        IconChevronRight(modifier = Modifier.rotate(if (expanded) 90f else 0f))
+                    }
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -201,6 +237,19 @@ fun AlarmCard(
                         Text(day.toString())
                     }
                 }
+            }
+            if (expanded) {
+                Spacer(Modifier.height(12.dp))
+                AlarmOptionControls(
+                    ringtoneUri = alarm.ringtoneUri,
+                    vibrate = alarm.vibrate,
+                    snoozeMinutes = alarm.snoozeMinutes,
+                    gradualVolumeSeconds = alarm.gradualVolumeSeconds,
+                    onRingtoneClick = { onPickRingtone(alarm) },
+                    onVibrateChange = { clockViewModel.upsert(alarm.copy(vibrate = it)) },
+                    onSnoozeChange = { clockViewModel.upsert(alarm.copy(snoozeMinutes = it)) },
+                    onGradualChange = { clockViewModel.upsert(alarm.copy(gradualVolumeSeconds = it)) },
+                )
             }
         }
     }

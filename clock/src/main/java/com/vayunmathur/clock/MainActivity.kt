@@ -152,6 +152,8 @@ sealed interface Route : NavKey {
     @Serializable
     data object Stopwatch: Route
     @Serializable
+    data object AlarmSettings: Route
+    @Serializable
     data object SelectTimeZonesDialog: Route
     @Serializable
     data class NewTimerDialog(val lengthSeconds: Int? = null, val message: String? = null): Route
@@ -194,6 +196,9 @@ fun Navigation(
         }
         entry<Route.Stopwatch> {
             StopwatchPage(backStack, clockViewModel)
+        }
+        entry<Route.AlarmSettings> {
+            com.vayunmathur.clock.ui.AlarmSettingsPage(backStack, ds)
         }
         entry<Route.SelectTimeZonesDialog>(metadata = DialogPage()) {
             SelectTimeZonesDialog(backStack, ds, clockViewModel)

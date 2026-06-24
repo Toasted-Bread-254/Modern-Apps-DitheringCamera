@@ -50,6 +50,7 @@ import com.vayunmathur.clock.R
 
 class AlarmActivity : ComponentActivity() {
     private var alarmId: Long = -1L
+    private var snoozeMinutes: Int = 5
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Essential wake-up flags (MUST be before super.onCreate)
@@ -68,6 +69,10 @@ class AlarmActivity : ComponentActivity() {
                 value = withContext(Dispatchers.IO) {
                     db.alarmDao().get(alarmId)
                 }
+            }
+
+            androidx.compose.runtime.LaunchedEffect(alarm) {
+                alarm?.let { snoozeMinutes = it.snoozeMinutes }
             }
 
             DynamicTheme {
@@ -97,8 +102,8 @@ class AlarmActivity : ComponentActivity() {
         // 1. Stop sound
         stopService(Intent(this, AlarmSoundService::class.java))
 
-        // 2. Calculate 5 minutes from now using kotlinx-datetime
-        val snoozeTime = Clock.System.now().plus(5.minutes)
+        // 2. Calculate snooze time from now using the alarm's snooze length
+        val snoozeTime = Clock.System.now().plus(snoozeMinutes.minutes)
         val triggerMillis = snoozeTime.toEpochMilliseconds()
 
         // 3. Schedule the snooze alarm using the SAME ID

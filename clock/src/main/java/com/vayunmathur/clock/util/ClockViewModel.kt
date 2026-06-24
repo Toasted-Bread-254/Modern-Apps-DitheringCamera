@@ -14,6 +14,7 @@ import com.vayunmathur.clock.data.AlarmDao
 import com.vayunmathur.clock.data.Timer
 import com.vayunmathur.clock.data.TimerDao
 import com.vayunmathur.clock.ui.sendTimerNotification
+import com.vayunmathur.library.util.DataStoreUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +47,23 @@ class ClockViewModel(
     private val timerDao: TimerDao,
     private val alarmDao: AlarmDao,
 ) : AndroidViewModel(application) {
+
+    private val ds = DataStoreUtils.getInstance(application)
+
+    /**
+     * Build a new [Alarm] pre-filled with the user's default ringtone, vibrate,
+     * snooze and gradual-volume preferences (set on the alarm settings page).
+     */
+    fun buildDefaultAlarm(time: LocalTime, name: String, days: Int): Alarm = Alarm(
+        time = time,
+        name = name,
+        enabled = true,
+        days = days,
+        ringtoneUri = ds.getString(KEY_DEFAULT_RINGTONE),
+        vibrate = ds.getBoolean(KEY_DEFAULT_VIBRATE, true),
+        snoozeMinutes = (ds.getLong(KEY_DEFAULT_SNOOZE) ?: 5L).toInt(),
+        gradualVolumeSeconds = (ds.getLong(KEY_DEFAULT_GRADUAL) ?: 0L).toInt(),
+    )
 
     // --- Database-backed lists -----------------------------------------------
 
@@ -194,7 +212,7 @@ class ClockViewModel(
                     val time = LocalTime(hour, minutes)
                     var daysMask = 0
                     days?.forEach { day -> daysMask = daysMask or (1 shl (day - 1)) }
-                    val alarm = Alarm(time, message ?: "", true, daysMask)
+                    val alarm = buildDefaultAlarm(time, message ?: "", daysMask)
                     val ctx = getApplication<Application>()
                     viewModelScope.launch(Dispatchers.IO) {
                         val id = alarmDao.upsert(alarm)
@@ -262,6 +280,11 @@ class ClockViewModel(
         private const val TAG = "ClockViewModel"
         private const val TICK_MS = 100L
         private const val STOP_TIMEOUT_MS = 5_000L
+
+        const val KEY_DEFAULT_RINGTONE = "alarm_default_ringtone"
+        const val KEY_DEFAULT_VIBRATE = "alarm_default_vibrate"
+        const val KEY_DEFAULT_SNOOZE = "alarm_default_snooze"
+        const val KEY_DEFAULT_GRADUAL = "alarm_default_gradual"
     }
 }
 

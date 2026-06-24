@@ -11,6 +11,7 @@ import androidx.room.TypeConverters
 import androidx.room.Upsert
 import com.vayunmathur.library.util.DatabaseItem
 import com.vayunmathur.library.util.DefaultConverters
+import androidx.room.migration.Migration
 import kotlinx.coroutines.flow.Flow
 import kotlinx.datetime.LocalTime
 import kotlin.time.Clock
@@ -44,6 +45,10 @@ data class Alarm(
     var name: String,
     var enabled: Boolean,
     var days: Int, // bitmask bit 0 = sunday
+    var ringtoneUri: String? = null, // null = system default alarm sound; "silent" = no sound
+    var vibrate: Boolean = true,
+    var snoozeMinutes: Int = 5,
+    var gradualVolumeSeconds: Int = 0, // 0 = play at full volume immediately
     @PrimaryKey(autoGenerate = true)
     override var id: Long = 0,
 ): DatabaseItem
@@ -85,8 +90,19 @@ interface AlarmDao {
 }
 
 @TypeConverters(DefaultConverters::class)
-@Database(entities = [Timer::class, Alarm::class], version = 1)
+@Database(entities = [Timer::class, Alarm::class], version = 2)
 abstract class ClockDatabase: RoomDatabase() {
     abstract fun timerDao(): TimerDao
     abstract fun alarmDao(): AlarmDao
+
+    companion object : com.vayunmathur.library.util.DatabaseMigrations {
+        override val migrations: List<Migration> = listOf(
+            Migration(1, 2) {
+                it.execSQL("ALTER TABLE Alarm ADD COLUMN ringtoneUri TEXT")
+                it.execSQL("ALTER TABLE Alarm ADD COLUMN vibrate INTEGER NOT NULL DEFAULT 1")
+                it.execSQL("ALTER TABLE Alarm ADD COLUMN snoozeMinutes INTEGER NOT NULL DEFAULT 5")
+                it.execSQL("ALTER TABLE Alarm ADD COLUMN gradualVolumeSeconds INTEGER NOT NULL DEFAULT 0")
+            },
+        )
+    }
 }
