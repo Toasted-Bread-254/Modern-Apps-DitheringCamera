@@ -16,6 +16,8 @@
     <string name="subject_label">Subject</string>
     <string name="body_label">Body</string>
     <string name="outbox">Outbox</string>
+    <string name="settings">Settings</string>
+    <string name="save">Save</string>
     <string name="outbox_with_count">Outbox (%1$d)</string>
     <string name="send_now">Send now</string>
     

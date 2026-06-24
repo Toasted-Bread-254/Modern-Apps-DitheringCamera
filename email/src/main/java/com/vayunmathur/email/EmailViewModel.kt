@@ -98,6 +98,13 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
         _searchQuery.value = ""
     }
 
+    /** Persist the per-account signature appended to outgoing messages. */
+    fun setSignature(email: String, signature: String) {
+        viewModelScope.launch {
+            dao.setSignature(email, signature)
+        }
+    }
+
     fun selectFolder(folderName: String) {
         _selectedFolderName.value = folderName
         _searchQuery.value = ""

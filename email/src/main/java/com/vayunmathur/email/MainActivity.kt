@@ -138,6 +138,8 @@ sealed interface Route : NavKey {
     object Outbox : Route
     @Serializable
     object AddAccount : Route
+    @Serializable
+    object Settings : Route
 }
 
 @Composable
@@ -249,6 +251,16 @@ fun EmailApp(viewModel: EmailViewModel) {
                             icon = { IconSend() },
                             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                         )
+                        NavigationDrawerItem(
+                            label = { Text(stringResource(R.string.settings)) },
+                            selected = false,
+                            onClick = {
+                                backStack.add(Route.Settings)
+                                scope.launch { drawerState.close() }
+                            },
+                            icon = { com.vayunmathur.library.ui.IconSettings() },
+                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                        )
                     }
 
                     // Pinned footer: logout stays visible no matter how long the list above is.
@@ -316,6 +328,9 @@ fun EmailApp(viewModel: EmailViewModel) {
                     onBack = { backStack.pop() },
                     onAccountAdded = { backStack.pop() },
                 )
+            }
+            entry<Route.Settings>(metadata = ListDetailPage()) {
+                SettingsScreen(viewModel = viewModel, onBack = { backStack.pop() })
             }
         }
     }
@@ -903,6 +918,20 @@ fun ComposerScreen(
     
     var showAccountPicker by remember { mutableStateOf(false) }
 
+    // Append the from-account's signature, swapping it when the account changes.
+    var appliedSignature by remember { mutableStateOf("") }
+    LaunchedEffect(fromAccount) {
+        val block = signatureBlock(fromAccount)
+        if (block != appliedSignature) {
+            body = when {
+                appliedSignature.isEmpty() -> body + block
+                body.endsWith(appliedSignature) -> body.removeSuffix(appliedSignature) + block
+                else -> body + block
+            }
+            appliedSignature = block
+        }
+    }
+
     val attachmentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { attachments = attachments + it }
     }
@@ -1099,6 +1128,64 @@ private fun OutboxRow(entry: OutboxEntry, onDelete: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = statusColor,
             )
+        }
+    }
+}
+
+/** The signature block appended to an outgoing message body, or "" if none. */
+private fun signatureBlock(acc: com.vayunmathur.email.EmailAccount?): String {
+    val s = acc?.signature?.trim().orEmpty()
+    return if (s.isEmpty()) "" else "\n\n-- \n$s"
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(viewModel: EmailViewModel, onBack: () -> Unit) {
+    val accounts by viewModel.accounts.collectAsState(emptyList())
+    val context = LocalContext.current
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.settings)) },
+                navigationIcon = { IconNavigation(onBack) },
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .padding(16.dp)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("Signatures", style = MaterialTheme.typography.titleMedium)
+            if (accounts.isEmpty()) {
+                Text(stringResource(R.string.select_account))
+            }
+            accounts.forEach { acc ->
+                var sig by remember(acc.email) { mutableStateOf(acc.signature) }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(acc.email, style = MaterialTheme.typography.labelLarge)
+                    OutlinedTextField(
+                        value = sig,
+                        onValueChange = { sig = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        placeholder = { Text("Your signature") },
+                    )
+                    Button(
+                        onClick = {
+                            viewModel.setSignature(acc.email, sig)
+                            android.widget.Toast.makeText(context, "Signature saved", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.align(Alignment.End),
+                    ) {
+                        Text(stringResource(R.string.save))
+                    }
+                }
+                HorizontalDivider()
+            }
         }
     }
 }

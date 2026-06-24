@@ -22,6 +22,9 @@ interface EmailDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAccount(account: EmailAccount)
 
+    @Query("UPDATE EmailAccount SET signature = :signature WHERE email = :email")
+    suspend fun setSignature(email: String, signature: String)
+
     @Delete
     suspend fun deleteAccount(account: EmailAccount)
 

@@ -111,6 +111,9 @@ data class EmailAccount(
     val passwordEncrypted: ByteArray? = null,
     /** GCM IV used to decrypt [passwordEncrypted]. */
     val passwordIv: ByteArray? = null,
+    /** Plain-text signature appended to outgoing messages from this account. */
+    @ColumnInfo(defaultValue = "")
+    val signature: String = "",
 ) {
     fun getColor(): Long {
         val colors = listOf(
