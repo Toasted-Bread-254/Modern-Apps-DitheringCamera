@@ -1,0 +1,3 @@
+[submodule "games/chess/src/main/cpp/Stockfish-Library"]
+	path = games/chess/src/main/cpp/Stockfish-Library
+	url = https://github.com/vayun-mathur/Stockfish-Library
