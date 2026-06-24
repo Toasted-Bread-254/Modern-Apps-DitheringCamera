@@ -14,6 +14,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -165,6 +166,8 @@ fun WordMakerGameLoader(backStack: NavBackStack<Route>, viewModel: WordMakerView
     val currentLevel by viewModel.currentLevel.collectAsState()
     val crosswordData by viewModel.crosswordData.collectAsState()
     val error by viewModel.error.collectAsState()
+    val gameMode by viewModel.gameMode.collectAsState()
+    val competitiveActive by viewModel.competitiveActive.collectAsState()
 
     val achievementsManager = rememberAchievementsManager(viewModel.levelDataStore)
     if (achievementsManager == null) {
@@ -181,6 +184,14 @@ fun WordMakerGameLoader(backStack: NavBackStack<Route>, viewModel: WordMakerView
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         when {
+            gameMode == GameMode.COMPETITIVE && !competitiveActive -> {
+                CompetitiveLobbyScreen(
+                    viewModel = viewModel,
+                    onOpenGameCenter = { backStack.add(Route.GameCenter) },
+                    onOpenSettings = { backStack.add(Route.Settings) }
+                )
+            }
+
             error != null -> {
                 Text(text = error!!, color = colorScheme.error)
             }
@@ -234,7 +245,6 @@ fun WordGameScreen(
     val revealedHints by viewModel.revealedHints.collectAsState()
     val hintCooldownEnd by viewModel.hintCooldownEnd.collectAsState()
     val gameMode by viewModel.gameMode.collectAsState()
-    val difficulty by viewModel.difficulty.collectAsState()
     val competitiveScore by viewModel.competitiveScore.collectAsState()
     val competitiveLevelNumber by viewModel.competitiveLevelNumber.collectAsState()
     val competitiveDeadline by viewModel.competitiveDeadline.collectAsState()
@@ -358,21 +368,11 @@ fun WordGameScreen(
     Scaffold(
         Modifier.fillMaxSize(),
         topBar = {
-            TopAppBar(
-                title = {
-                    GameModeDropdown(
-                        selected = gameMode,
-                        onSelected = { viewModel.setGameMode(it) }
-                    )
-                },
-                actions = {
-                    IconButton(onClick = onOpenGameCenter) {
-                        Icon(painterResource(id = android.R.drawable.btn_star_big_on), "Achievements")
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        IconSettings()
-                    }
-                }
+            WordMakerTopBar(
+                gameMode = gameMode,
+                onModeSelected = { viewModel.setGameMode(it) },
+                onOpenGameCenter = onOpenGameCenter,
+                onOpenSettings = onOpenSettings
             )
         }
     ) { innerPadding ->
@@ -390,10 +390,7 @@ fun WordGameScreen(
             ) {
                 if (isCompetitive) {
                     CompetitiveStatusBar(
-                        difficulty = difficulty,
-                        onDifficultySelected = { viewModel.setDifficulty(it) },
                         score = competitiveScore,
-                        roundNumber = competitiveLevelNumber,
                         remainingTimeMs = remainingTime
                     )
                 }
@@ -429,28 +426,12 @@ fun WordGameScreen(
                     modifier = Modifier.height(320.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (isWon) {
-                        Button(
-                            onClick = {
-                                if (isCompetitive) viewModel.loadNextCompetitiveLevel()
-                                else viewModel.saveLevel(currentLevel + 1)
-                            }
-                        ) {
-                            Text(stringResource(if (isCompetitive) R.string.next_round else R.string.next_level))
+                    if (isWon && !isCompetitive) {
+                        Button(onClick = { viewModel.saveLevel(currentLevel + 1) }) {
+                            Text(stringResource(R.string.next_level))
                         }
-                    } else if (isCompetitive && timedOut) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                stringResource(R.string.time_up),
-                                color = colorScheme.error,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 24.sp
-                            )
-                            Spacer(Modifier.height(16.dp))
-                            Button(onClick = { viewModel.loadNextCompetitiveLevel() }) {
-                                Text(stringResource(R.string.next_round))
-                            }
-                        }
+                    } else if (isCompetitive && (isWon || timedOut)) {
+                        // Level finished — the between-levels lobby (WordMakerGameLoader) takes over.
                     } else {
                         LetterChooser(
                             letters = shuffledLetters,
@@ -676,12 +657,101 @@ fun DifficultyDropdown(selected: Difficulty, onSelected: (Difficulty) -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WordMakerTopBar(
+    gameMode: GameMode,
+    onModeSelected: (GameMode) -> Unit,
+    onOpenGameCenter: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    TopAppBar(
+        title = { GameModeDropdown(selected = gameMode, onSelected = onModeSelected) },
+        actions = {
+            IconButton(onClick = onOpenGameCenter) {
+                Icon(painterResource(id = android.R.drawable.btn_star_big_on), "Achievements")
+            }
+            IconButton(onClick = onOpenSettings) {
+                IconSettings()
+            }
+        }
+    )
+}
+
+/**
+ * The between-levels screen for competitive mode: shows the score and last result, lets the player
+ * pick the difficulty (which only applies from the next level), and starts the next level on demand.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CompetitiveLobbyScreen(
+    viewModel: WordMakerViewModel,
+    onOpenGameCenter: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    val gameMode by viewModel.gameMode.collectAsState()
+    val difficulty by viewModel.difficulty.collectAsState()
+    val score by viewModel.competitiveScore.collectAsState()
+    val result by viewModel.competitiveResult.collectAsState()
+
+    Scaffold(
+        topBar = {
+            WordMakerTopBar(
+                gameMode = gameMode,
+                onModeSelected = { viewModel.setGameMode(it) },
+                onOpenGameCenter = onOpenGameCenter,
+                onOpenSettings = onOpenSettings
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                stringResource(R.string.competitive_score, score),
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp
+            )
+
+            result?.let {
+                Spacer(Modifier.height(24.dp))
+                Text(
+                    text = if (it.won) {
+                        stringResource(R.string.competitive_solved, it.delta)
+                    } else {
+                        stringResource(R.string.competitive_timed_out, it.delta)
+                    },
+                    color = if (it.won) colorScheme.primary else colorScheme.error,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 22.sp
+                )
+            }
+
+            Spacer(Modifier.height(32.dp))
+            Text(stringResource(R.string.competitive_difficulty), fontWeight = FontWeight.Bold)
+            DifficultyDropdown(selected = difficulty, onSelected = { viewModel.setDifficulty(it) })
+            Text(stringResource(R.string.competitive_time_limit, difficulty.timeLimitSeconds))
+
+            Spacer(Modifier.height(32.dp))
+            Button(onClick = { viewModel.loadNextCompetitiveLevel() }) {
+                Text(
+                    stringResource(
+                        if (result == null) R.string.competitive_start else R.string.next_level
+                    )
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun CompetitiveStatusBar(
-    difficulty: Difficulty,
-    onDifficultySelected: (Difficulty) -> Unit,
     score: Int,
-    roundNumber: Int,
     remainingTimeMs: Long
 ) {
     val totalSeconds = (remainingTimeMs / 1000L).toInt()
@@ -694,12 +764,8 @@ fun CompetitiveStatusBar(
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        DifficultyDropdown(selected = difficulty, onSelected = onDifficultySelected)
-        Spacer(Modifier.width(8.dp))
-        Text(stringResource(R.string.competitive_level, roundNumber))
-        Spacer(Modifier.weight(1f))
         Text(stringResource(R.string.competitive_score, score))
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.weight(1f))
         Text(
             text = "%d:%02d".format(minutes, seconds),
             fontWeight = FontWeight.Bold,

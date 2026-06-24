@@ -20,7 +20,9 @@
     <string name="difficulty_medium">Medium</string>
     <string name="difficulty_hard">Hard</string>
     <string name="competitive_score">Score: %1$d</string>
-    <string name="competitive_level">Round %1$d</string>
-    <string name="time_up">Time\'s up!</string>
-    <string name="next_round">Next Round</string>
+    <string name="competitive_start">Start</string>
+    <string name="competitive_difficulty">Difficulty</string>
+    <string name="competitive_time_limit">%1$d seconds per level</string>
+    <string name="competitive_solved">Solved! +%1$d points</string>
+    <string name="competitive_timed_out">Time\'s up! %1$d points</string>
 </resources>

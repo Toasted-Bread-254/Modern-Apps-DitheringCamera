@@ -2,6 +2,7 @@ package com.vayunmathur.games.wordmaker.util
 
 import android.content.Context
 import com.vayunmathur.games.wordmaker.data.CrosswordData
+import kotlin.random.Random
 
 /**
  * Runtime crossword generator. This is a Kotlin port of scripts/wordmaker/generate_levels.py
@@ -20,11 +21,17 @@ class CompetitiveLevelGenerator(private val words: List<String>) {
     private val pool: List<String> = words.take(COMMON_LIMIT).filter { it.length in 3..8 }
     private val wheelCandidates: List<String> = pool.filter { it.length in 7..8 }
 
-    /** Generates a fresh crossword, or null if generation failed after the attempt budget. */
-    fun generate(): CrosswordData? {
+    /** Generates a fresh random crossword, or null if generation failed after the attempt budget. */
+    fun generate(): CrosswordData? = generate(Random.Default)
+
+    /**
+     * Generates a crossword using the supplied [rng]. Passing a seeded [Random] makes generation
+     * deterministic, so a given seed (e.g. a casual level number) always yields the same board.
+     */
+    fun generate(rng: Random): CrosswordData? {
         if (wheelCandidates.isEmpty()) return null
         repeat(WHEEL_ATTEMPTS) {
-            val wheelWord = wheelCandidates.random()
+            val wheelWord = wheelCandidates.random(rng)
             val wheelCounts = counts(wheelWord)
 
             val candidates = pool.filter { w ->
@@ -39,18 +46,18 @@ class CompetitiveLevelGenerator(private val words: List<String>) {
                 val grid = Array(rows) { CharArray(cols) { ' ' } }
 
                 val mandatory = mutableListOf(wheelWord)
-                if (Math.random() < 0.5) {
+                if (rng.nextDouble() < 0.5) {
                     val longCandidates = candidates.filter { it.length in 6..8 && it != wheelWord }
                     if (longCandidates.isNotEmpty()) {
-                        mandatory.add(longCandidates.take(10).random())
+                        mandatory.add(longCandidates.take(10).random(rng))
                     }
                 }
 
-                val others = candidates.filter { it !in mandatory }.shuffled()
+                val others = candidates.filter { it !in mandatory }.shuffled(rng)
                 val wordsToTry = (mandatory + others).take(15)
 
                 val placed = mutableListOf<String>()
-                if (placeWords(grid, wordsToTry, placed, rows, cols) &&
+                if (placeWords(grid, wordsToTry, placed, rows, cols, rng) &&
                     placed.size >= 6 && mandatory.all { it in placed }
                 ) {
                     val wheel = wheelLetters(placed)
@@ -85,24 +92,25 @@ class CompetitiveLevelGenerator(private val words: List<String>) {
         words: List<String>,
         placed: MutableList<String>,
         rows: Int,
-        cols: Int
+        cols: Int,
+        rng: Random
     ): Boolean {
         if (words.isEmpty()) return true
         val sorted = words.sortedByDescending { it.length }
         val first = sorted[0]
-        if (!placeFirstWord(grid, first, rows, cols)) return false
+        if (!placeFirstWord(grid, first, rows, cols, rng)) return false
         placed.add(first)
         for (i in 1 until sorted.size) {
-            if (tryPlaceIntersecting(grid, sorted[i], rows, cols)) placed.add(sorted[i])
+            if (tryPlaceIntersecting(grid, sorted[i], rows, cols, rng)) placed.add(sorted[i])
             if (placed.size >= 12) break
         }
         return placed.size >= 4
     }
 
-    private fun placeFirstWord(grid: Array<CharArray>, word: String, rows: Int, cols: Int): Boolean {
-        val horizontal = Math.random() < 0.5
-        val r = (rows / 4) + (0..(rows / 4)).random()
-        val c = (cols / 4) + (0..(cols / 4)).random()
+    private fun placeFirstWord(grid: Array<CharArray>, word: String, rows: Int, cols: Int, rng: Random): Boolean {
+        val horizontal = rng.nextDouble() < 0.5
+        val r = (rows / 4) + (0..(rows / 4)).random(rng)
+        val c = (cols / 4) + (0..(cols / 4)).random(rng)
         if (canPlace(grid, word, r, c, horizontal, rows, cols)) {
             doPlace(grid, word, r, c, horizontal)
             return true
@@ -110,7 +118,7 @@ class CompetitiveLevelGenerator(private val words: List<String>) {
         return false
     }
 
-    private fun tryPlaceIntersecting(grid: Array<CharArray>, word: String, rows: Int, cols: Int): Boolean {
+    private fun tryPlaceIntersecting(grid: Array<CharArray>, word: String, rows: Int, cols: Int, rng: Random): Boolean {
         val placements = mutableListOf<Triple<Int, Int, Boolean>>()
         for (r in 0 until rows) {
             for (c in 0 until cols) {
@@ -123,7 +131,7 @@ class CompetitiveLevelGenerator(private val words: List<String>) {
             }
         }
         if (placements.isEmpty()) return false
-        val (r, c, horizontal) = placements.random()
+        val (r, c, horizontal) = placements.random(rng)
         doPlace(grid, word, r, c, horizontal)
         return true
     }

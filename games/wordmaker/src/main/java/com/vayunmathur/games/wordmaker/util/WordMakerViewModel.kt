@@ -1,6 +1,7 @@
 package com.vayunmathur.games.wordmaker.util
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.games.wordmaker.R
@@ -15,10 +16,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.random.Random
+
+/** Outcome of a finished competitive level, shown on the between-levels lobby. */
+data class CompetitiveResult(val won: Boolean, val delta: Int)
 
 class WordMakerViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -61,6 +65,14 @@ class WordMakerViewModel(application: Application) : AndroidViewModel(applicatio
     private val _competitiveLevelNumber = MutableStateFlow(0)
     val competitiveLevelNumber: StateFlow<Int> = _competitiveLevelNumber.asStateFlow()
 
+    /** True while a competitive level is being played; false on the between-levels lobby. */
+    private val _competitiveActive = MutableStateFlow(false)
+    val competitiveActive: StateFlow<Boolean> = _competitiveActive.asStateFlow()
+
+    /** Result of the last finished competitive level (null before the first level of the session). */
+    private val _competitiveResult = MutableStateFlow<CompetitiveResult?>(null)
+    val competitiveResult: StateFlow<CompetitiveResult?> = _competitiveResult.asStateFlow()
+
     private val _competitiveCrossword = MutableStateFlow<CrosswordData?>(null)
     private val _competitiveFoundWords = MutableStateFlow<Set<String>>(emptySet())
 
@@ -93,19 +105,19 @@ class WordMakerViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             currentLevel.collectLatest { level -> loadCasualLevel(level) }
         }
-        // Restore a competitive board on launch if the player left the app in competitive mode.
-        viewModelScope.launch {
-            if (levelDataStore.gameMode.first() == GameMode.COMPETITIVE) {
-                _competitiveLevelNumber.value = 0
-                loadNextCompetitiveLevel()
-            }
-        }
+        // Competitive mode always opens on the lobby; the player starts each level manually.
     }
 
     private suspend fun loadCasualLevel(level: Int) {
         val ctx = getApplication<Application>()
-        val data = withContext(Dispatchers.IO) {
-            CrosswordData.fromAsset(ctx, "levels/$level.txt")
+        val data = withContext(Dispatchers.Default) {
+            // Designed levels (1..MAX_DESIGNED_LEVEL) ship as assets; beyond that (and for any
+            // missing asset) generate a board deterministically seeded by the level number, so the
+            // same level always yields the same layout and saved progress stays valid.
+            val asset = if (level <= MAX_DESIGNED_LEVEL) {
+                CrosswordData.fromAsset(ctx, "levels/$level.txt")
+            } else null
+            asset ?: generateSeededLevel(ctx, level)
         }
         _casualCrossword.value = data
         if (gameMode.value != GameMode.COMPETITIVE) {
@@ -113,10 +125,25 @@ class WordMakerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /** Deterministically generates the board for a level beyond the designed set (seeded by level). */
+    private fun generateSeededLevel(ctx: Context, level: Int): CrosswordData? {
+        val generator = levelGenerator
+            ?: CompetitiveLevelGenerator.fromAssets(ctx).also { levelGenerator = it }
+        var data = generator.generate(Random(level.toLong()))
+        var attempt = 1
+        while (data == null && attempt < 5) {
+            data = generator.generate(Random(level.toLong() + attempt * 1_000_000L))
+            attempt++
+        }
+        return data
+    }
+
     /** Generates a fresh competitive layout on the fly, resets its found words and restarts the timer. */
     fun loadNextCompetitiveLevel() {
         viewModelScope.launch {
             val ctx = getApplication<Application>()
+            _competitiveActive.value = true
+            _competitiveResult.value = null
             // Show the loading spinner while the next board is generated.
             _competitiveCrossword.value = null
             _competitiveFoundWords.value = emptySet()
@@ -138,39 +165,35 @@ class WordMakerViewModel(application: Application) : AndroidViewModel(applicatio
     fun setGameMode(mode: GameMode) {
         viewModelScope.launch {
             levelDataStore.setGameMode(mode)
-            if (mode == GameMode.COMPETITIVE) {
-                _competitiveLevelNumber.value = 0
-                loadNextCompetitiveLevel()
-            } else {
-                _competitiveDeadline.value = 0L
-            }
+            // Both modes return to a neutral state: competitive opens its lobby, casual resumes play.
+            _competitiveActive.value = false
+            _competitiveResult.value = null
+            _competitiveDeadline.value = 0L
         }
     }
 
     fun setDifficulty(difficulty: Difficulty) {
-        viewModelScope.launch {
-            levelDataStore.setDifficulty(difficulty)
-            // Restart with a fresh level so the new time limit applies cleanly.
-            if (gameMode.value == GameMode.COMPETITIVE) {
-                _competitiveLevelNumber.value = 0
-                loadNextCompetitiveLevel()
-            }
-        }
+        // Difficulty is chosen on the lobby between levels, so it only needs to be persisted.
+        viewModelScope.launch { levelDataStore.setDifficulty(difficulty) }
     }
 
-    /** Player solved the competitive level in time: award points and stop the timer. */
+    /** Player solved the competitive level in time: award points and return to the lobby. */
     fun onCompetitiveWin() {
         viewModelScope.launch {
             levelDataStore.addToCompetitiveScore(difficulty.value.winDelta)
+            _competitiveResult.value = CompetitiveResult(won = true, delta = difficulty.value.winDelta)
             _competitiveDeadline.value = 0L
+            _competitiveActive.value = false
         }
     }
 
-    /** Timer ran out: deduct points and stop the timer. */
+    /** Timer ran out: deduct points and return to the lobby. */
     fun onCompetitiveTimeout() {
         viewModelScope.launch {
             levelDataStore.addToCompetitiveScore(-difficulty.value.lossDelta)
+            _competitiveResult.value = CompetitiveResult(won = false, delta = -difficulty.value.lossDelta)
             _competitiveDeadline.value = 0L
+            _competitiveActive.value = false
         }
     }
 
@@ -216,5 +239,10 @@ class WordMakerViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
         }
+    }
+
+    companion object {
+        /** Highest level shipped as a designed asset; higher levels are generated at runtime. */
+        const val MAX_DESIGNED_LEVEL = 8000
     }
 }
