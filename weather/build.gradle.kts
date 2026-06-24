@@ -13,5 +13,6 @@ dependencies {
     implementation(project(":library:network"))
     implementation(project(":library:widgets"))
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.reorderable)
     implementRoom(libs)
 }

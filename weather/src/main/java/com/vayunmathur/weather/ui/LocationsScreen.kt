@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,7 +45,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -63,6 +68,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 /**
  * Composable helper that provides a device-location request action with
@@ -141,6 +148,27 @@ fun LocationsScreen(
 
     val (onAddCurrentLocation, deviceLocationLoading) = rememberRequestDeviceLocation(viewModel)
 
+    val haptics = LocalHapticFeedback.current
+    val listState = rememberLazyListState()
+    var localData by remember { mutableStateOf(locations) }
+    var hasDragged by remember { mutableStateOf(false) }
+
+    val reorderState = rememberReorderableLazyListState(listState) { from, to ->
+        localData = localData.toMutableList().apply { add(to.index, removeAt(from.index)) }
+        hasDragged = true
+        haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+    }
+
+    LaunchedEffect(locations) {
+        if (!reorderState.isAnyItemDragging) localData = locations
+    }
+    LaunchedEffect(reorderState.isAnyItemDragging) {
+        if (!reorderState.isAnyItemDragging && hasDragged) {
+            viewModel.reorderLocations(localData)
+            hasDragged = false
+        }
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {
@@ -188,11 +216,12 @@ fun LocationsScreen(
                 .padding(top = paddingValues.calculateTopPadding(), bottom = paddingValues.calculateBottomPadding()),
         ) {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
             ) {
-                val showDeviceLocationCard = locations.none { it.isCurrent }
+                val showDeviceLocationCard = localData.none { it.isCurrent }
                 if (showDeviceLocationCard) {
                     item {
                         UseDeviceLocationCard(
@@ -202,21 +231,48 @@ fun LocationsScreen(
                         Spacer(Modifier.height(8.dp))
                     }
                 }
-                items(locations, key = { it.id }) { loc ->
-                    val state = forecasts[loc.id]
-                    val description = state?.fetchedAtEpochMs
-                        ?.takeIf { it > 0L }
-                        ?.let { "Last updated ${formatAgo(it)}" }
-                        ?: "No data yet"
-                    LocationItem(
-                        location = loc,
-                        description = description,
-                        currentWeatherCode = state?.forecast?.current?.weatherCode,
-                        isDay = (state?.forecast?.current?.isDay ?: 1) == 1,
-                        isSelected = loc.id == activeLocation?.id,
-                        onClick = { onLocationSelect(loc) },
-                        onLongClick = { longPressedLocation = loc },
-                    )
+                items(localData, key = { it.id }) { loc ->
+                    ReorderableItem(reorderState, key = loc.id) { isDragging ->
+                        val elevation by animateDpAsState(if (isDragging) 6.dp else 0.dp)
+                        val state = forecasts[loc.id]
+                        val description = state?.fetchedAtEpochMs
+                            ?.takeIf { it > 0L }
+                            ?.let { "Last updated ${formatAgo(it)}" }
+                            ?: "No data yet"
+                        LocationItem(
+                            location = loc,
+                            description = description,
+                            currentWeatherCode = state?.forecast?.current?.weatherCode,
+                            isDay = (state?.forecast?.current?.isDay ?: 1) == 1,
+                            isSelected = loc.id == activeLocation?.id,
+                            onClick = { onLocationSelect(loc) },
+                            onLongClick = { longPressedLocation = loc },
+                            modifier = Modifier.shadow(elevation, MaterialTheme.shapes.extraLarge),
+                            dragHandle = if (localData.size > 1) {
+                                {
+                                    IconButton(
+                                        onClick = {},
+                                        modifier = Modifier.draggableHandle(
+                                            onDragStarted = {
+                                                haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+                                            },
+                                            onDragStopped = {
+                                                haptics.performHapticFeedback(HapticFeedbackType.GestureEnd)
+                                            },
+                                        ),
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(LibraryR.drawable.drag_handle_24px),
+                                            contentDescription = "Reorder",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            } else {
+                                null
+                            },
+                        )
+                    }
                 }
             }
         }

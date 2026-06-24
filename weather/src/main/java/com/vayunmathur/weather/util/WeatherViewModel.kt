@@ -196,6 +196,19 @@ class WeatherViewModel(
     }
 
     /**
+     * Persist a user-defined ordering of saved locations. [ordered] is the
+     * full list in its new display order; each row's [SavedLocation.displayOrder]
+     * is rewritten to its index.
+     */
+    fun reorderLocations(ordered: List<SavedLocation>) {
+        viewModelScope.launch {
+            ordered.forEachIndexed { index, loc ->
+                if (loc.displayOrder != index) dao.setOrder(loc.id, index)
+            }
+        }
+    }
+
+    /**
      * Insert a manually-picked location at the end of the list. The current
      * row count drives [SavedLocation.displayOrder] so the new pin lands last.
      */

@@ -43,6 +43,8 @@ fun LocationItem(
     isSelected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    dragHandle: (@Composable () -> Unit)? = null,
 ) {
     val containerColor =
         if (isSelected) MaterialTheme.colorScheme.primaryContainer
@@ -55,7 +57,7 @@ fun LocationItem(
     val condition = currentWeatherCode?.let { weatherConditionForCode(it) } ?: WeatherCondition.Unknown
 
     Surface(
-        modifier = Modifier
+        modifier = modifier
             .clip(shape)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         shape = shape,
@@ -86,7 +88,9 @@ fun LocationItem(
                 )
             },
             trailingContent = {
-                if (location.isCurrent) {
+                if (dragHandle != null) {
+                    dragHandle()
+                } else if (location.isCurrent) {
                     Icon(
                         painter = painterResource(R.drawable.outline_my_location_24),
                         contentDescription = "Current device location",
