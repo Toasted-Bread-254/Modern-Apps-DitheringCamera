@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import com.vayunmathur.weather.network.AirQualityCurrent
 import com.vayunmathur.weather.network.Current
 import com.vayunmathur.weather.ui.components.blocks.AirQualityBlock
+import com.vayunmathur.weather.ui.components.blocks.CloudCoverBlock
 import com.vayunmathur.weather.ui.components.blocks.HumidityBlock
 import com.vayunmathur.weather.ui.components.blocks.PollenBlock
 import com.vayunmathur.weather.ui.components.blocks.PrecipitationBlock
@@ -65,6 +66,7 @@ fun WeatherBlocks(
             )
         }
         item { WindBlock(current = current, unit = windUnit) }
+        item { CloudCoverBlock(current = current) }
         item { PressureBlock(current = current, pressureUnit = pressureUnit) }
         item { VisibilityBlock(current = current, useMiles = windUnit == WindUnit.Mph) }
         item { SunBlock(sunriseEpochSec = sunriseEpochSec, sunsetEpochSec = sunsetEpochSec, use24Hour = use24Hour) }

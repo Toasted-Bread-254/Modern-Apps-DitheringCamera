@@ -74,7 +74,7 @@ fun WindBlock(current: Current, unit: WindUnit) {
                 )
             }
             Text(
-                text = "From ${compassDirection(current.windDirection)}",
+                text = "From ${compassDirection(current.windDirection)} · Gusts ${formatWind(current.windGusts, unit)}",
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)

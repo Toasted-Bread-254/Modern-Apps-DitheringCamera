@@ -37,6 +37,8 @@ object WeatherApi {
                     "wind_direction_10m",
                     "pressure_msl",
                     "visibility",
+                    "cloud_cover",
+                    "wind_gusts_10m",
                     "is_day",
                 ).joinToString(",")
             )
@@ -54,6 +56,8 @@ object WeatherApi {
                     "pressure_msl",
                     "visibility",
                     "uv_index",
+                    "cloud_cover",
+                    "wind_gusts_10m",
                     "is_day",
                 ).joinToString(",")
             )

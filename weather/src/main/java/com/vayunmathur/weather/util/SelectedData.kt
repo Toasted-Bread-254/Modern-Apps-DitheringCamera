@@ -76,6 +76,8 @@ fun resolveConditions(
                 windDirection = hourly.windDirection.getOrNull(h) ?: current.windDirection,
                 pressureMsl = hourly.pressureMsl.getOrNull(h) ?: current.pressureMsl,
                 visibility = hourly.visibility.getOrNull(h) ?: current.visibility,
+                cloudCover = hourly.cloudCover.getOrNull(h) ?: current.cloudCover,
+                windGusts = hourly.windGusts.getOrNull(h) ?: current.windGusts,
                 isDay = hourly.isDay.getOrNull(h) ?: current.isDay,
             )
             ResolvedConditions(

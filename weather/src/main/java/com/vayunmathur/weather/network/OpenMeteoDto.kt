@@ -42,6 +42,8 @@ data class Current(
     @SerialName("wind_direction_10m") val windDirection: Int,
     @SerialName("pressure_msl") val pressureMsl: Double = 0.0,
     @SerialName("visibility") val visibility: Double = 0.0,
+    @SerialName("cloud_cover") val cloudCover: Int = 0,
+    @SerialName("wind_gusts_10m") val windGusts: Double = 0.0,
     @SerialName("is_day") val isDay: Int = 1,
 )
 
@@ -59,6 +61,8 @@ data class Hourly(
     @SerialName("wind_direction_10m") val windDirection: List<Int> = emptyList(),
     @SerialName("pressure_msl") val pressureMsl: List<Double> = emptyList(),
     @SerialName("visibility") val visibility: List<Double> = emptyList(),
+    @SerialName("cloud_cover") val cloudCover: List<Int> = emptyList(),
+    @SerialName("wind_gusts_10m") val windGusts: List<Double> = emptyList(),
     @SerialName("uv_index") val uvIndex: List<Double> = emptyList(),
     @SerialName("is_day") val isDay: List<Int> = emptyList(),
 )
