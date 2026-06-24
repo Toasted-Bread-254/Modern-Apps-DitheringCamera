@@ -160,13 +160,21 @@ private fun LocationPage(
             val daily = forecast.daily
             val resolved = resolveConditions(forecast, selected)
 
-            selected?.let { sel ->
-                SelectedDateTimeHeader(
-                    selection = sel,
-                    forecast = forecast,
-                    use24Hour = use24Hour,
-                    onClear = { viewModel.clearSelection() },
-                )
+            var lastSelection by remember { mutableStateOf(selected) }
+            LaunchedEffect(selected) { if (selected != null) lastSelection = selected }
+            androidx.compose.animation.AnimatedVisibility(
+                visible = selected != null,
+                enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut(),
+            ) {
+                (selected ?: lastSelection)?.let { sel ->
+                    SelectedDateTimeHeader(
+                        selection = sel,
+                        forecast = forecast,
+                        use24Hour = use24Hour,
+                        onClear = { viewModel.clearSelection() },
+                    )
+                }
             }
 
             if (current != null && resolved != null) {
