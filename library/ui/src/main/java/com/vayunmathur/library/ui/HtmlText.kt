@@ -22,6 +22,17 @@ fun HtmlText(html: String, modifier: Modifier = Modifier) {
         modifier = modifier,
         factory = { context ->
             WebView(context).apply {
+                // Wrap the content's full height and never scroll internally, so the
+                // email expands to fit the outer scroll container instead of nesting
+                // a second scrollbar.
+                layoutParams = android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
+                isVerticalScrollBarEnabled = false
+                isHorizontalScrollBarEnabled = false
+                isScrollContainer = false
+                overScrollMode = WebView.OVER_SCROLL_NEVER
                 settings.javaScriptEnabled = true
                 settings.loadWithOverviewMode = true
                 settings.useWideViewPort = true

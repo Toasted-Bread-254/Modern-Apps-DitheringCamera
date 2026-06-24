@@ -749,7 +749,6 @@ fun MessageItem(
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
                     .fillMaxWidth()
-                    .heightIn(max = 1000.dp) // WebView needs some constraints sometimes
             )
         } else {
             Text(
