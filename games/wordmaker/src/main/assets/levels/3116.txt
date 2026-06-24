@@ -1,0 +1,11 @@
+BED S   
+  USED  
+T E A   
+EAST  D 
+S  A  A 
+T ASTUTE
+   T  E 
+BASE    
+   B    
+ TAUT   
+   D    

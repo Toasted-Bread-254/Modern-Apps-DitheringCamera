@@ -1,0 +1,9 @@
+    P  SAD
+    A  P  
+  BANDPASS
+SPA    N A
+  NAB    N
+  D    BAD
+ PASS     
+ A A      
+ D P      

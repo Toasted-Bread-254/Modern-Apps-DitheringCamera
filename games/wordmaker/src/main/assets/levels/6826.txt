@@ -1,0 +1,10 @@
+       R
+ NUDGE E
+    U  A
+UNGRADED
+    R   
+ GARDEN 
+    E   
+GUARD   
+   A    
+ NAG    

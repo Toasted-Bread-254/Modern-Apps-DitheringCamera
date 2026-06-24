@@ -1,0 +1,11 @@
+  INLET    
+           
+ P         
+ L P       
+TAIL PIG   
+ N E L  P  
+P  A ANGLE 
+L  T N  A  
+ALPINE  N T
+T  N T  TIE
+E  G      N

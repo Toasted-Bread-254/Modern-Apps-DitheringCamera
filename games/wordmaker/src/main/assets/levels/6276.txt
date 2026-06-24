@@ -1,0 +1,11 @@
+     R S S 
+     O H H 
+    HERO O 
+       R V 
+   SHOVELER
+   H     L 
+  SERVO    
+R  L       
+O  V       
+SHEER      
+E          

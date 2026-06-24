@@ -1,0 +1,10 @@
+   SINK  
+     I P 
+   S C S 
+ STICKPIN
+ P C  I I
+TICK  C T
+ T      P
+     TIPI
+     I  C
+    SNICK

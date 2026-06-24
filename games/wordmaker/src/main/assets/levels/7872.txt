@@ -1,0 +1,11 @@
+    MISO   
+ MOB   M   
+ I     I O 
+ T MOIST B 
+SEMI     I 
+I  SYMBIOTE
+T  T  I    
+E  Y  T    
+     SET   
+           
+      TIME 

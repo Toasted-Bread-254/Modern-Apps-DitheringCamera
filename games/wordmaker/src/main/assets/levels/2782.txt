@@ -1,0 +1,11 @@
+  F ARMED
+FARM    E
+  E   M F
+ BEDFRAME
+    R R R
+  FRAME  
+    M    
+  BREAD  
+  E D E  
+  A   E  
+  M  ARM 

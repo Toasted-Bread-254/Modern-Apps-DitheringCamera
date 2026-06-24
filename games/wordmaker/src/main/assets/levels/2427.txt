@@ -1,0 +1,11 @@
+  OUT POSE
+    O R   
+   SPROUT 
+   P  U   
+   R  DUE 
+ STORE    
+P  U      
+E  TOE    
+TRUE      
+ E D      
+ D        

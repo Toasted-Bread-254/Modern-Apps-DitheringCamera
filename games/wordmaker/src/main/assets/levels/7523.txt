@@ -1,0 +1,11 @@
+    REAL 
+    A    
+  GRILLE 
+  A L A  
+GEL   I  
+  LAGER  
+  E      
+ GRAIL   
+  I   A  
+  ALGAL  
+      EAR

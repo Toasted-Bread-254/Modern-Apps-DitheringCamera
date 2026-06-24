@@ -1,0 +1,9 @@
+   POSE S
+   O    H
+   L    O
+ FLESHPOT
+    H L  
+THOSE OPT
+ O  L T  
+ L  F    
+SELF     

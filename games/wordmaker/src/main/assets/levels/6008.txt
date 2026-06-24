@@ -1,0 +1,10 @@
+   M     
+  POSE P 
+   S  MOL
+   E   S 
+POLYSEMY 
+O    M   
+E S  PLY 
+MOLE L   
+  Y SOME 
+     Y   

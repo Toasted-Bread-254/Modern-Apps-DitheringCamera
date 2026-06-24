@@ -1,0 +1,10 @@
+E    NOR
+R    O  
+NEARER O
+   E S R
+   A ERE
+ S S    
+ E O   S
+EARNER O
+ R E E A
+  ERASER

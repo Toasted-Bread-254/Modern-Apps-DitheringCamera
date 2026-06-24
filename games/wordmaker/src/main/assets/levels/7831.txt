@@ -1,0 +1,11 @@
+  R      A
+  O    ARC
+  TRACT  T
+     O   O
+  COTTAGER
+     T    
+C   TARGET
+A    G R R
+ROTATE A A
+G      T C
+O   GATE E

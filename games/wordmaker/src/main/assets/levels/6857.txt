@@ -1,0 +1,9 @@
+       F   
+   F   O   
+ R ENFORCE 
+FERN   C N 
+ C C   E C 
+  FENCE ROW
+   R R   R 
+ CRONE  FEN
+   W W     

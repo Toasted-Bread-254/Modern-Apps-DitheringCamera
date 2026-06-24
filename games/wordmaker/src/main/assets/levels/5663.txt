@@ -1,0 +1,10 @@
+FLAW     
+L     FAB
+A     L  
+BACKFLOW 
+  O L W  
+  W O    
+ BLOCK   
+ A  K    
+FLAK     
+ K       

@@ -1,0 +1,10 @@
+      T  T
+      I  O
+  S   CUSP
+COUP B  U 
+U B  U  I 
+B T  SPOT 
+  O   O   
+ OPTICS   
+  I   I   
+  C PIT   

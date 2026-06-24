@@ -1,0 +1,9 @@
+B  BATH
+A B C A
+TEACH T
+H T E  
+E H    
+  E C  
+ ATTIC 
+  I T  
+  CHEAT

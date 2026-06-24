@@ -1,0 +1,10 @@
+        S
+   C SACK
+  TAB B A
+ B S  A  
+FASTBACK 
+ S  A K  
+ K  S    
+   STAB  
+     F   
+   CAT   

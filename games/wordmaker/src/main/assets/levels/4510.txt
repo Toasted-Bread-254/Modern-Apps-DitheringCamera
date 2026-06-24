@@ -1,0 +1,9 @@
+PULSE     
+E  U  USER
+R  P   C  
+ SPECULAR 
+ P R   L  
+ R  LASER 
+RULE  C   
+ C  SLAP  
+REAL  R   

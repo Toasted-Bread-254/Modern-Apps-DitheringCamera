@@ -1,0 +1,10 @@
+ SIP  PICE
+   E  I   
+  SCENE   
+  I P C   
+  X I E   
+ SPICE    
+  E       
+SINCE     
+  C       
+ SEEP     

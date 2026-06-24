@@ -1,0 +1,11 @@
+    SINK  
+    T   N 
+  STICKPIN
+  P C N T 
+ SICK I P 
+  T   T I 
+        C 
+    SNICK 
+  P K     
+  SNIT    
+SKI P     

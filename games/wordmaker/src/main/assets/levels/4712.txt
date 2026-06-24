@@ -1,0 +1,11 @@
+ B S      
+ R U      
+ ORB      
+  I S   C 
+  MICROBUS
+    R   B 
+ SCRUB  I 
+ C  M  ISM
+COMB    M 
+ U        
+ RUB      

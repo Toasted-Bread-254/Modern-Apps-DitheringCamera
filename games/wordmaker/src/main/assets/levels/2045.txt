@@ -1,0 +1,9 @@
+ P        
+ I        
+LEA P     
+  D LEAP  
+  I A  A  
+DETAIL LAP
+I   T  E I
+E IDEAL  T
+T   D     

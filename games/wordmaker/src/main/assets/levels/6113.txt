@@ -1,0 +1,11 @@
+     A  C
+     D  O
+  C  ODOR
+ DONOR  D
+C N  N C 
+ACTOR  A 
+R A  DON 
+  D O  D 
+ TORNADO 
+  R T  R 
+   TOAD  

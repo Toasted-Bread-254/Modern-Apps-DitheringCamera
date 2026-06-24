@@ -1,0 +1,10 @@
+       GRID
+  R G   A  
+RNA R   I  
+  GUARDING 
+  I N I  R 
+GUN DUNG A 
+  G   A  D 
+    DARN I 
+         N 
+    URGING 

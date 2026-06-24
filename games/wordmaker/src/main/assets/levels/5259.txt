@@ -1,0 +1,11 @@
+   LEA  
+   A    
+ LOP A  
+  P  YEA
+  ALOE  
+  Q     
+ YUP    
+  E Q P 
+  LOUPE 
+PAY A A 
+    Y L 

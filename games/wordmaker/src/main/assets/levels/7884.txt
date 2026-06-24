@@ -1,0 +1,11 @@
+  H        
+ROOT       
+  S O      
+  TORSO  S 
+    T  O O 
+   SHOOTER 
+ S  O  H E 
+ TOSS  E   
+ O  E  ROTE
+ ROOST S O 
+ E       E 

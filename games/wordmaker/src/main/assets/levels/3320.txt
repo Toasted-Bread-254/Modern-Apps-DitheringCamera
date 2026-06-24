@@ -1,0 +1,10 @@
+   TOO    D
+   I   DOOR
+   LOAD   O
+     D  I O
+   TOROIDAL
+T  A O  O  
+O  I I  L  
+ORAL T     
+L I        
+  D        

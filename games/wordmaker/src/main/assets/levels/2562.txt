@@ -1,0 +1,10 @@
+E     ICON 
+N      A   
+DIM    N  C
+  INCOME  O
+AID    DAMN
+  OCEAN   E
+  C        
+ DEMON     
+  A        
+  NAME     

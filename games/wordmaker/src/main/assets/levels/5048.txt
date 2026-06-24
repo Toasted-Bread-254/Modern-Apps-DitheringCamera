@@ -1,0 +1,11 @@
+  C    HOST
+  A    A   
+ACT    T   
+ U  CASE   
+ T  A      
+ EAST      
+    H      
+  SHOUT    
+    U HOT  
+ CHASTE    
+    E      

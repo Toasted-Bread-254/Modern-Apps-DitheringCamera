@@ -1,0 +1,11 @@
+  COT  
+  O    
+ROD    
+O  C   
+ACTOR  
+D  N   
+ ONTO  
+   A   
+  ODOR 
+   O   
+   ROOT

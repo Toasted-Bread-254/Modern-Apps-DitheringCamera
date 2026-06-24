@@ -1,0 +1,10 @@
+   QUIN  
+    N    
+  UNIT   
+    T T  
+ QUIETING
+   G  N  
+Q  N  GEN
+UNTIE E E
+I  T    T
+TINE     

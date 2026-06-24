@@ -1,0 +1,11 @@
+      OPEN
+G    G O  
+O P PRONE 
+N E  O G  
+E I  I    
+REGION    
+  N       
+R O R     
+ORIGIN    
+P R P     
+E   E     

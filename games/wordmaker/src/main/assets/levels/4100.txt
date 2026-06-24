@@ -1,0 +1,9 @@
+BLOC      
+O R       
+O MOOR    
+  O   B   
+ CLUBROOM 
+  U   O   
+      ROOM
+        U 
+        R 

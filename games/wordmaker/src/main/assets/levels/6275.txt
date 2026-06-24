@@ -1,0 +1,11 @@
+    CUT  D 
+    R  TRUE
+    U C  C 
+  DESTRUCT 
+  U T U R  
+DUST  S U  
+U T   T D  
+E E   E E  
+T R RUDE   
+     S     
+     E     

@@ -1,0 +1,11 @@
+P          
+A    P  S  
+C   CEASE  
+TEST A  C  
+  P  C  T  
+ SEPTET   C
+  C    P  A
+  T    A  S
+STATE  STAT
+  T    T   
+  ESCAPE   

@@ -1,0 +1,9 @@
+  M   T   
+BROTH H   
+  U  TUMOR
+  T T M   
+ THROMBUS 
+    U   H 
+    R   R 
+      BOUT
+        B 

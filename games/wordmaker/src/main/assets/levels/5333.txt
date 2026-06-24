@@ -1,0 +1,11 @@
+        RBI
+         I 
+       WIRE
+    B  E D 
+   BOWRIDER
+    R  R R 
+ERR D  D   
+ O  E WORD 
+ WEIRD  O  
+ E      B  
+BRIDE      

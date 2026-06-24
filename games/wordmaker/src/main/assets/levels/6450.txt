@@ -1,0 +1,10 @@
+      PLC  
+           
+    U      
+ CLONE     
+ O  C      
+ U  O L COP
+CPU U O  P 
+ E  POUNCE 
+    L P  N 
+ POLE E    

@@ -1,0 +1,11 @@
+    B MAT
+    L  T 
+  M ATOM 
+ MOTH    
+  T      
+  H  L   
+L B BOA  
+A A  A H 
+BALLOT A 
+  L  HALT
+       O 

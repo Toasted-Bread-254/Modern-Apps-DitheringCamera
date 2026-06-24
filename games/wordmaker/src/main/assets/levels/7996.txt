@@ -1,0 +1,8 @@
+ DUPLEX RED
+ U R    U  
+ P E R REP 
+ E L U   U 
+L DUPLEXER 
+U  D E   E 
+RULE D DUEL
+E          

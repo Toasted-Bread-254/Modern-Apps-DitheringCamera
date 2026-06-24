@@ -1,0 +1,11 @@
+W       O
+E    O  W
+END  PONE
+  O  E E 
+  W  N E 
+PONDWEED 
+E  E D   
+W  P     
+ DEEP    
+   N     
+WEND     

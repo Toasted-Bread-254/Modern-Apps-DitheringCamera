@@ -5,6 +5,7 @@ from collections import Counter
 class LevelGenerator:
     def __init__(self, word_list):
         self.word_list = [w.strip().upper() for w in word_list]
+        self.word_index = {w: i for i, w in enumerate(self.word_list)}
 
     def generate_level(self, level):
         # Determine target difficulty index
@@ -34,13 +35,10 @@ class LevelGenerator:
             
             # Difficulty scoring - favor words near base_offset
             def difficulty_score(w):
-                try:
-                    idx = self.word_list.index(w)
-                    # Penalize very common words for high levels
-                    if idx < base_offset // 2: return 999999
-                    return abs(idx - base_offset)
-                except:
-                    return 999999
+                idx = self.word_index.get(w, -1)
+                # Penalize unknown or very common words for high levels
+                if idx < 0 or idx < base_offset // 2: return 999999
+                return abs(idx - base_offset)
             
             candidates.sort(key=difficulty_score)
             other_candidates = candidates[:50]
@@ -288,7 +286,7 @@ if __name__ == "__main__":
     output_dir = os.path.join(script_dir, "../../games/wordmaker/src/main/assets/levels")
     os.makedirs(output_dir, exist_ok=True)
     
-    for level in range(862, 2001):
+    for level in range(2001, 8001):
         if level % 100 == 0:
             print(f"Generating level {level}...")
         grid_str = generator.generate_level(level)

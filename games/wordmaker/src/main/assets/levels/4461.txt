@@ -1,0 +1,10 @@
+ PARSE S S 
+    C  A C 
+  SCRAPPER 
+PEP A    A 
+  E P  P P 
+  C   CAPER
+    S  P   
+   SCARE   
+    A  R   
+ SEAR      

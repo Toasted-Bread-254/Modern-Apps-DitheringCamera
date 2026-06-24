@@ -1,0 +1,10 @@
+       TORN
+  T      I 
+  I L  L T 
+  TROTLINE 
+  L N  N   
+ORE E TENT 
+   I  I  O 
+   N  R  I 
+   TILE  L 
+   O       

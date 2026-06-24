@@ -1,0 +1,9 @@
+       D   
+ H S E E S 
+MESH N N H 
+ N ENMESHED
+   E E E D 
+   N S  N  
+     HEME  
+        E  
+     SEEM  

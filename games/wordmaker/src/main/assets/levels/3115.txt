@@ -1,0 +1,11 @@
+   F   SET
+   R R O  
+  FOREST  
+  O  F    
+  R  E    
+ REFOREST 
+R S       
+E T  S  R 
+STEREO  E 
+T R  ROSE 
+     E  F 

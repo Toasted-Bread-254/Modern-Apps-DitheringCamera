@@ -1,0 +1,10 @@
+TIN     B 
+  I B   L 
+  BLINI I 
+    T   N 
+   TILING 
+    N     
+    G     
+   GLINT  
+    Y  I  
+       LIT

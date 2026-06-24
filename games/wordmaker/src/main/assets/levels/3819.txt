@@ -1,0 +1,10 @@
+    SPEC  
+       U  
+    S  R  
+   PURSE  
+    R P   
+ U SPRUCE 
+ L  L R  S
+ C  I  L U
+ E  CRUISE
+PRICE  P  

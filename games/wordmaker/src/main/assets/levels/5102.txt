@@ -1,0 +1,11 @@
+         S 
+    G  S O 
+    O  N R 
+   TORSO T 
+   O   R I 
+   ROOSTING
+   S     G 
+   INTRO   
+G  O O     
+IRON R     
+T    N     

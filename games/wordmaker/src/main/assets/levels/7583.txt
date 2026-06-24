@@ -1,0 +1,9 @@
+FRONT   F 
+ E     NOT
+ A F    S 
+ SEAFRONT 
+ O S  F E 
+ N T STORE
+  NET E  A
+   R  NEAR
+         N

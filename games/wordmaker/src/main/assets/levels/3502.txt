@@ -1,0 +1,11 @@
+E  G GALL
+AREA A   
+R  L L   
+  LEGAL  
+    A    
+ GRILLE  
+  E L  G 
+  G E  E 
+  A RILL 
+  L I    
+    AGILE

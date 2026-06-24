@@ -1,0 +1,9 @@
+  ORCA     
+ C  O      
+ARROW R    
+ O  A A  A 
+ W DRAWCORD
+    D    D 
+      DADO 
+      A  R 
+      D    

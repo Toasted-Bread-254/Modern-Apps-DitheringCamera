@@ -1,0 +1,10 @@
+     T  
+ S STOP 
+ P T P  
+DOORPOST
+ R O   R
+ TOPOS O
+     P O
+     O P
+   ROOD 
+     R  

@@ -1,0 +1,11 @@
+      COUP
+        N 
+   PUCE C 
+     O  L 
+ UNCOUPLE 
+O  L P O  
+P  O L U P
+E  N E P U
+NOPE   EON
+  L       
+  C       

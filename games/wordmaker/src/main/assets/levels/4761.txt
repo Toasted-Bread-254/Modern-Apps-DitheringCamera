@@ -1,0 +1,11 @@
+  B  T  
+  ALIAS 
+  I  L  
+  TABLA 
+   I I B
+BALLISTA
+A      L
+SILT   L
+A  ALL A
+L  B   S
+    LAST

@@ -1,0 +1,10 @@
+      D    
+    SOIL   
+      L    
+    SOLID  
+        O  
+D DOORSILL 
+O O  O  O  
+O L SIR ROO
+RILL L    L
+          D

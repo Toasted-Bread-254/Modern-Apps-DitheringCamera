@@ -1,0 +1,11 @@
+      MIN 
+      R   
+     CIGAR
+     R    
+    CARING
+     M    
+ C ARMING 
+ R   I    
+MARGIN    
+ G A G    
+   M      

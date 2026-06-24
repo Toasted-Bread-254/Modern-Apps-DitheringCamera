@@ -1,0 +1,10 @@
+   DOOR  
+S   R    
+W S D    
+ODOROUS  
+R U    O 
+DURO   U 
+  W WOOD 
+  O O U  
+ SOUR ROO
+  D D    

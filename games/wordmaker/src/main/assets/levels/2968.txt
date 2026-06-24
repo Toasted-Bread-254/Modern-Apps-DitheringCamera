@@ -1,0 +1,10 @@
+        N 
+      BRAN
+      A B 
+    B N   
+  BRANDADE
+RNA R  B  
+A R E  E  
+DEN  ADD  
+     N    
+     D    

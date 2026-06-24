@@ -1,0 +1,10 @@
+        COD
+  OLD    C 
+    O C  C 
+    COL  L 
+      O  U 
+  OCCLUDED 
+ C O  D  E 
+ L D  E    
+LODE ODE   
+ D C       

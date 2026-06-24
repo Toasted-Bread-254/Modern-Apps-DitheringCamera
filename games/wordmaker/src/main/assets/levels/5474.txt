@@ -1,0 +1,10 @@
+CUP      C
+  E      U
+ PASS  SUB
+   C   P  
+   A   E  
+ SUBSPACE 
+ C  A     
+ A PUCE   
+CUE C     
+ P  E     

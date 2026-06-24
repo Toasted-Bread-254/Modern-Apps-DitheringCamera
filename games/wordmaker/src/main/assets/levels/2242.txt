@@ -1,0 +1,11 @@
+   PUD  S 
+     R  T 
+  SPROUTED
+   R P  P 
+   E   R P
+   STORE E
+   T   SET
+ PROUD T  
+ O        
+ E        
+STOP      

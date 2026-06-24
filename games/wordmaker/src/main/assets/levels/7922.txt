@@ -1,0 +1,8 @@
+    CONDO 
+    A     
+  CONTADOR
+  A D  O O
+C R O  O O
+ACTOR  ROT
+R O       
+T NOD     

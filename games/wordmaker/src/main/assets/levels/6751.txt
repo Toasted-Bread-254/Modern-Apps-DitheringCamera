@@ -1,0 +1,10 @@
+    READ   
+       A   
+  P    T   
+ PASTURE   
+  S  P     
+RATE S  SET
+  U  E  T  
+P R  TRUE  
+USED  E P  
+T D   D    

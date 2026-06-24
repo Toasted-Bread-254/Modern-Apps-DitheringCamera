@@ -1,0 +1,11 @@
+WALK    W
+   E LAKE
+   V    A
+ WALKOVER
+ A A     
+ LORE    
+ K       
+ E       
+ORAL     
+A W      
+K E      

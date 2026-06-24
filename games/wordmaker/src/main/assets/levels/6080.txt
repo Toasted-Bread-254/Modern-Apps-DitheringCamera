@@ -1,0 +1,10 @@
+ M        
+ O        
+ LOAD    A
+ D  ELM  B
+    A    L
+  MOLDABLE
+B E   M A 
+A D   B D 
+L A ALL L 
+DOLE  E E 

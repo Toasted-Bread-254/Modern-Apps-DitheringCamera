@@ -1,0 +1,11 @@
+      C   C
+   CASE   A
+      S P P
+   SUBSPACE
+   U    U  
+ C B PASSE 
+BUSS    E  
+ B E       
+  SAUCE    
+  P  A     
+  A  B     

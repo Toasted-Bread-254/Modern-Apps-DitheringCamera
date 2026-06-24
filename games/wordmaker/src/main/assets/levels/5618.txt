@@ -1,0 +1,10 @@
+ N  DOWN  
+ O W  E   
+ WOODEN   
+   O  D   
+WOODY     
+E  E      
+L  N  LOO 
+D  LODE  W
+   Y  N  O
+      DOLE

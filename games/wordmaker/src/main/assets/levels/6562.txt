@@ -1,0 +1,11 @@
+    DEEP
+    U  E
+    E  E
+ DUPLEX 
+ U      
+ PURED  
+ L   U  
+ EXUDE  
+ X  U   
+ E  P   
+PRUDE   

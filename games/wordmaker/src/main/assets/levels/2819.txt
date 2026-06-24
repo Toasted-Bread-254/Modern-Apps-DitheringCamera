@@ -1,0 +1,11 @@
+MOL M COIL
+  O U    I
+  INOCULUM
+  N N N  O
+      C   
+    M O C 
+    U I U 
+  C COLUMN
+  O I   I 
+ LION   N 
+  N       

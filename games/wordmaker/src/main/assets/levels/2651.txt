@@ -1,0 +1,7 @@
+      H M 
+      U U 
+    D MID 
+    I I   
+  HUMIDIFY
+  I      U
+HUM      M

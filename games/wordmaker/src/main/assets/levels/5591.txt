@@ -1,0 +1,9 @@
+ SUP  R   
+P  U SEED 
+USER  P   
+R  E  U P 
+E REPULSED
+      S R 
+   DUPE U 
+        S 
+    ELUDE 

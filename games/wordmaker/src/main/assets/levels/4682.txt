@@ -1,0 +1,9 @@
+      S   R
+      I   I
+B  DIRT B D
+E D  E TREE
+TIE  S  I  
+  BESTRIDE 
+  R E   E  
+ TIRED     
+  S        

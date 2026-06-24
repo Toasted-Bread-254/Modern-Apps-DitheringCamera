@@ -1,0 +1,9 @@
+ DATA ADE
+    T  A 
+    T  T 
+ ATTACKED
+C E C    
+A A KATA 
+TAKE  A  
+ C  DACE 
+ T    T  

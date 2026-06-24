@@ -1,0 +1,9 @@
+SAND   S S 
+   E  SHAPE
+   A   A A 
+  UNSHAPED 
+  S  E E E 
+  E HAND   
+AND  P     
+P          
+E          

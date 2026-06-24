@@ -1,0 +1,8 @@
+REBUT    
+    U    
+ TRUCKBED
+ R  K    
+ U DEBUT 
+RET D  U 
+  U    B 
+  BED RED

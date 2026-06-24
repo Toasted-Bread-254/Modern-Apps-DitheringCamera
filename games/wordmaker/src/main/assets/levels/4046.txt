@@ -1,0 +1,10 @@
+  R        
+TRUE       
+  S  D     
+DUET E C S 
+   R S USER
+S CUTTER C 
+U  S R T T 
+REST U     
+E    C     
+    STRUT  

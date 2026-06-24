@@ -1,0 +1,9 @@
+    SIDE 
+   M  I S
+  DIN M N
+   S  N I
+ MISSPEND
+   E  S E
+PIED PSI 
+ S       
+ M       

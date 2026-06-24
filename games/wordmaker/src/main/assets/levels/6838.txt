@@ -1,0 +1,9 @@
+      BEAD
+  LAME  M 
+  A   B B 
+A MOLDABLE
+LOB   L E 
+E   D L   
+   MODEL  
+    L D   
+  MOLD    

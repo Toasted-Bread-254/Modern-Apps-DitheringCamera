@@ -1,0 +1,11 @@
+DOME       
+O E        
+T A        
+ ATOM   MAT
+ R  O E O  
+ T  R R R  
+    TRADE  
+    A      
+   DREAM   
+    E      
+    DATE   

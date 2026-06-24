@@ -1,0 +1,11 @@
+        S S
+       RULE
+P     C R A
+L S SPARE  
+U C P R    
+SPACE E    
+  R C      
+   SUPER   
+    L      
+ CLEAR     
+    R      

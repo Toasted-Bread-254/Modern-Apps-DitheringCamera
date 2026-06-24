@@ -1,0 +1,8 @@
+ L  N  D 
+ O  O  O 
+ GOLDMINE
+   O  D  
+   N LONE
+ DOG  L  
+         
+LODGE    

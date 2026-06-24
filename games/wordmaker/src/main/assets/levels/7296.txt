@@ -1,0 +1,10 @@
+    L  
+   GIN 
+  P N  
+POINT  
+L L    
+O O POL
+T T I  
+ PITON 
+  N N  
+NOG    

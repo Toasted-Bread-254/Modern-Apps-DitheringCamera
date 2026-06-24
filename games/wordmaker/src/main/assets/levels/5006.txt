@@ -1,0 +1,11 @@
+G     AREA
+A  A     E
+RILL     R
+   G   G I
+  GALLERIA
+   E I I L
+     A L  
+     R L  
+      REAL
+    LEA  E
+      G  G

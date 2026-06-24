@@ -1,0 +1,11 @@
+        T  
+      D E  
+SET  RESET 
+  R   T    
+  E   E D  
+  ASSERTED 
+  D     S  
+    TERSE  
+    E   R E
+    A   TAR
+ DEER     A

@@ -1,0 +1,9 @@
+  ATOM  M  
+  M  OUTER 
+ OUT R  T  
+  L  A  R  
+  EMULATOR 
+ART  E   E 
+         A 
+       MALE
+         M 

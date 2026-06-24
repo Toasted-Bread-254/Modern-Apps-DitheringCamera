@@ -1,0 +1,10 @@
+T          
+ORB        
+O R  W     
+ ROWBOAT W 
+  O  R A O 
+  K  K ROOK
+     B O   
+  ROBOT    
+     A     
+  BOAT     

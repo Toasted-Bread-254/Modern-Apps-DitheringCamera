@@ -1,0 +1,10 @@
+  C      
+  A  C  D
+CARD A  A
+   R WORD
+ C A   O 
+DRAW   A 
+ A COWARD
+ W O    O
+  CROWD C
+   D     

@@ -1,0 +1,10 @@
+ PART   O  
+ O   PORT  
+ R  A   I  
+ C  TOPIC  
+CHAIR      
+    ORPHIC 
+  HIP      
+    HARICOT
+    I      
+    CARHOP 

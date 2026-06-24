@@ -1,0 +1,11 @@
+  H       
+  E       
+  A       
+MATCH    H
+    E    A
+ TEACH EAT
+A   A  A  
+COMET  C  
+H   OATH  
+E   M     
+ COMBAT   

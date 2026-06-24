@@ -1,0 +1,9 @@
+   B     D 
+  DRIVABLE 
+   E A   A 
+   A L BARE
+BIRD I     
+  A IDEA   
+B I        
+AID        
+D          

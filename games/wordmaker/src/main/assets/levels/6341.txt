@@ -1,0 +1,9 @@
+  MODE N  
+    A  ODE
+    HAND N
+    O  E D
+  DEMON   
+AHA E  M  
+  M AHEAD 
+  N N  N  
+      HEM 

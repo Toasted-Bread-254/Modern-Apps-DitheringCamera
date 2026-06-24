@@ -1,0 +1,11 @@
+  N N      
+  O O      
+  RETAIN   
+     T  P  
+  PAIR  I  
+     OPEN  
+   P P  EAT
+  TRAIN    
+T  I N     
+A  N E     
+POET       

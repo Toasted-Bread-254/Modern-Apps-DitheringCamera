@@ -1,0 +1,10 @@
+ARM     
+  A     
+ BRA B  
+ R R R  
+MARABOUT
+ T B   U
+     T M
+    AUTO
+     B R
+    BAT 

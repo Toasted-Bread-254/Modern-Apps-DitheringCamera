@@ -1,0 +1,10 @@
+    RED  
+      O  
+   DUST  
+    N    
+  NOSE S 
+ N  O OUT
+OUTER  R 
+ R  TRUE 
+ S  E S  
+ E  D E  

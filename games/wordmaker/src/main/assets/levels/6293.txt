@@ -1,0 +1,11 @@
+    D    
+    I    
+  SIT D I
+   T  O N
+ DISJOINT
+ I    T O
+ S       
+ JOIST   
+ O  O    
+ I  D    
+SNOT     

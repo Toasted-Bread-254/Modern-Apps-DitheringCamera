@@ -1,0 +1,11 @@
+ TENT R 
+  R R E 
+ CANE C 
+    A A 
+REACTANT
+   R  T 
+ TRACE  
+   T    
+  REACT 
+  E   E 
+  C  TAN

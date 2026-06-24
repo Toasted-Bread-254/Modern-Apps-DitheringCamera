@@ -1,0 +1,10 @@
+     EATS  
+ T      EAT
+ E   C  A  
+END CANST  
+  E  D     
+S S  EAST  
+ASCENT     
+T A E      
+E N A      
+D T T      

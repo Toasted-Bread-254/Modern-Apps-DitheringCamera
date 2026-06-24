@@ -1,0 +1,9 @@
+ROW  W    
+  O  O M  
+  GLOWWORM
+   O   O  
+   G WORM 
+ GROW W   
+ L    LOG 
+ROOM      
+ W        

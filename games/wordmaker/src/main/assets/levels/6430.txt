@@ -1,0 +1,10 @@
+       B   
+       ADD 
+    BAND   
+    R      
+  B A  BEAR
+BRAIN  R   
+E R D DEAD 
+A E I  A N 
+N  BEARD A 
+    D      

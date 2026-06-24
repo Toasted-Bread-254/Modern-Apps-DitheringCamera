@@ -1,0 +1,10 @@
+         S 
+     G   A 
+   S RAINY 
+   T A  A  
+ STRING S  
+   A T STAR
+ G Y    Y I
+SANITY    N
+ I N      G
+ N GIANT   

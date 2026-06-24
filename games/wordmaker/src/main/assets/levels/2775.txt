@@ -1,0 +1,11 @@
+E SPEED
+R P    
+A A R  
+SPREAD 
+E E P E
+   SEER
+D   S A
+RESEED 
+A P E  
+P A D  
+E R    
