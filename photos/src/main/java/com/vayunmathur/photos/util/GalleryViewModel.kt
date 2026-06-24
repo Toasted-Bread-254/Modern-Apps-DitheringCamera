@@ -1,14 +1,17 @@
 package com.vayunmathur.photos.util
 
 import android.app.Application
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.library.util.DataStoreUtils
+import com.vayunmathur.library.util.buildDatabase
 import com.vayunmathur.photos.data.Photo
 import com.vayunmathur.photos.data.PhotoDao
+import com.vayunmathur.photos.data.PhotoDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -125,6 +128,25 @@ class GalleryViewModel(
 
     fun runSync() {
         SyncWorker.runOnce(getApplication())
+    }
+
+    /**
+     * Index the single media [uri] into the gallery DB (so a freshly-captured
+     * item handed to us via ACTION_VIEW exists before we open it), then return
+     * its row id on the main thread. Also kicks a full background sync so the
+     * rest of the library is fresh for swiping. Returns null if the item
+     * couldn't be resolved.
+     */
+    fun resolveAndIndex(uri: Uri, onResolved: (Long?) -> Unit) {
+        viewModelScope.launch {
+            val id = withContext(Dispatchers.IO) {
+                val db = getApplication<Application>().buildDatabase<PhotoDatabase>()
+                runCatching { syncPhotos(getApplication(), db, listOf(uri)) }
+                photoDao.getByUri(uri.toString()).firstOrNull()?.id
+            }
+            runSync()
+            onResolved(id)
+        }
     }
 
     fun enqueueSync() {

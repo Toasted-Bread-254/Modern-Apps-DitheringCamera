@@ -113,14 +113,14 @@ class MainActivity : FragmentActivity() {
                         .collect { dataStore.setLong(COLUMN_COUNT_KEY, it.toLong()) }
                 }
                 CompositionLocalProvider(LocalColumnCount provides columnCount) {
-                    PermissionsWrapper()
+                    PermissionsWrapper(viewUri = if (intent?.action == Intent.ACTION_VIEW) intent?.data else null)
                 }
             }
         }
     }
 
     @Composable
-    private fun PermissionsWrapper() {
+    private fun PermissionsWrapper(viewUri: Uri? = null) {
         val context = LocalContext.current
         
         // minSdk is 31. API 31-32 need READ_EXTERNAL_STORAGE, API 33+ need READ_MEDIA_*
@@ -133,7 +133,7 @@ class MainActivity : FragmentActivity() {
                     Manifest.permission.ACCESS_MEDIA_LOCATION
                 ), getString(R.string.grant_image_video_permissions)
             ) {
-                CheckManageMediaPermission(context)
+                CheckManageMediaPermission(context, viewUri)
             }
         } else {
             PermissionsChecker(
@@ -141,13 +141,13 @@ class MainActivity : FragmentActivity() {
                     Manifest.permission.READ_EXTERNAL_STORAGE
                 ), getString(R.string.grant_storage_permission)
             ) {
-                CheckManageMediaPermission(context)
+                CheckManageMediaPermission(context, viewUri)
             }
         }
     }
     
     @Composable
-    private fun CheckManageMediaPermission(context: Context) {
+    private fun CheckManageMediaPermission(context: Context, viewUri: Uri? = null) {
         // Use state to track permission status, updated when activity resumes
         var hasManageMedia by remember { 
             mutableStateOf(MediaStore.canManageMedia(context)) 
@@ -204,7 +204,7 @@ class MainActivity : FragmentActivity() {
                 }
             }
         } else {
-            Navigation(galleryViewModel, photoMapViewModel, secureFolderViewModel)
+            Navigation(galleryViewModel, photoMapViewModel, secureFolderViewModel, viewUri)
         }
     }
 }
@@ -232,10 +232,22 @@ fun Navigation(
     galleryViewModel: GalleryViewModel,
     photoMapViewModel: PhotoMapViewModel,
     secureFolderViewModel: SecureFolderViewModel,
+    viewUri: Uri? = null,
 ) {
     val backStack = rememberNavBackStack<Route>(Route.Gallery)
     val vaultPhotoDao by secureFolderViewModel.vaultPhotoDao.collectAsState()
     val vaultPassword by secureFolderViewModel.vaultPassword.collectAsState()
+
+    // Opened via ACTION_VIEW from another app: index the URI into the gallery
+    // DB, then open it in the regular swipeable PhotoPage (full gallery as the
+    // pager so the user can swipe to other photos). Done once per URI.
+    LaunchedEffect(viewUri) {
+        if (viewUri != null) {
+            galleryViewModel.resolveAndIndex(viewUri) { id ->
+                if (id != null) backStack.add(Route.PhotoPage(id, null))
+            }
+        }
+    }
 
     MainNavigation(backStack) {
         entry<Route.Gallery> {
