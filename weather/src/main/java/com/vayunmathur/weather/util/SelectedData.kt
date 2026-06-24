@@ -24,6 +24,7 @@ data class ResolvedConditions(
     val sunriseIso: String?,
     val sunsetIso: String?,
     val precipitationSum: Double?,
+    val daylightDurationSec: Double?,
     val blockCurrent: Current,
 )
 
@@ -54,6 +55,7 @@ fun resolveConditions(
             sunriseIso = daily?.sunrise?.firstOrNull(),
             sunsetIso = daily?.sunset?.firstOrNull(),
             precipitationSum = daily?.precipitationSum?.firstOrNull(),
+            daylightDurationSec = daily?.daylightDuration?.firstOrNull(),
             blockCurrent = current,
         )
 
@@ -92,6 +94,7 @@ fun resolveConditions(
                 sunriseIso = d?.let { daily?.sunrise?.getOrNull(it) },
                 sunsetIso = d?.let { daily?.sunset?.getOrNull(it) },
                 precipitationSum = hourly.precipitation.getOrNull(h),
+                daylightDurationSec = d?.let { daily?.daylightDuration?.getOrNull(it) },
                 blockCurrent = hourCurrent,
             )
         }
@@ -105,13 +108,14 @@ fun resolveConditions(
                 weatherCode = daily.weatherCode.getOrNull(d) ?: current.weatherCode,
                 isDay = true,
                 temperature = daily.temperatureMax.getOrNull(d) ?: current.temperature,
-                apparentTemperature = null,
+                apparentTemperature = daily.apparentTemperatureMax.getOrNull(d),
                 high = daily.temperatureMax.getOrNull(d),
                 low = daily.temperatureMin.getOrNull(d),
                 uvIndexMax = daily.uvIndexMax.getOrNull(d),
                 sunriseIso = daily.sunrise.getOrNull(d),
                 sunsetIso = daily.sunset.getOrNull(d),
                 precipitationSum = daily.precipitationSum.getOrNull(d),
+                daylightDurationSec = daily.daylightDuration.getOrNull(d),
                 // No daily equivalent for humidity/wind/pressure/visibility —
                 // keep showing the live current values for those blocks.
                 blockCurrent = current,

@@ -222,6 +222,7 @@ private fun LocationPage(
                         sunsetEpochSec = sunsetEpoch,
                         precipitationMm = resolved.precipitationSum,
                         precipitationNowcast = nowcast,
+                        daylightDurationSec = resolved.daylightDurationSec,
                         tempUnit = tempUnit,
                         windUnit = windUnit,
                         pressureUnit = pressureUnit,

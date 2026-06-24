@@ -39,7 +39,7 @@ import kotlin.time.Instant
  * progress, and a translucent bottom panel with sunrise / sunset times.
  */
 @Composable
-fun SunBlock(sunriseEpochSec: Long?, sunsetEpochSec: Long?, use24Hour: Boolean) {
+fun SunBlock(sunriseEpochSec: Long?, sunsetEpochSec: Long?, use24Hour: Boolean, daylightDurationSec: Double? = null) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = MaterialTheme.shapes.extraLarge,
@@ -85,16 +85,16 @@ fun SunBlock(sunriseEpochSec: Long?, sunsetEpochSec: Long?, use24Hour: Boolean) 
                 drawCircle(color = sunColor, radius = 7.dp.toPx(), center = Offset(sx, sy))
             }
 
-            // Bottom 40% panel with sunrise / sunset times.
+            // Bottom panel with sunrise / sunset times + daylight length.
             Surface(
-                modifier = Modifier.align(Alignment.BottomCenter).fillMaxHeight(0.4f).fillMaxWidth(),
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxHeight(0.46f).fillMaxWidth(),
                 color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.5f),
             ) {
                 Box(Modifier.fillMaxSize()) {
                     HorizontalDivider(Modifier.align(Alignment.TopCenter))
                     Column(
                         Modifier.align(Alignment.Center),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
                         RiseSetTimeRow(
                             text = sunriseEpochSec?.let { formatTime(it, use24Hour) } ?: "—",
@@ -104,6 +104,12 @@ fun SunBlock(sunriseEpochSec: Long?, sunsetEpochSec: Long?, use24Hour: Boolean) 
                             text = sunsetEpochSec?.let { formatTime(it, use24Hour) } ?: "—",
                             iconRes = R.drawable.outline_clear_night_24,
                         )
+                        if (daylightDurationSec != null) {
+                            RiseSetTimeRow(
+                                text = formatDuration(daylightDurationSec),
+                                iconRes = R.drawable.outline_schedule_24,
+                            )
+                        }
                     }
                 }
             }
@@ -122,6 +128,13 @@ private fun RiseSetTimeRow(text: String, iconRes: Int) {
             style = MaterialTheme.typography.labelLarge,
         )
     }
+}
+
+private fun formatDuration(seconds: Double): String {
+    val total = seconds.toLong()
+    val h = total / 3600
+    val m = (total % 3600) / 60
+    return "${h}h ${m}m"
 }
 
 private fun formatTime(epochSec: Long, use24Hour: Boolean): String {

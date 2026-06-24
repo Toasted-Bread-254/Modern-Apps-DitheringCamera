@@ -43,6 +43,7 @@ fun WeatherBlocks(
     sunsetEpochSec: Long?,
     precipitationMm: Double?,
     precipitationNowcast: String?,
+    daylightDurationSec: Double?,
     tempUnit: TemperatureUnit,
     windUnit: WindUnit,
     pressureUnit: PressureUnit,
@@ -69,7 +70,7 @@ fun WeatherBlocks(
         item { CloudCoverBlock(current = current) }
         item { PressureBlock(current = current, pressureUnit = pressureUnit) }
         item { VisibilityBlock(current = current, useMiles = windUnit == WindUnit.Mph) }
-        item { SunBlock(sunriseEpochSec = sunriseEpochSec, sunsetEpochSec = sunsetEpochSec, use24Hour = use24Hour) }
+        item { SunBlock(sunriseEpochSec = sunriseEpochSec, sunsetEpochSec = sunsetEpochSec, use24Hour = use24Hour, daylightDurationSec = daylightDurationSec) }
         item { AirQualityBlock(air = air) }
         item { PollenBlock(air = air) }
     }
