@@ -99,40 +99,44 @@ data class Event(
             try {
                 val cursor = context.contentResolver.query(uri, projection, null, null, null)
                 cursor?.use {
+                    // Resolve column indices once, not per row.
+                    val idIdx = it.getColumnIndexOrThrow(CalendarContract.Events._ID)
+                    val calIdx = it.getColumnIndexOrThrow(CalendarContract.Events.CALENDAR_ID)
+                    val titleIdx = it.getColumnIndexOrThrow(CalendarContract.Events.TITLE)
+                    val descIdx = it.getColumnIndexOrThrow(CalendarContract.Events.DESCRIPTION)
+                    val locIdx = it.getColumnIndexOrThrow(CalendarContract.Events.EVENT_LOCATION)
+                    val colorIdx = it.getColumnIndexOrThrow(CalendarContract.Events.EVENT_COLOR)
+                    val startIdx = it.getColumnIndexOrThrow(CalendarContract.Events.DTSTART)
+                    val endIdx = it.getColumnIndexOrThrow(CalendarContract.Events.DTEND)
+                    val allDayIdx = it.getColumnIndexOrThrow(CalendarContract.Events.ALL_DAY)
+                    val tzIdx = it.getColumnIndexOrThrow(CalendarContract.Events.EVENT_TIMEZONE)
+                    val deletedIdx = it.getColumnIndexOrThrow(CalendarContract.Events.DELETED)
+                    val rruleIdx = it.getColumnIndexOrThrow(CalendarContract.Events.RRULE)
+                    val durationIdx = it.getColumnIndexOrThrow(CalendarContract.Events.DURATION)
+                    val exdateIdx = it.getColumnIndexOrThrow(CalendarContract.Events.EXDATE)
+
                     while (it.moveToNext()) {
                         try {
-                            val id = it.getLong(it.getColumnIndexOrThrow(CalendarContract.Events._ID))
-                            val calendarID =
-                                it.getLong(it.getColumnIndexOrThrow(CalendarContract.Events.CALENDAR_ID))
-                            val title =
-                                it.getString(it.getColumnIndexOrThrow(CalendarContract.Events.TITLE))
-                            val description =
-                                it.getStringOrNull(it.getColumnIndexOrThrow(CalendarContract.Events.DESCRIPTION))
-                                    ?: ""
-                            val location =
-                                it.getStringOrNull(it.getColumnIndexOrThrow(CalendarContract.Events.EVENT_LOCATION))
-                                    ?: ""
-                            val color =
-                                it.getIntOrNull(it.getColumnIndexOrThrow(CalendarContract.Events.EVENT_COLOR))
-                            val start =
-                                it.getLong(it.getColumnIndexOrThrow(CalendarContract.Events.DTSTART))
-                            var end = it.getLong(it.getColumnIndexOrThrow(CalendarContract.Events.DTEND))
-                            val allDay =
-                                it.getInt(it.getColumnIndexOrThrow(CalendarContract.Events.ALL_DAY)) == 1
+                            val id = it.getLong(idIdx)
+                            val calendarID = it.getLong(calIdx)
+                            val title = it.getString(titleIdx)
+                            val description = it.getStringOrNull(descIdx) ?: ""
+                            val location = it.getStringOrNull(locIdx) ?: ""
+                            val color = it.getIntOrNull(colorIdx)
+                            val start = it.getLong(startIdx)
+                            var end = it.getLong(endIdx)
+                            val allDay = it.getInt(allDayIdx) == 1
                             var timezone =
-                                it.getStringOrNull(it.getColumnIndexOrThrow(CalendarContract.Events.EVENT_TIMEZONE)) ?: TimeZone.currentSystemDefault().id
+                                it.getStringOrNull(tzIdx) ?: TimeZone.currentSystemDefault().id
                             try {
                                 TimeZone.of(timezone)
                             } catch(_: DateTimeException) {
                                 timezone = TimeZone.currentSystemDefault().id
                             }
-                            val deleted =
-                                it.getInt(it.getColumnIndexOrThrow(CalendarContract.Events.DELETED)) == 1
-                            val rrule =
-                                it.getStringOrNull(it.getColumnIndexOrThrow(CalendarContract.Events.RRULE))
-                                    ?: ""
-                            val duration = it.getStringOrNull(it.getColumnIndexOrThrow(CalendarContract.Events.DURATION))
-                            val exdateStr = it.getStringOrNull(it.getColumnIndexOrThrow(CalendarContract.Events.EXDATE))
+                            val deleted = it.getInt(deletedIdx) == 1
+                            val rrule = it.getStringOrNull(rruleIdx) ?: ""
+                            val duration = it.getStringOrNull(durationIdx)
+                            val exdateStr = it.getStringOrNull(exdateIdx)
 
 
                             val durationMillis = duration?.let { duration -> try {Duration.parse(duration).inWholeMilliseconds } catch(_: Exception) {0} }
