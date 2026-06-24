@@ -154,9 +154,8 @@ dependencies {
     // conversation-row avatars in InboxScreen / ConversationScreen.
     implementation(libs.coil.compose)
 
-    // Network — for any auxiliary HTTP we end up needing outside the
-    // dedicated RPC client.
-    implementation(project(":library:network"))
+    // OkHttp — WebSocket transport for Signal
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // Bouncy Castle — AES-IGE for MTProto encryption, X25519 for WhatsApp Noise
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
