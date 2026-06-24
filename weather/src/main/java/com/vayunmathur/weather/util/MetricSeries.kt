@@ -2,6 +2,7 @@ package com.vayunmathur.weather.util
 
 import com.vayunmathur.weather.intents.parseLocalIsoToEpochSec
 import com.vayunmathur.weather.network.ForecastResponse
+import kotlinx.datetime.toLocalDateTime
 
 /** A metric that has an hourly series we can plot. */
 enum class WeatherMetric(val title: String) {
@@ -22,10 +23,9 @@ enum class WeatherMetric(val title: String) {
 data class MetricPoint(val epochSec: Long, val value: Double)
 
 /**
- * Extract the hourly series for [metric] over a window that matches the
- * current [selected] state: a selected day/hour plots that whole day, while
- * no selection plots the next 24 hours from now. Values are raw API units;
- * callers format them for display.
+ * Extract the hourly series for [metric] over exactly one local calendar day
+ * (midnight to midnight): the selected day/hour's date, or today when nothing
+ * is selected. Values are raw API units; callers format them for display.
  */
 fun metricSeries(
     forecast: ForecastResponse,
@@ -51,21 +51,25 @@ fun metricSeries(
     val targetDate = when (selected) {
         is SelectedDateOrTime.Day -> selected.isoDate
         is SelectedDateOrTime.Time -> selected.isoTime.substringBefore('T')
-        null -> null
+        // No selection: plot today (the location's local calendar day) so the
+        // graph always runs midnight-to-midnight, never a rolling 24h window.
+        null -> forecast.daily?.time?.firstOrNull() ?: localDate(forecast.utcOffsetSeconds)
     }
-    val now = System.currentTimeMillis() / 1000
 
     val out = ArrayList<MetricPoint>()
     for (i in hourly.time.indices) {
         val value = raw.getOrNull(i) ?: continue
         val iso = hourly.time[i]
+        if (iso.substringBefore('T') != targetDate) continue
         val epoch = parseLocalIsoToEpochSec(iso, forecast.utcOffsetSeconds) ?: continue
-        if (targetDate != null) {
-            if (iso.substringBefore('T') != targetDate) continue
-        } else {
-            if (epoch < now || epoch > now + 24 * 3600) continue
-        }
         out.add(MetricPoint(epoch, value))
     }
     return out
+}
+
+/** Today's date in the location's local time, as an ISO `yyyy-MM-dd` string. */
+private fun localDate(utcOffsetSeconds: Int): String {
+    val now = System.currentTimeMillis() / 1000
+    return kotlin.time.Instant.fromEpochSeconds(now + utcOffsetSeconds)
+        .toLocalDateTime(kotlinx.datetime.TimeZone.UTC).date.toString()
 }
