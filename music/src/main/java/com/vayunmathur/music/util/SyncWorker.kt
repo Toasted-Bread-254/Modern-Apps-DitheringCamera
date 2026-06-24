@@ -128,7 +128,8 @@ suspend fun syncMusic(context: Context, database: MusicDatabase, uris: List<Uri>
         MediaStore.Audio.Media.ALBUM,
         MediaStore.Audio.Media.ALBUM_ID,
         MediaStore.Audio.Media.DURATION,
-        MediaStore.Audio.Media.TRACK
+        MediaStore.Audio.Media.TRACK,
+        MediaStore.Audio.Media.YEAR
     )
 
     val selection = when {
@@ -157,6 +158,9 @@ suspend fun syncMusic(context: Context, database: MusicDatabase, uris: List<Uri>
             val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
             val artistIDColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST_ID)
             val albumIDColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+            val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+            val trackColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
+            val yearColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
 
             while (cursor.moveToNext()) {
                 try {
@@ -169,17 +173,18 @@ suspend fun syncMusic(context: Context, database: MusicDatabase, uris: List<Uri>
                     val contentUriObject = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
                     val contentUri = contentUriObject.toString()
 
-                    val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
                     var duration = cursor.getLong(durationColumn)
 
                     if (duration == 0L) {
                         duration = getRealAudioDuration(context, contentUriObject)
                     }
 
-                    val trackColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
                     val rawTrack = cursor.getInt(trackColumn)
                     val trackNumber = if (rawTrack >= 1000) rawTrack % 1000 else rawTrack
-                    val year = getAudioYear(context, contentUriObject)
+                    // Read the year straight from MediaStore. Only fall back to the
+                    // (expensive, per-file) metadata retriever when it's missing.
+                    val year = cursor.getInt(yearColumn).takeIf { it > 0 }
+                        ?: getAudioYear(context, contentUriObject)
 
                     musicList.add(Music(id, title, artist, artistID, album, albumID, contentUri, duration, trackNumber, year))
                 } catch (e: Exception) {
@@ -197,6 +202,9 @@ suspend fun syncMusic(context: Context, database: MusicDatabase, uris: List<Uri>
         musicDao.upsertAll(musicList)
     } else {
         musicDao.upsertAll(musicList)
+        // Incremental trigger that changed nothing relevant: skip the (whole-
+        // library) album/artist + matching rebuild below.
+        if (musicList.isEmpty() && toDelete.isEmpty()) return
     }
 
     // 4. Always refresh Albums and Artists completely to ensure consistency
