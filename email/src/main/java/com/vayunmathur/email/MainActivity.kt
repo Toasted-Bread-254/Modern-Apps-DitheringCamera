@@ -767,6 +767,7 @@ fun MessageItem(
     var attachments by remember { mutableStateOf<List<Attachment>>(emptyList()) }
     var showDetails by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
+    val context = LocalContext.current
     
     LaunchedEffect(msg.id) {
         attachments = viewModel.getAttachments(msg.accountEmail, msg.id)
@@ -829,6 +830,21 @@ fun MessageItem(
             }
 
             Row {
+                var showSnooze by remember { mutableStateOf(false) }
+                Box {
+                    TextButton(onClick = { showSnooze = true }) { Text("Snooze") }
+                    DropdownMenu(expanded = showSnooze, onDismissRequest = { showSnooze = false }) {
+                        val snooze = { at: Long ->
+                            showSnooze = false
+                            viewModel.snoozeMessage(msg.accountEmail, msg.folderName, msg.id, at)
+                            android.widget.Toast.makeText(context, "Snoozed", android.widget.Toast.LENGTH_SHORT).show()
+                            onBack()
+                        }
+                        DropdownMenuItem(text = { Text("Later today (6 PM)") }, onClick = { snooze(scheduleTime(18, sameDay = true)) })
+                        DropdownMenuItem(text = { Text("Tomorrow (8 AM)") }, onClick = { snooze(scheduleTime(8, sameDay = false)) })
+                        DropdownMenuItem(text = { Text("In 1 week") }, onClick = { snooze(System.currentTimeMillis() + 7L * 24 * 3600_000) })
+                    }
+                }
                 IconButton(onClick = { onReply(msg.from, msg.subject, msg.serverId) }) {
                     IconUndo()
                 }

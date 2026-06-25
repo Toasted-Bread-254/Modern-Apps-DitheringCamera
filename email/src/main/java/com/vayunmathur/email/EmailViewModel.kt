@@ -130,15 +130,16 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
     ) { email, folder, query ->
         Triple(email, folder, query)
     }.flatMapLatest { (email, folder, query) ->
+        val now = System.currentTimeMillis()
         if (email == null) {
             // Unified Inbox
-            if (query.isEmpty()) dao.getUnifiedMessagesFlow("INBOX")
-            else dao.searchUnifiedMessagesFlow("INBOX", query)
+            if (query.isEmpty()) dao.getUnifiedMessagesFlow("INBOX", now)
+            else dao.searchUnifiedMessagesFlow("INBOX", query, now)
         } else {
             if (query.isEmpty()) {
-                dao.getMessagesFlow(email, folder)
+                dao.getMessagesFlow(email, folder, now)
             } else {
-                dao.searchMessagesFlow(email, folder, query)
+                dao.searchMessagesFlow(email, folder, query, now)
             }
         }
     }
@@ -251,6 +252,14 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 android.util.Log.w("EmailViewModel", "Failed to delete message on server: ${e.message}")
             }
+        }
+    }
+
+    /** Snooze a message: hide from the inbox until [until] (epoch millis), then resurface. */
+    fun snoozeMessage(accountEmail: String, folderName: String, uid: Long, until: Long) {
+        viewModelScope.launch {
+            dao.setSnooze(accountEmail, folderName, uid, until)
+            com.vayunmathur.email.data.SnoozeWorker.scheduleNext(getApplication(), until)
         }
     }
 

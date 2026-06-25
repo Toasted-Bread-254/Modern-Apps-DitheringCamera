@@ -21,7 +21,7 @@ import com.vayunmathur.email.Attachment
         OutboxEntry::class,
         DraftEntry::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = false,
 )
 abstract class EmailDatabase : RoomDatabase() {
@@ -55,6 +55,10 @@ abstract class EmailDatabase : RoomDatabase() {
 
         private val MIGRATION_11_12 = Migration(11, 12) {
             it.execSQL("ALTER TABLE OutboxEntry ADD COLUMN scheduledAt INTEGER NOT NULL DEFAULT 0")
+        }
+
+        private val MIGRATION_12_13 = Migration(12, 13) {
+            it.execSQL("ALTER TABLE EmailMessage ADD COLUMN snoozedUntil INTEGER NOT NULL DEFAULT 0")
         }
 
         private val MIGRATION_5_6 = Migration(5, 6) {
@@ -111,7 +115,7 @@ abstract class EmailDatabase : RoomDatabase() {
                     EmailDatabase::class.java,
                     "email-db"
                 )
-                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                     .build().also { instance = it }
             }
         }

@@ -35,8 +35,8 @@ interface EmailDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertFolders(folders: List<EmailFolder>)
 
-    @Query("SELECT * FROM EmailMessage WHERE accountEmail = :accountEmail AND folderName = :folderName ORDER BY dateMillis DESC, id DESC")
-    fun getMessagesFlow(accountEmail: String, folderName: String): Flow<List<EmailMessage>>
+    @Query("SELECT * FROM EmailMessage WHERE accountEmail = :accountEmail AND folderName = :folderName AND snoozedUntil <= :now ORDER BY dateMillis DESC, id DESC")
+    fun getMessagesFlow(accountEmail: String, folderName: String, now: Long): Flow<List<EmailMessage>>
 
     @Query("SELECT * FROM EmailMessage WHERE accountEmail = :accountEmail AND threadId = :threadId ORDER BY dateMillis ASC, id ASC")
     fun getThreadFlow(accountEmail: String, threadId: String): Flow<List<EmailMessage>>
@@ -68,15 +68,21 @@ interface EmailDao {
     @Query("DELETE FROM EmailMessage WHERE accountEmail = :accountEmail")
     suspend fun clearMessages(accountEmail: String)
 
-    @Query("SELECT * FROM EmailMessage WHERE accountEmail = :accountEmail AND folderName = :folderName AND (subject LIKE '%' || :query || '%' OR `from` LIKE '%' || :query || '%' OR body LIKE '%' || :query || '%') ORDER BY dateMillis DESC, id DESC")
-    fun searchMessagesFlow(accountEmail: String, folderName: String, query: String): Flow<List<EmailMessage>>
+    @Query("SELECT * FROM EmailMessage WHERE accountEmail = :accountEmail AND folderName = :folderName AND snoozedUntil <= :now AND (subject LIKE '%' || :query || '%' OR `from` LIKE '%' || :query || '%' OR body LIKE '%' || :query || '%') ORDER BY dateMillis DESC, id DESC")
+    fun searchMessagesFlow(accountEmail: String, folderName: String, query: String, now: Long): Flow<List<EmailMessage>>
 
     // Unified Inbox
-    @Query("SELECT * FROM EmailMessage WHERE folderName = :folderName ORDER BY dateMillis DESC, id DESC")
-    fun getUnifiedMessagesFlow(folderName: String): Flow<List<EmailMessage>>
+    @Query("SELECT * FROM EmailMessage WHERE folderName = :folderName AND snoozedUntil <= :now ORDER BY dateMillis DESC, id DESC")
+    fun getUnifiedMessagesFlow(folderName: String, now: Long): Flow<List<EmailMessage>>
 
-    @Query("SELECT * FROM EmailMessage WHERE folderName = :folderName AND (subject LIKE '%' || :query || '%' OR `from` LIKE '%' || :query || '%' OR body LIKE '%' || :query || '%') ORDER BY dateMillis DESC, id DESC")
-    fun searchUnifiedMessagesFlow(folderName: String, query: String): Flow<List<EmailMessage>>
+    @Query("SELECT * FROM EmailMessage WHERE folderName = :folderName AND snoozedUntil <= :now AND (subject LIKE '%' || :query || '%' OR `from` LIKE '%' || :query || '%' OR body LIKE '%' || :query || '%') ORDER BY dateMillis DESC, id DESC")
+    fun searchUnifiedMessagesFlow(folderName: String, query: String, now: Long): Flow<List<EmailMessage>>
+
+    @Query("UPDATE EmailMessage SET snoozedUntil = :until WHERE accountEmail = :accountEmail AND folderName = :folderName AND id = :uid")
+    suspend fun setSnooze(accountEmail: String, folderName: String, uid: Long, until: Long)
+
+    @Query("UPDATE EmailMessage SET snoozedUntil = 0, isRead = 0 WHERE snoozedUntil != 0 AND snoozedUntil <= :now")
+    suspend fun wakeDueSnoozed(now: Long): Int
 
     @Query("SELECT * FROM EmailMessage WHERE folderName = 'INBOX' ORDER BY dateMillis DESC, id DESC LIMIT 10")
     suspend fun getRecentUnifiedMessages(): List<EmailMessage>
