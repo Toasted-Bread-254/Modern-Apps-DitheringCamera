@@ -222,6 +222,7 @@ class EmailManager {
         val gmailThreadId = (msg as? javax.mail.internet.MimeMessage)?.getHeader("X-GM-THRID")?.firstOrNull()
         val serverId = msg.getHeader("Message-ID")?.firstOrNull()
         val refs = msg.getHeader("References")?.firstOrNull()
+        val listUnsub = msg.getHeader("List-Unsubscribe")?.firstOrNull()
         val isRead = msg.isSet(javax.mail.Flags.Flag.SEEN)
         val whenMillis = msg.sentDate?.time ?: msg.receivedDate?.time ?: 0L
         return EmailMessage(
@@ -241,6 +242,7 @@ class EmailManager {
             isRead = isRead,
             references = refs,
             hasAttachments = hasAttachments || hasAttachmentsInfo(msg),
+            listUnsubscribe = listUnsub,
         )
     }
 

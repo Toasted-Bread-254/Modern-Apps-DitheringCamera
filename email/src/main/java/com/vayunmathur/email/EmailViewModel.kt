@@ -68,6 +68,17 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { dao.deleteDraftById(id) }
     }
 
+    /** Block a sender (matched by email address) so their mail is hidden from the inbox. */
+    fun blockSender(from: String) {
+        val address = extractEmailAddress(from)
+        if (address.isBlank()) return
+        viewModelScope.launch { dao.insertBlockedSender(com.vayunmathur.email.BlockedSender(address.lowercase())) }
+    }
+
+    fun unblockSender(address: String) {
+        viewModelScope.launch { dao.deleteBlockedSender(address) }
+    }
+
     /** Queue a message to send at [scheduledAt] (epoch millis) via the outbox. */
     fun scheduleSend(
         account: EmailAccount,
@@ -123,7 +134,7 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedMessageUids = MutableStateFlow<Set<Long>>(emptySet())
     val selectedMessageUids: StateFlow<Set<Long>> = _selectedMessageUids
 
-    val messages: Flow<List<EmailMessage>> = combine(
+    private val messagesRaw: Flow<List<EmailMessage>> = combine(
         _selectedAccountEmail,
         _selectedFolderName,
         _searchQuery
@@ -142,6 +153,15 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
                 dao.searchMessagesFlow(email, folder, query, now)
             }
         }
+    }
+
+    val blockedSenders: Flow<List<com.vayunmathur.email.BlockedSender>> = dao.getBlockedSendersFlow()
+
+    // Hide messages from blocked senders (matched by email address substring).
+    val messages: Flow<List<EmailMessage>> = combine(messagesRaw, blockedSenders) { msgs, blocked ->
+        val addrs = blocked.map { it.address.lowercase() }
+        if (addrs.isEmpty()) msgs
+        else msgs.filter { m -> addrs.none { m.from.lowercase().contains(it) } }
     }
 
     init {
@@ -447,4 +467,11 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
         private const val OA_PACKAGE = "com.vayunmathur.openassistant"
         private const val OA_SERVICE = "$OA_PACKAGE.util.InferenceService"
     }
+}
+
+/** Extract the bare email address from a "Name <addr@x>" header, or "" if none. */
+private fun extractEmailAddress(from: String): String {
+    val angle = Regex("<([^>]+)>").find(from)?.groupValues?.get(1)
+    val candidate = (angle ?: from).trim()
+    return if (candidate.contains("@")) candidate else ""
 }

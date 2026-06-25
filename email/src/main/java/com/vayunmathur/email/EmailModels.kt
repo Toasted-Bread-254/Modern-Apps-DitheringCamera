@@ -40,6 +40,12 @@ data class EmailMessage(
     val references: String? = null, // References/In-Reply-To for threading
     val hasAttachments: Boolean = false,
     val snoozedUntil: Long = 0, // 0 = not snoozed; else epoch millis to resurface
+    val listUnsubscribe: String? = null, // raw List-Unsubscribe header, if present
+)
+
+@Entity
+data class BlockedSender(
+    @PrimaryKey val address: String,
 )
 
 @Serializable

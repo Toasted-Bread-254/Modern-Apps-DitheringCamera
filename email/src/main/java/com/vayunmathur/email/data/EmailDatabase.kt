@@ -10,6 +10,7 @@ import com.vayunmathur.email.EmailMessage
 import com.vayunmathur.email.EmailAccount
 import com.vayunmathur.email.OutboxEntry
 import com.vayunmathur.email.DraftEntry
+import com.vayunmathur.email.BlockedSender
 import com.vayunmathur.email.Attachment
 
 @Database(
@@ -20,8 +21,9 @@ import com.vayunmathur.email.Attachment
         Attachment::class,
         OutboxEntry::class,
         DraftEntry::class,
+        BlockedSender::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = false,
 )
 abstract class EmailDatabase : RoomDatabase() {
@@ -59,6 +61,11 @@ abstract class EmailDatabase : RoomDatabase() {
 
         private val MIGRATION_12_13 = Migration(12, 13) {
             it.execSQL("ALTER TABLE EmailMessage ADD COLUMN snoozedUntil INTEGER NOT NULL DEFAULT 0")
+        }
+
+        private val MIGRATION_13_14 = Migration(13, 14) {
+            it.execSQL("ALTER TABLE EmailMessage ADD COLUMN listUnsubscribe TEXT")
+            it.execSQL("CREATE TABLE IF NOT EXISTS `BlockedSender` (`address` TEXT NOT NULL, PRIMARY KEY(`address`))")
         }
 
         private val MIGRATION_5_6 = Migration(5, 6) {
@@ -115,7 +122,7 @@ abstract class EmailDatabase : RoomDatabase() {
                     EmailDatabase::class.java,
                     "email-db"
                 )
-                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                     .build().also { instance = it }
             }
         }

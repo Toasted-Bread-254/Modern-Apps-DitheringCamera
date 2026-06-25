@@ -942,6 +942,26 @@ fun MessageItem(
             }
         }
 
+        // Unsubscribe + block sender
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            msg.listUnsubscribe?.let { header ->
+                val uri = remember(header) { parseUnsubscribeUri(header) }
+                if (uri != null) {
+                    TextButton(onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+                    }) { Text("Unsubscribe") }
+                }
+            }
+            TextButton(onClick = {
+                viewModel.blockSender(msg.from)
+                android.widget.Toast.makeText(context, "Sender blocked", android.widget.Toast.LENGTH_SHORT).show()
+                onBack()
+            }) { Text("Block sender") }
+        }
+
         HorizontalDivider()
     }
 
@@ -1457,6 +1477,21 @@ fun SettingsScreen(viewModel: EmailViewModel, onBack: () -> Unit) {
                 }
                 HorizontalDivider()
             }
+
+            val blocked by viewModel.blockedSenders.collectAsState(emptyList())
+            Text("Blocked senders", style = MaterialTheme.typography.titleMedium)
+            if (blocked.isEmpty()) {
+                Text("None", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            blocked.forEach { b ->
+                ListItem(
+                    headlineContent = { Text(b.address) },
+                    trailingContent = {
+                        TextButton(onClick = { viewModel.unblockSender(b.address) }) { Text("Unblock") }
+                    },
+                )
+                HorizontalDivider()
+            }
         }
     }
 }
@@ -1573,4 +1608,13 @@ private fun splitQuotedText(body: String): Pair<String, String> {
         }
     }
     return body to ""
+}
+
+/** Pick a usable URI from a List-Unsubscribe header (prefers https, else mailto). */
+private fun parseUnsubscribeUri(header: String): android.net.Uri? {
+    val urls = Regex("<([^>]+)>").findAll(header).map { it.groupValues[1].trim() }.toList()
+        .ifEmpty { header.split(",").map { it.trim() } }
+    val pick = urls.firstOrNull { it.startsWith("http", ignoreCase = true) }
+        ?: urls.firstOrNull { it.startsWith("mailto:", ignoreCase = true) }
+    return pick?.let { runCatching { android.net.Uri.parse(it) }.getOrNull() }
 }

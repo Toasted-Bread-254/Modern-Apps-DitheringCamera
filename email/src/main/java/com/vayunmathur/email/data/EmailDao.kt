@@ -7,6 +7,7 @@ import com.vayunmathur.email.EmailFolder
 import com.vayunmathur.email.EmailMessage
 import com.vayunmathur.email.OutboxEntry
 import com.vayunmathur.email.DraftEntry
+import com.vayunmathur.email.BlockedSender
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -25,6 +26,17 @@ interface EmailDao {
 
     @Query("UPDATE EmailAccount SET signature = :signature WHERE email = :email")
     suspend fun setSignature(email: String, signature: String)
+
+    // ---- Blocked senders ----
+
+    @Query("SELECT * FROM BlockedSender ORDER BY address ASC")
+    fun getBlockedSendersFlow(): Flow<List<BlockedSender>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBlockedSender(sender: BlockedSender)
+
+    @Query("DELETE FROM BlockedSender WHERE address = :address")
+    suspend fun deleteBlockedSender(address: String)
 
     @Delete
     suspend fun deleteAccount(account: EmailAccount)
