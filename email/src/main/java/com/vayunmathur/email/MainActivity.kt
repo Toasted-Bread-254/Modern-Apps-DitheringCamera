@@ -1086,7 +1086,7 @@ fun ComposerScreen(
     var bcc by remember { mutableStateOf("") }
     var showCcBcc by remember { mutableStateOf(false) }
     var subject by remember { mutableStateOf(initialSubject) }
-    var bodyV by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(initialBody)) }
+    val bodyController = remember { com.vayunmathur.email.ui.HtmlEditorController(initialBody) }
     var sending by remember { mutableStateOf(false) }
     var attachments by remember { mutableStateOf<List<Uri>>(emptyList()) }
     
@@ -1134,7 +1134,7 @@ fun ComposerScreen(
             viewModel.loadDraft(draftId)?.let { d ->
                 to = d.to; cc = d.cc; bcc = d.bcc
                 if (d.cc.isNotBlank() || d.bcc.isNotBlank()) showCcBcc = true
-                subject = d.subject; bodyV = androidx.compose.ui.text.input.TextFieldValue(d.body)
+                subject = d.subject; bodyController.setHtml(d.body)
                 accounts.firstOrNull { it.email == d.accountEmail }?.let { fromAccount = it }
             }
             draftLoaded = true
@@ -1146,15 +1146,15 @@ fun ComposerScreen(
     var appliedSignature by remember { mutableStateOf("") }
     LaunchedEffect(fromAccount) {
         if (draftId != null) return@LaunchedEffect
-        val block = signatureBlock(fromAccount)
+        val block = signatureBlockHtml(fromAccount)
         if (block != appliedSignature) {
-            val t = bodyV.text
+            val t = bodyController.html
             val newText = when {
                 appliedSignature.isEmpty() -> t + block
                 t.endsWith(appliedSignature) -> t.removeSuffix(appliedSignature) + block
                 else -> t + block
             }
-            bodyV = bodyV.copy(text = newText, selection = androidx.compose.ui.text.TextRange(newText.length))
+            bodyController.setHtml(newText)
             appliedSignature = block
         }
     }
@@ -1163,13 +1163,13 @@ fun ComposerScreen(
     LaunchedEffect(fromAccount, draftLoaded) {
         val acc = fromAccount
         if (!draftLoaded || acc == null) return@LaunchedEffect
-        snapshotFlow { listOf(to, cc, bcc, subject, bodyV.text) }
+        snapshotFlow { listOf(to, cc, bcc, subject, bodyController.html) }
             .debounce(800)
             .collect {
                 val hasContent = to.isNotBlank() || cc.isNotBlank() || bcc.isNotBlank() ||
-                    subject.isNotBlank() || bodyV.text.isNotBlank()
+                    subject.isNotBlank() || bodyController.html.isNotBlank()
                 if (hasContent) {
-                    viewModel.saveDraft(currentDraftId, acc.email, to, cc, bcc, subject, bodyV.text) { id ->
+                    viewModel.saveDraft(currentDraftId, acc.email, to, cc, bcc, subject, bodyController.html) { id ->
                         currentDraftId = id
                     }
                 }
@@ -1199,7 +1199,7 @@ fun ComposerScreen(
                                 fromAccount?.let { acc ->
                                     viewModel.scheduleSend(
                                         account = acc, to = to, subject = subject,
-                                        body = markdownToHtml(bodyV.text),
+                                        body = bodyController.html,
                                         asHtml = true,
                                         cc = cc.ifBlank { null }, bcc = bcc.ifBlank { null },
                                         attachments = attachments, inReplyTo = inReplyTo,
@@ -1221,7 +1221,7 @@ fun ComposerScreen(
                             account = acc,
                             to = to, 
                             subject = subject, 
-                            body = markdownToHtml(bodyV.text),
+                            body = bodyController.html,
                             asHtml = true,
                             cc = cc.ifBlank { null },
                             bcc = bcc.ifBlank { null },
@@ -1248,6 +1248,9 @@ fun ComposerScreen(
                     }
                 }
             )
+        },
+        bottomBar = {
+            com.vayunmathur.email.ui.HtmlFormatToolbar(controller = bodyController)
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).padding(horizontal = 16.dp, vertical = 8.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1334,11 +1337,10 @@ fun ComposerScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            // Rich-text body editor (markdown editing -> HTML on send), shared
-            // with the notes app so the editors stay in sync.
-            com.vayunmathur.library.ui.MarkdownEditor(
-                value = bodyV,
-                onValueChange = { bodyV = it },
+            // True HTML body editor (real spans → HTML); the formatting toolbar
+            // lives in the Scaffold bottomBar so it docks above the keyboard.
+            com.vayunmathur.email.ui.HtmlEditor(
+                controller = bodyController,
                 placeholder = stringResource(R.string.body_label),
                 modifier = Modifier.fillMaxWidth().weight(1f),
             )
@@ -1487,10 +1489,12 @@ private fun OutboxRow(entry: OutboxEntry, onDelete: () -> Unit) {
     }
 }
 
-/** The signature block appended to an outgoing message body, or "" if none. */
-private fun signatureBlock(acc: com.vayunmathur.email.EmailAccount?): String {
+/** The signature block (HTML) appended to an outgoing message body, or "" if none. */
+private fun signatureBlockHtml(acc: com.vayunmathur.email.EmailAccount?): String {
     val s = acc?.signature?.trim().orEmpty()
-    return if (s.isEmpty()) "" else "\n\n-- \n$s"
+    if (s.isEmpty()) return ""
+    val escaped = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+    return "<br><br>-- <br>$escaped"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
