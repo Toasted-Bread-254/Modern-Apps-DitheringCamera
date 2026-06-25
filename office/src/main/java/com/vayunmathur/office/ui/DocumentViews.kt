@@ -69,6 +69,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -1996,6 +1997,8 @@ private fun PositionedShape(shape: OdfShape, fontScale: Float, editing: Boolean 
     val strokeW = shape.strokeWidth ?: 1f
     Box(Modifier.fillMaxSize().then(if (shape.rotationDegrees != 0f) Modifier.rotate(shape.rotationDegrees) else Modifier)) {
         Canvas(Modifier.fillMaxSize()) {
+            val dashEffect = if (shape.strokeDashed) PathEffect.dashPathEffect(floatArrayOf(strokeW * 4f, strokeW * 4f)) else null
+            val strokeStyle = Stroke(strokeW, pathEffect = dashEffect)
             val grad = shape.fillGradient
             val fillBrush: Brush? = grad?.let { g ->
                 val rad = Math.toRadians(g.angle.toDouble())
@@ -2007,10 +2010,10 @@ private fun PositionedShape(shape: OdfShape, fontScale: Float, editing: Boolean 
                 )
             }
             when (shape) {
-                is OdfShape.Rect -> { if (fillBrush != null) drawRect(fillBrush) else drawRect(fillColor); drawRect(strokeColor, style = Stroke(strokeW)) }
-                is OdfShape.Ellipse -> { if (fillBrush != null) drawOval(fillBrush) else drawOval(fillColor); drawOval(strokeColor, style = Stroke(strokeW)) }
-                is OdfShape.Line -> drawLine(strokeColor, Offset.Zero, Offset(size.width, size.height), strokeW)
-                is OdfShape.CustomShape -> { if (fillBrush != null) drawRect(fillBrush) else drawRect(fillColor); drawRect(strokeColor, style = Stroke(strokeW)) }
+                is OdfShape.Rect -> { if (fillBrush != null) drawRect(fillBrush) else drawRect(fillColor); drawRect(strokeColor, style = strokeStyle) }
+                is OdfShape.Ellipse -> { if (fillBrush != null) drawOval(fillBrush) else drawOval(fillColor); drawOval(strokeColor, style = strokeStyle) }
+                is OdfShape.Line -> drawLine(strokeColor, Offset.Zero, Offset(size.width, size.height), strokeW, pathEffect = dashEffect)
+                is OdfShape.CustomShape -> { if (fillBrush != null) drawRect(fillBrush) else drawRect(fillColor); drawRect(strokeColor, style = strokeStyle) }
                 is OdfShape.Polyline -> {
                     if (shape.points.size >= 2) {
                         val path = androidx.compose.ui.graphics.Path()

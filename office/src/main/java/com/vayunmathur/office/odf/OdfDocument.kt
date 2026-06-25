@@ -441,6 +441,11 @@ sealed class OdfShape {
     open val rotationDegrees: Float get() = 0f
     /** Linear/axial gradient fill, if any (overrides solid fillColor for rendering). (Round 3) */
     open val fillGradient: OdfGradient? get() = null
+    /** Dashed stroke (draw:stroke="dash"). (Round 3) */
+    open val strokeDashed: Boolean get() = false
+    /** Arrowhead markers at line/connector ends (draw:marker-start/-end). (Round 3) */
+    open val markerStart: Boolean get() = false
+    open val markerEnd: Boolean get() = false
 
     data class Rect(
         override val x: Float, override val y: Float,
@@ -451,7 +456,8 @@ sealed class OdfShape {
         override val text: List<OdfParagraph> = emptyList(),
         val cornerRadius: Float = 0f,
         override val rotationDegrees: Float = 0f,
-        override val fillGradient: OdfGradient? = null
+        override val fillGradient: OdfGradient? = null,
+        override val strokeDashed: Boolean = false
     ) : OdfShape()
 
     data class Ellipse(
@@ -462,7 +468,8 @@ sealed class OdfShape {
         override val strokeWidth: Float? = null,
         override val text: List<OdfParagraph> = emptyList(),
         override val rotationDegrees: Float = 0f,
-        override val fillGradient: OdfGradient? = null
+        override val fillGradient: OdfGradient? = null,
+        override val strokeDashed: Boolean = false
     ) : OdfShape()
 
     data class Line(
@@ -473,7 +480,10 @@ sealed class OdfShape {
         override val strokeWidth: Float? = null,
         override val text: List<OdfParagraph> = emptyList(),
         val x2: Float = 0f, val y2: Float = 0f,
-        override val rotationDegrees: Float = 0f
+        override val rotationDegrees: Float = 0f,
+        override val strokeDashed: Boolean = false,
+        override val markerStart: Boolean = false,
+        override val markerEnd: Boolean = false
     ) : OdfShape()
 
     data class CustomShape(
@@ -484,7 +494,8 @@ sealed class OdfShape {
         override val strokeWidth: Float? = null,
         override val text: List<OdfParagraph> = emptyList(),
         override val rotationDegrees: Float = 0f,
-        override val fillGradient: OdfGradient? = null
+        override val fillGradient: OdfGradient? = null,
+        override val strokeDashed: Boolean = false
     ) : OdfShape()
 
     /** Polyline (open) or polygon (closed) with absolute px@96 vertices. (Priority 8) */
@@ -498,7 +509,8 @@ sealed class OdfShape {
         val points: List<Pair<Float, Float>> = emptyList(),
         val closed: Boolean = false,
         override val rotationDegrees: Float = 0f,
-        override val fillGradient: OdfGradient? = null
+        override val fillGradient: OdfGradient? = null,
+        override val strokeDashed: Boolean = false
     ) : OdfShape()
 }
 

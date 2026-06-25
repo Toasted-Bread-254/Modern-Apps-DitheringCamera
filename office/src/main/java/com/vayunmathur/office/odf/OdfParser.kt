@@ -324,7 +324,10 @@ object OdfParser {
         val conditionalMaps: List<Pair<String, String>> = emptyList(),
         val cellVerticalAlign: String? = null,
         val fillGradientName: String? = null,
-        val columnCount: Int = 1
+        val columnCount: Int = 1,
+        val strokeDashed: Boolean = false,
+        val markerStart: Boolean = false,
+        val markerEnd: Boolean = false
     )
 
     private fun parseStyles(xml: String): Map<String, StyleInfo> {
@@ -370,6 +373,7 @@ object OdfParser {
         var imageOpacity: Float? = null; var imageColorMode: String? = null
         var fillGradientName: String? = null
         var columnCount = 1
+        var strokeDashed = false; var markerStart = false; var markerEnd = false
         var transitionType: String? = null; var transitionSpeed: String? = null
         val conditionalMaps = mutableListOf<Pair<String, String>>()
         // Raw per-edge border strings (Priority 4): uniform "border" plus optional edge overrides.
@@ -457,6 +461,9 @@ object OdfParser {
                             getAttr(parser, "fill-color")?.let { drawFillColor = parseColor(it) }
                         }
                         if (getAttr(parser, "fill") == "gradient") getAttr(parser, "fill-gradient-name")?.let { fillGradientName = it }
+                        if (getAttr(parser, "stroke") == "dash") strokeDashed = true
+                        if (getAttr(parser, "marker-start") != null) markerStart = true
+                        if (getAttr(parser, "marker-end") != null) markerEnd = true
                         getAttr(parser, "stroke-color")?.let { drawStrokeColor = parseColor(it) }
                         getAttr(parser, "stroke-width")?.let { drawStrokeWidth = parseDimension(it) }
                         getAttr(parser, "clip")?.let { clipVal = it }
@@ -505,7 +512,7 @@ object OdfParser {
             buildBorders(cellBorderAll, cellBorderT, cellBorderR, cellBorderB, cellBorderL),
             buildBorders(paraBorderAll, paraBorderT, paraBorderR, paraBorderB, paraBorderL),
             underlineStyle, underlineColor, letterSpacing, textTransform, language, country,
-            marginRight, keepWithNext, keepTogether, widows, orphans, rowHeight, imageOpacity, imageColorMode, transitionType, transitionSpeed, conditionalMaps, cellVerticalAlign, fillGradientName, columnCount
+            marginRight, keepWithNext, keepTogether, widows, orphans, rowHeight, imageOpacity, imageColorMode, transitionType, transitionSpeed, conditionalMaps, cellVerticalAlign, fillGradientName, columnCount, strokeDashed, markerStart, markerEnd
         )
     }
 
@@ -574,7 +581,10 @@ object OdfParser {
                 conditionalMaps = info.conditionalMaps.ifEmpty { parent.conditionalMaps },
                 cellVerticalAlign = info.cellVerticalAlign ?: parent.cellVerticalAlign,
                 fillGradientName = info.fillGradientName ?: parent.fillGradientName,
-                columnCount = if (info.columnCount != 1) info.columnCount else parent.columnCount
+                columnCount = if (info.columnCount != 1) info.columnCount else parent.columnCount,
+                strokeDashed = info.strokeDashed || parent.strokeDashed,
+                markerStart = info.markerStart || parent.markerStart,
+                markerEnd = info.markerEnd || parent.markerEnd
             )
         }
         return info
@@ -1960,12 +1970,12 @@ object OdfParser {
         }
 
         return when (shapeName) {
-            "rect" -> OdfShape.Rect(x, y, w, h, resolved.drawFillColor, resolved.drawStrokeColor, resolved.drawStrokeWidth, text, rotationDegrees = rot, fillGradient = grad)
-            "ellipse" -> OdfShape.Ellipse(x, y, w, h, resolved.drawFillColor, resolved.drawStrokeColor, resolved.drawStrokeWidth, text, rotationDegrees = rot, fillGradient = grad)
-            "line" -> OdfShape.Line(x, y, w, h, resolved.drawFillColor, resolved.drawStrokeColor, resolved.drawStrokeWidth, text, x2, y2, rotationDegrees = rot)
-            "polyline" -> OdfShape.Polyline(x, y, w, h, resolved.drawFillColor, resolved.drawStrokeColor, resolved.drawStrokeWidth, text, polyPoints, closed = false, rotationDegrees = rot, fillGradient = grad)
-            "polygon" -> OdfShape.Polyline(x, y, w, h, resolved.drawFillColor, resolved.drawStrokeColor, resolved.drawStrokeWidth, text, polyPoints, closed = true, rotationDegrees = rot, fillGradient = grad)
-            else -> OdfShape.CustomShape(x, y, w, h, resolved.drawFillColor, resolved.drawStrokeColor, resolved.drawStrokeWidth, text, rotationDegrees = rot, fillGradient = grad)
+            "rect" -> OdfShape.Rect(x, y, w, h, resolved.drawFillColor, resolved.drawStrokeColor, resolved.drawStrokeWidth, text, rotationDegrees = rot, fillGradient = grad, strokeDashed = resolved.strokeDashed)
+            "ellipse" -> OdfShape.Ellipse(x, y, w, h, resolved.drawFillColor, resolved.drawStrokeColor, resolved.drawStrokeWidth, text, rotationDegrees = rot, fillGradient = grad, strokeDashed = resolved.strokeDashed)
+            "line" -> OdfShape.Line(x, y, w, h, resolved.drawFillColor, resolved.drawStrokeColor, resolved.drawStrokeWidth, text, x2, y2, rotationDegrees = rot, strokeDashed = resolved.strokeDashed, markerStart = resolved.markerStart, markerEnd = resolved.markerEnd)
+            "polyline" -> OdfShape.Polyline(x, y, w, h, resolved.drawFillColor, resolved.drawStrokeColor, resolved.drawStrokeWidth, text, polyPoints, closed = false, rotationDegrees = rot, fillGradient = grad, strokeDashed = resolved.strokeDashed)
+            "polygon" -> OdfShape.Polyline(x, y, w, h, resolved.drawFillColor, resolved.drawStrokeColor, resolved.drawStrokeWidth, text, polyPoints, closed = true, rotationDegrees = rot, fillGradient = grad, strokeDashed = resolved.strokeDashed)
+            else -> OdfShape.CustomShape(x, y, w, h, resolved.drawFillColor, resolved.drawStrokeColor, resolved.drawStrokeWidth, text, rotationDegrees = rot, fillGradient = grad, strokeDashed = resolved.strokeDashed)
         }
     }
 

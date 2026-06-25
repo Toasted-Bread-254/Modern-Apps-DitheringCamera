@@ -744,7 +744,7 @@ object OdfSerializer {
             // Polyline/polygon: emit a viewBox + draw:points mapping of the absolute px vertices. (Priority 8)
             val ptag = if (shape.closed) "draw:polygon" else "draw:polyline"
             sb.append("<$ptag")
-            getOrCreateGraphicStyle(shape.fillColor, shape.strokeColor, shape.strokeWidth, null, graphicStyles, gradient = shape.fillGradient)?.let { sb.append(""" draw:style-name="$it"""") }
+            getOrCreateGraphicStyle(shape.fillColor, shape.strokeColor, shape.strokeWidth, null, graphicStyles, gradient = shape.fillGradient, strokeDashed = shape.strokeDashed)?.let { sb.append(""" draw:style-name="$it"""") }
             sb.append(""" svg:x="${cm(shape.x)}" svg:y="${cm(shape.y)}" svg:width="${cm(shape.width)}" svg:height="${cm(shape.height)}"""")
             appendShapeRotation(sb, shape.rotationDegrees)
             sb.append(""" svg:viewBox="0 0 10000 10000"""")
@@ -766,7 +766,7 @@ object OdfSerializer {
             is OdfShape.Polyline -> "draw:polyline"
         }
         sb.append("<$tag")
-        getOrCreateGraphicStyle(shape.fillColor, shape.strokeColor, shape.strokeWidth, null, graphicStyles, gradient = shape.fillGradient)?.let { sb.append(""" draw:style-name="$it"""") }
+        getOrCreateGraphicStyle(shape.fillColor, shape.strokeColor, shape.strokeWidth, null, graphicStyles, gradient = shape.fillGradient, strokeDashed = shape.strokeDashed, markerStart = shape.markerStart, markerEnd = shape.markerEnd)?.let { sb.append(""" draw:style-name="$it"""") }
         if (shape is OdfShape.Line) {
             // Lines use endpoint coordinates, not a bounding box. (A5)
             val x2 = if (shape.x2 != 0f || shape.y2 != 0f) shape.x2 else shape.x + shape.width
@@ -897,12 +897,13 @@ object OdfSerializer {
     private data class GraphicStyleDef(
         val fillColor: Long? = null, val strokeColor: Long? = null, val strokeWidth: Float? = null,
         val clip: String? = null, val opacity: Float? = null, val colorMode: String? = null,
-        val gradient: OdfGradient? = null
+        val gradient: OdfGradient? = null,
+        val strokeDashed: Boolean = false, val markerStart: Boolean = false, val markerEnd: Boolean = false
     )
 
-    private fun getOrCreateGraphicStyle(fillColor: Long?, strokeColor: Long?, strokeWidth: Float?, clip: String?, styles: MutableMap<String, GraphicStyleDef>, opacity: Float? = null, colorMode: String? = null, gradient: OdfGradient? = null): String? {
-        if (fillColor == null && strokeColor == null && strokeWidth == null && clip == null && opacity == null && colorMode == null && gradient == null) return null
-        val def = GraphicStyleDef(fillColor, strokeColor, strokeWidth, clip, opacity, colorMode, gradient)
+    private fun getOrCreateGraphicStyle(fillColor: Long?, strokeColor: Long?, strokeWidth: Float?, clip: String?, styles: MutableMap<String, GraphicStyleDef>, opacity: Float? = null, colorMode: String? = null, gradient: OdfGradient? = null, strokeDashed: Boolean = false, markerStart: Boolean = false, markerEnd: Boolean = false): String? {
+        if (fillColor == null && strokeColor == null && strokeWidth == null && clip == null && opacity == null && colorMode == null && gradient == null && !strokeDashed && !markerStart && !markerEnd) return null
+        val def = GraphicStyleDef(fillColor, strokeColor, strokeWidth, clip, opacity, colorMode, gradient, strokeDashed, markerStart, markerEnd)
         for ((name, existing) in styles) if (existing == def) return name
         val name = "gr${styles.size + 1}"
         styles[name] = def
@@ -1128,13 +1129,25 @@ object OdfSerializer {
                 sb.append("""<draw:gradient draw:name="$gn" draw:style="${esc(g.style)}" draw:start-color="${formatColor(g.startColor)}" draw:end-color="${formatColor(g.endColor)}" draw:angle="$ang"/>""")
             }
         }
+        // Shared dash + arrow marker definitions, emitted once if any style uses them. (Round 3)
+        if (graphicStyles.values.any { it.strokeDashed }) {
+            sb.append("""<draw:stroke-dash draw:name="aDash" draw:style="rect" draw:dots1="1" draw:dots1-length="0.2cm" draw:distance="0.2cm"/>""")
+        }
+        if (graphicStyles.values.any { it.markerStart || it.markerEnd }) {
+            sb.append("""<draw:marker draw:name="aArrow" svg:viewBox="0 0 20 30" svg:d="m10 0-10 30h20z"/>""")
+        }
         for ((name, def) in graphicStyles) {
             sb.append("""<style:style style:name="$name" style:family="graphic"><style:graphic-properties""")
             if (def.gradient != null) sb.append(""" draw:fill="gradient" draw:fill-gradient-name="${gradNames[def.gradient]}"""")
             else if (def.fillColor != null) sb.append(""" draw:fill="solid" draw:fill-color="${formatColor(def.fillColor)}"""")
             else sb.append(""" draw:fill="none"""")
-            if (def.strokeColor != null) sb.append(""" draw:stroke="solid" svg:stroke-color="${formatColor(def.strokeColor)}"""")
+            if (def.strokeColor != null) {
+                sb.append(""" draw:stroke="${if (def.strokeDashed) "dash" else "solid"}" svg:stroke-color="${formatColor(def.strokeColor)}"""")
+                if (def.strokeDashed) sb.append(""" draw:stroke-dash="aDash"""")
+            }
             if (def.strokeWidth != null) sb.append(""" svg:stroke-width="${cm(def.strokeWidth)}"""")
+            if (def.markerStart) sb.append(""" draw:marker-start="aArrow" draw:marker-start-width="0.3cm"""")
+            if (def.markerEnd) sb.append(""" draw:marker-end="aArrow" draw:marker-end-width="0.3cm"""")
             if (def.clip != null) sb.append(""" fo:clip="${def.clip}"""")
             if (def.opacity != null) sb.append(""" draw:image-opacity="${def.opacity}%"""")
             if (def.colorMode != null) sb.append(""" draw:color-mode="${def.colorMode}"""")
