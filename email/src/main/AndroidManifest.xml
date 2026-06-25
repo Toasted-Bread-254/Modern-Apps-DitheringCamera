@@ -59,6 +59,10 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <receiver
+            android:name=".util.EmailNotificationActionReceiver"
+            android:exported="false" />
+
         <activity
             android:name=".intents.SearchIntent"
             android:exported="true"

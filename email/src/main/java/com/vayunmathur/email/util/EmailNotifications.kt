@@ -14,16 +14,19 @@ import com.vayunmathur.email.R
 
 object EmailNotifications {
 
-    private const val CHANNEL_ID = "new_mail"
-    private const val CHANNEL_NAME = "New mail"
+    private const val CHANNEL_PREFIX = "new_mail::"
 
-    /** Idempotent — safe to call from every worker run. */
-    fun ensureChannel(context: Context) {
+    /** Stable per-account channel id so each account gets its own OS toggle. */
+    private fun channelId(accountEmail: String) = CHANNEL_PREFIX + accountEmail
+
+    /** Idempotent — creates a per-account notification channel. */
+    fun ensureChannel(context: Context, accountEmail: String) {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
-        if (nm.getNotificationChannel(CHANNEL_ID) != null) return
+        val id = channelId(accountEmail)
+        if (nm.getNotificationChannel(id) != null) return
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Notifications for newly received emails."
+            NotificationChannel(id, accountEmail, NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "New mail for $accountEmail"
                 setShowBadge(true)
             }
         )
@@ -41,7 +44,7 @@ object EmailNotifications {
      */
     fun postForNewMessages(context: Context, accountEmail: String, messages: List<EmailMessage>) {
         if (messages.isEmpty()) return
-        ensureChannel(context)
+        ensureChannel(context, accountEmail)
         val nm = NotificationManagerCompat.from(context)
         if (!nm.areNotificationsEnabled()) return
 
@@ -59,7 +62,14 @@ object EmailNotifications {
                 launch,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-            val notif: Notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            val nId = notificationId(msg)
+            fun actionPi(action: String, rc: Int): PendingIntent = PendingIntent.getBroadcast(
+                context,
+                rc,
+                EmailNotificationActionReceiver.intent(context, action, msg.accountEmail, msg.folderName, msg.id, nId),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val notif: Notification = NotificationCompat.Builder(context, channelId(accountEmail))
                 .setSmallIcon(R.drawable.ic_notification_mail)
                 .setContentTitle(msg.from.substringBefore("<").trim().ifEmpty { msg.from })
                 .setContentText(msg.subject.ifBlank { "(no subject)" })
@@ -69,6 +79,8 @@ object EmailNotifications {
                 // Stable sort key (lexicographic) so the shade keeps emails in
                 // chronological order even if posts arrive simultaneously.
                 .setSortKey(sortKey(msg))
+                .addAction(0, "Mark read", actionPi(EmailNotificationActionReceiver.ACTION_MARK_READ, msg.id.hashCode() * 31 + 1))
+                .addAction(0, "Delete", actionPi(EmailNotificationActionReceiver.ACTION_DELETE, msg.id.hashCode() * 31 + 2))
                 .setStyle(
                     NotificationCompat.BigTextStyle().bigText(
                         buildString {
