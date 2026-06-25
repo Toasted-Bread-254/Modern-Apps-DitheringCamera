@@ -97,4 +97,11 @@
     <string name="uwb_status_unsupported">此设备不支持附近查找（UWB）。</string>
     <string name="uwb_status_failed">附近查找（UWB）失败。</string>
     <string name="uwb_direction_unavailable_hint">请移动您的手机以寻找方向信号</string>
+    <string name="permission_approximate_only_explanation">FindFamily 仅支持确切（精确）位置。您目前仅授予了大致位置，请升级到确切位置以继续。</string>
+    <string name="permission_reopen_upgrade_prompt">升级到确切位置</string>
+    <string name="permission_upgrade_dialog_title">需要确切位置</string>
+    <string name="permission_upgrade_dialog_message">FindFamily 需要确切（精确）位置才能分享您的准确位置。请允许确切位置。</string>
+    <string name="permission_upgrade_dialog_confirm">允许确切位置</string>
+    <string name="permission_upgrade_dialog_dismiss">以后再说</string>
+    <string name="share_your_location">与此人分享您的位置</string>
 </resources>
