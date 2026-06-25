@@ -171,7 +171,8 @@ data class OutboxEntry(
     val lastError: String? = null,
     val attemptCount: Int = 0,
     val lastAttemptAt: Long = 0,
-    val scheduledAt: Long = 0
+    val scheduledAt: Long = 0,
+    val isHtml: Boolean = false
 )
 
 @Entity

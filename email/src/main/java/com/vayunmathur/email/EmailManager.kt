@@ -319,7 +319,8 @@ class EmailManager {
         attachments: List<Uri> = emptyList(),
         inReplyTo: String? = null,
         references: String? = null,
-        from: String? = null
+        from: String? = null,
+        asHtml: Boolean = false
     ) = withContext(Dispatchers.IO) {
         val session = getSmtpSession(auth, server)
         val message = MimeMessage(session)
@@ -341,10 +342,13 @@ class EmailManager {
         }
 
         val multipart = MimeMultipart()
-        
         // Text part
         val textPart = MimeBodyPart()
-        textPart.setText(body)
+        if (asHtml) {
+            textPart.setContent(body, "text/html; charset=utf-8")
+        } else {
+            textPart.setText(body)
+        }
         multipart.addBodyPart(textPart)
 
         // Attachments

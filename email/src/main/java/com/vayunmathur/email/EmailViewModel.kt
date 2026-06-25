@@ -91,6 +91,7 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
         inReplyTo: String? = null,
         references: String? = null,
         scheduledAt: Long,
+        asHtml: Boolean = false,
         onDone: () -> Unit = {},
     ) {
         viewModelScope.launch {
@@ -101,6 +102,7 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
                 cc = cc, bcc = bcc, attachments = attachments,
                 inReplyTo = inReplyTo, references = references,
                 scheduledAt = scheduledAt,
+                isHtml = asHtml,
             )
             onDone()
         }
@@ -353,6 +355,7 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
         attachments: List<Uri> = emptyList(),
         inReplyTo: String? = null,
         references: String? = null,
+        asHtml: Boolean = false,
         onSuccess: () -> Unit,
         onError: (String) -> Unit,
     ) {
@@ -372,6 +375,7 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
                     inReplyTo = inReplyTo,
                     references = references,
                     from = account.email,
+                    asHtml = asHtml,
                 )
                 onSuccess()
             } catch (e: Exception) {
@@ -389,6 +393,7 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
                         inReplyTo = inReplyTo,
                         references = references,
                         initialError = msg,
+                        isHtml = asHtml,
                     )
                 } catch (queueError: Exception) {
                     onError("$msg (and outbox save failed: ${queueError.message})")

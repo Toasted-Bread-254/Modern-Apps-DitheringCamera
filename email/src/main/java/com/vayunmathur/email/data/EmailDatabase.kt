@@ -23,7 +23,7 @@ import com.vayunmathur.email.Attachment
         DraftEntry::class,
         BlockedSender::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = false,
 )
 abstract class EmailDatabase : RoomDatabase() {
@@ -66,6 +66,10 @@ abstract class EmailDatabase : RoomDatabase() {
         private val MIGRATION_13_14 = Migration(13, 14) {
             it.execSQL("ALTER TABLE EmailMessage ADD COLUMN listUnsubscribe TEXT")
             it.execSQL("CREATE TABLE IF NOT EXISTS `BlockedSender` (`address` TEXT NOT NULL, PRIMARY KEY(`address`))")
+        }
+
+        private val MIGRATION_14_15 = Migration(14, 15) {
+            it.execSQL("ALTER TABLE OutboxEntry ADD COLUMN isHtml INTEGER NOT NULL DEFAULT 0")
         }
 
         private val MIGRATION_5_6 = Migration(5, 6) {
@@ -122,7 +126,7 @@ abstract class EmailDatabase : RoomDatabase() {
                     EmailDatabase::class.java,
                     "email-db"
                 )
-                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
+                    .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
                     .build().also { instance = it }
             }
         }

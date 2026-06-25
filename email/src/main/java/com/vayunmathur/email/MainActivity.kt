@@ -1074,7 +1074,8 @@ fun ComposerScreen(
     var bcc by remember { mutableStateOf("") }
     var showCcBcc by remember { mutableStateOf(false) }
     var subject by remember { mutableStateOf(initialSubject) }
-    var body by remember { mutableStateOf(initialBody) }
+    var bodyV by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(initialBody)) }
+    var richText by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var attachments by remember { mutableStateOf<List<Uri>>(emptyList()) }
     
@@ -1113,7 +1114,7 @@ fun ComposerScreen(
             viewModel.loadDraft(draftId)?.let { d ->
                 to = d.to; cc = d.cc; bcc = d.bcc
                 if (d.cc.isNotBlank() || d.bcc.isNotBlank()) showCcBcc = true
-                subject = d.subject; body = d.body
+                subject = d.subject; bodyV = androidx.compose.ui.text.input.TextFieldValue(d.body)
                 accounts.firstOrNull { it.email == d.accountEmail }?.let { fromAccount = it }
             }
             draftLoaded = true
@@ -1127,11 +1128,13 @@ fun ComposerScreen(
         if (draftId != null) return@LaunchedEffect
         val block = signatureBlock(fromAccount)
         if (block != appliedSignature) {
-            body = when {
-                appliedSignature.isEmpty() -> body + block
-                body.endsWith(appliedSignature) -> body.removeSuffix(appliedSignature) + block
-                else -> body + block
+            val t = bodyV.text
+            val newText = when {
+                appliedSignature.isEmpty() -> t + block
+                t.endsWith(appliedSignature) -> t.removeSuffix(appliedSignature) + block
+                else -> t + block
             }
+            bodyV = bodyV.copy(text = newText, selection = androidx.compose.ui.text.TextRange(newText.length))
             appliedSignature = block
         }
     }
@@ -1140,13 +1143,13 @@ fun ComposerScreen(
     LaunchedEffect(fromAccount, draftLoaded) {
         val acc = fromAccount
         if (!draftLoaded || acc == null) return@LaunchedEffect
-        snapshotFlow { listOf(to, cc, bcc, subject, body) }
+        snapshotFlow { listOf(to, cc, bcc, subject, bodyV.text) }
             .debounce(800)
             .collect {
                 val hasContent = to.isNotBlank() || cc.isNotBlank() || bcc.isNotBlank() ||
-                    subject.isNotBlank() || body.isNotBlank()
+                    subject.isNotBlank() || bodyV.text.isNotBlank()
                 if (hasContent) {
-                    viewModel.saveDraft(currentDraftId, acc.email, to, cc, bcc, subject, body) { id ->
+                    viewModel.saveDraft(currentDraftId, acc.email, to, cc, bcc, subject, bodyV.text) { id ->
                         currentDraftId = id
                     }
                 }
@@ -1175,7 +1178,9 @@ fun ComposerScreen(
                                 showSchedule = false
                                 fromAccount?.let { acc ->
                                     viewModel.scheduleSend(
-                                        account = acc, to = to, subject = subject, body = body,
+                                        account = acc, to = to, subject = subject,
+                                        body = if (richText) markdownToHtml(bodyV.text) else bodyV.text,
+                                        asHtml = richText,
                                         cc = cc.ifBlank { null }, bcc = bcc.ifBlank { null },
                                         attachments = attachments, inReplyTo = inReplyTo,
                                         references = references, scheduledAt = at,
@@ -1196,7 +1201,8 @@ fun ComposerScreen(
                             account = acc,
                             to = to, 
                             subject = subject, 
-                            body = body, 
+                            body = if (richText) markdownToHtml(bodyV.text) else bodyV.text,
+                            asHtml = richText,
                             cc = cc.ifBlank { null },
                             bcc = bcc.ifBlank { null },
                             attachments = attachments,
@@ -1277,7 +1283,18 @@ fun ComposerScreen(
                 )
             }
             OutlinedTextField(value = subject, onValueChange = { subject = it }, label = { Text(stringResource(R.string.subject_label)) }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = body, onValueChange = { body = it }, label = { Text(stringResource(R.string.body_label)) }, modifier = Modifier.fillMaxWidth().weight(1f))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Rich text", style = MaterialTheme.typography.bodySmall)
+                Switch(checked = richText, onCheckedChange = { richText = it })
+                if (richText) {
+                    TextButton(onClick = { bodyV = wrapSelection(bodyV, "**", "**") }) { Text("B", fontWeight = FontWeight.Bold) }
+                    TextButton(onClick = { bodyV = wrapSelection(bodyV, "*", "*") }) { Text("I", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic) }
+                    TextButton(onClick = { bodyV = wrapSelection(bodyV, "\n- ", "") }) { Text("•") }
+                    TextButton(onClick = { bodyV = wrapSelection(bodyV, "[", "](https://)") }) { Text("Link") }
+                }
+            }
+            OutlinedTextField(value = bodyV, onValueChange = { bodyV = it }, label = { Text(stringResource(R.string.body_label)) }, modifier = Modifier.fillMaxWidth().weight(1f))
             
             if (attachments.isNotEmpty()) {
                 val totalBytes = remember(attachments) { attachments.sumOf { uriSize(context, it) } }
@@ -1617,4 +1634,43 @@ private fun parseUnsubscribeUri(header: String): android.net.Uri? {
     val pick = urls.firstOrNull { it.startsWith("http", ignoreCase = true) }
         ?: urls.firstOrNull { it.startsWith("mailto:", ignoreCase = true) }
     return pick?.let { runCatching { android.net.Uri.parse(it) }.getOrNull() }
+}
+
+/** Wrap the current selection (or insert at cursor) with [prefix]/[suffix]. */
+private fun wrapSelection(
+    tfv: androidx.compose.ui.text.input.TextFieldValue,
+    prefix: String,
+    suffix: String,
+): androidx.compose.ui.text.input.TextFieldValue {
+    val sel = tfv.selection
+    val start = minOf(sel.start, sel.end)
+    val end = maxOf(sel.start, sel.end)
+    val text = tfv.text
+    val selected = text.substring(start, end)
+    val newText = text.substring(0, start) + prefix + selected + suffix + text.substring(end)
+    val cursor = start + prefix.length + selected.length + suffix.length
+    return tfv.copy(text = newText, selection = androidx.compose.ui.text.TextRange(cursor))
+}
+
+/** Minimal Markdown to HTML for compose: bold, italic, links, and "- " lists. */
+private fun markdownToHtml(md: String): String {
+    val escaped = md.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    val sb = StringBuilder()
+    var inList = false
+    for (line in escaped.split("\n")) {
+        var l = line
+        l = Regex("\\[([^\\]]+)\\]\\(([^)]+)\\)").replace(l) { m -> "<a href=\"${m.groupValues[2]}\">${m.groupValues[1]}</a>" }
+        l = Regex("\\*\\*([^*]+)\\*\\*").replace(l) { m -> "<b>${m.groupValues[1]}</b>" }
+        l = Regex("(?<!\\*)\\*([^*]+)\\*(?!\\*)").replace(l) { m -> "<i>${m.groupValues[1]}</i>" }
+        l = Regex("_([^_]+)_").replace(l) { m -> "<i>${m.groupValues[1]}</i>" }
+        if (line.trimStart().startsWith("- ")) {
+            if (!inList) { sb.append("<ul>"); inList = true }
+            sb.append("<li>").append(l.trimStart().removePrefix("- ")).append("</li>")
+        } else {
+            if (inList) { sb.append("</ul>"); inList = false }
+            if (l.isBlank()) sb.append("<br>") else sb.append(l).append("<br>")
+        }
+    }
+    if (inList) sb.append("</ul>")
+    return "<html><body>$sb</body></html>"
 }
