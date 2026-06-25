@@ -51,13 +51,14 @@ class EmailSyncWorker(appContext: Context, workerParams: WorkerParameters) :
                     for ((index, folder) in messageFolders.withIndex()) {
                         try {
                             val knownUids = dao.getKnownUids(account.email, folder.fullName).toSet()
+                            val deletedUids = dao.getDeletedUids(account.email, folder.fullName).toSet()
                             val (messages, attachments) = manager.fetchMessagesInStore(
                                 store = store,
                                 user = account.loginUser(),
                                 folderName = folder.fullName,
                                 limit = 50,
                                 fetchBodies = false,
-                                skipUids = knownUids,
+                                skipUids = knownUids + deletedUids,
                             )
                             if (messages.isNotEmpty()) dao.insertMessages(messages)
                             if (attachments.isNotEmpty()) dao.insertAttachments(attachments)

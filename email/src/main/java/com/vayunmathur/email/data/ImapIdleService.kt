@@ -154,6 +154,7 @@ class ImapIdleService : Service() {
     private suspend fun quickInboxFetch(folder: IMAPFolder, accountEmail: String) {
         val dao = EmailDatabase.getInstance(applicationContext).emailDao()
         val known = dao.getKnownUids(accountEmail, "INBOX").toSet()
+        val deleted = dao.getDeletedUids(accountEmail, "INBOX").toSet()
         val (messages, attachments) = EmailManager().fetchMessagesFromOpenFolder(
             folder = folder,
             user = accountEmail,
@@ -161,7 +162,7 @@ class ImapIdleService : Service() {
             limit = 50,
             offset = 0,
             fetchBodies = false,
-            skipUids = known,
+            skipUids = known + deleted,
         )
         if (messages.isEmpty()) {
             Log.d(TAG, "Inline INBOX fetch: nothing new")

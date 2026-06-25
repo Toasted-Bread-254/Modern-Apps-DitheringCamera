@@ -50,7 +50,34 @@ fun PlaylistDetailScreen(backStack: NavBackStack<Route>, musicViewModel: MusicVi
         topBar = {
             TopAppBar(
                 title = { },
-                navigationIcon = { IconNavigation(backStack) }
+                navigationIcon = { IconNavigation(backStack) },
+                actions = {
+                    var showDeleteDialog by remember { mutableStateOf(false) }
+                    IconButton(onClick = { showDeleteDialog = true }) {
+                        com.vayunmathur.library.ui.IconDelete()
+                    }
+                    if (showDeleteDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showDeleteDialog = false },
+                            title = { Text(stringResource(R.string.dialog_delete_playlist)) },
+                            text = { Text(stringResource(R.string.dialog_delete_playlist_confirm, playlist.name)) },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    showDeleteDialog = false
+                                    musicViewModel.deletePlaylist(playlist)
+                                    backStack.pop()
+                                }) {
+                                    Text(stringResource(R.string.dialog_delete))
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showDeleteDialog = false }) {
+                                    Text(stringResource(R.string.dialog_cancel))
+                                }
+                            }
+                        )
+                    }
+                }
             )
         },
         bottomBar = { PlayingBottomBar(musicViewModel, backStack) },

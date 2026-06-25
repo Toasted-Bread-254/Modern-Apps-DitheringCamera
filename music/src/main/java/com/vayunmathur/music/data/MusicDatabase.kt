@@ -65,6 +65,8 @@ interface PlaylistDao {
     suspend fun getAll(): List<Playlist>
     @Upsert
     suspend fun upsert(value: Playlist): Long
+    @Query("DELETE FROM Playlist WHERE id = :id")
+    suspend fun deleteById(id: Long)
 }
 
 @TypeConverters(DefaultConverters::class)

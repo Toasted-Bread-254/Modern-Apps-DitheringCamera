@@ -184,10 +184,11 @@ class MusicViewModel(
         matchingDao.getFromRight(playlistId, TYPE_MUSIC_PLAYLIST)
 
     // --- Mutations ---
-    /** Creates a new playlist with [name] off the main thread. */
-    fun createPlaylist(name: String) {
+    /** Creates a new playlist with [name] off the main thread, invoking [onCreated] with the new id. */
+    fun createPlaylist(name: String, onCreated: (Long) -> Unit = {}) {
         viewModelScope.launch(Dispatchers.IO) {
-            playlistDao.upsert(Playlist(name = name))
+            val id = playlistDao.upsert(Playlist(name = name))
+            onCreated(id)
         }
     }
 
@@ -195,6 +196,15 @@ class MusicViewModel(
     fun renamePlaylist(playlist: Playlist, newName: String) {
         viewModelScope.launch(Dispatchers.IO) {
             playlistDao.upsert(playlist.copy(name = newName))
+        }
+    }
+
+    /** Deletes [playlist] and clears its track matchings off the main thread, invoking [onDone] on completion. */
+    fun deletePlaylist(playlist: Playlist, onDone: () -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            matchingDao.deleteFromRight(playlist.id, TYPE_MUSIC_PLAYLIST)
+            playlistDao.deleteById(playlist.id)
+            onDone()
         }
     }
 

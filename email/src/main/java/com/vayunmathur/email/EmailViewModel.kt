@@ -258,10 +258,10 @@ class EmailViewModel(application: Application) : AndroidViewModel(application) {
         _selectedMessageUids.value = emptySet()
     }
 
-    /** Delete a message: remove locally and expunge it on the IMAP server. */
+    /** Delete a message: remove locally (with a tombstone so sync won't re-add it) and expunge it on the IMAP server. */
     fun deleteMessage(accountEmail: String, folderName: String, uid: Long) {
         viewModelScope.launch {
-            dao.deleteMessageRow(accountEmail, folderName, uid)
+            dao.deleteMessageRow(accountEmail, folderName, uid, tombstone = true)
             val account = dao.getAccountByEmail(accountEmail) ?: return@launch
             try {
                 emailManager.deleteMessage(

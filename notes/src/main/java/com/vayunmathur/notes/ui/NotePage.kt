@@ -84,6 +84,17 @@ import com.vayunmathur.library.ui.IconDelete
 import com.vayunmathur.library.ui.IconNavigation
 import com.vayunmathur.library.ui.IconSearch
 import com.vayunmathur.library.ui.IconShare
+import com.vayunmathur.library.ui.findCheckboxPositions
+import com.vayunmathur.library.ui.getActiveHeadingLevel
+import com.vayunmathur.library.ui.insertCodeBlock
+import com.vayunmathur.library.ui.insertHorizontalRule
+import com.vayunmathur.library.ui.insertHeading
+import com.vayunmathur.library.ui.insertLink
+import com.vayunmathur.library.ui.isInlineFormatActive
+import com.vayunmathur.library.ui.isLinePrefixActive
+import com.vayunmathur.library.ui.toggleInlineFormat
+import com.vayunmathur.library.ui.toggleLinePrefix
+import com.vayunmathur.library.ui.tryToggleCheckbox
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.R as LibraryR
 import com.vayunmathur.notes.R
@@ -91,213 +102,8 @@ import com.vayunmathur.notes.Route
 import com.vayunmathur.notes.data.Note
 import com.vayunmathur.notes.util.NotesViewModel
 
-private fun isCheckboxPrefix(line: String) =
-    line.startsWith("- [ ] ") || line.startsWith("- [x] ") || line.startsWith("- [X] ")
-
-private fun stripLinePrefix(line: String): String {
-    Regex("^#{1,6} ").find(line)?.let { return line.substring(it.value.length) }
-    if (isCheckboxPrefix(line)) return line.substring(6)
-    if (line.startsWith("- ")) return line.substring(2)
-    Regex("^\\d+\\. ").find(line)?.let { return line.substring(it.value.length) }
-    if (line.startsWith("> ")) return line.substring(2)
-    return line
-}
-
-private fun getLinePrefix(line: String): String {
-    Regex("^#{1,6} ").find(line)?.let { return it.value }
-    if (isCheckboxPrefix(line)) return line.substring(0, 6)
-    if (line.startsWith("- ")) return "- "
-    Regex("^\\d+\\. ").find(line)?.let { return it.value }
-    if (line.startsWith("> ")) return "> "
-    return ""
-}
-
-private fun getSelectedLines(text: String, selection: TextRange): Pair<Int, Int> {
-    val start = minOf(selection.start, selection.end).coerceIn(0, text.length)
-    val end = maxOf(selection.start, selection.end).coerceIn(0, text.length)
-    val blockStart = text.lastIndexOf('\n', start - 1) + 1
-    val effectiveEnd = if (start != end && end > 0 && text.getOrNull(end - 1) == '\n') end - 1 else end
-    val blockEnd = text.indexOf('\n', effectiveEnd).let { if (it == -1) text.length else it }
-    return blockStart to blockEnd.coerceAtLeast(blockStart)
-}
-
-private fun matchesPrefix(line: String, prefix: String): Boolean = when {
-    prefix == "1. " -> Regex("^\\d+\\. ").containsMatchIn(line)
-    prefix == "- [ ] " -> isCheckboxPrefix(line)
-    prefix == "- " -> line.startsWith("- ") && !isCheckboxPrefix(line)
-    else -> line.startsWith(prefix)
-}
-
-private fun computeBlockSelection(
-    text: String,
-    selection: TextRange,
-    blockStart: Int,
-    lines: List<String>,
-    newLines: List<String>,
-    newBlockText: String,
-): TextRange = if (selection.collapsed) {
-    val lineIndex = text.substring(blockStart, selection.start).count { it == '\n' }
-    val diff = newLines[lineIndex].length - lines[lineIndex].length
-    TextRange((selection.start + diff).coerceAtLeast(blockStart))
-} else {
-    TextRange(blockStart, blockStart + newBlockText.length)
-}
-
-private fun hasInlineMarker(content: String, marker: String): Boolean {
-    if (content.length < marker.length * 2) return false
-    if (!content.startsWith(marker) || !content.endsWith(marker)) return false
-    if (marker == "*" && content.startsWith("**") && !content.startsWith("***")) return false
-    if (marker == "*" && content.endsWith("**") && !content.endsWith("***")) return false
-    return true
-}
-
-private fun toggleInlineFormat(value: TextFieldValue, marker: String): TextFieldValue {
-    val text = value.text
-    val selection = value.selection
-    if (selection.collapsed) {
-        val newText = text.substring(0, selection.start) + marker + marker + text.substring(selection.start)
-        return value.copy(text = newText, selection = TextRange(selection.start + marker.length))
-    }
-    val (blockStart, blockEnd) = getSelectedLines(text, selection)
-    val lines = text.substring(blockStart, blockEnd).split("\n")
-
-    val allHaveMarker = lines.all { line ->
-        line.isBlank() || hasInlineMarker(line.substring(getLinePrefix(line).length), marker)
-    }
-
-    val newLines = lines.map { line ->
-        if (line.isBlank()) line
-        else {
-            val prefix = getLinePrefix(line)
-            val content = line.substring(prefix.length)
-            if (allHaveMarker) {
-                prefix + content.substring(marker.length, content.length - marker.length)
-            } else {
-                if (hasInlineMarker(content, marker)) line
-                else prefix + marker + content + marker
-            }
-        }
-    }
-
-    val newBlockText = newLines.joinToString("\n")
-    val newText = text.substring(0, blockStart) + newBlockText + text.substring(blockEnd)
-    return value.copy(text = newText, selection = TextRange(blockStart, blockStart + newBlockText.length))
-}
-
-private fun toggleLinePrefix(value: TextFieldValue, prefix: String): TextFieldValue {
-    val text = value.text
-    val selection = value.selection
-    val (blockStart, blockEnd) = getSelectedLines(text, selection)
-    val lines = text.substring(blockStart, blockEnd).split("\n")
-
-    val allHavePrefix = lines.all { matchesPrefix(it, prefix) }
-
-    val newLines = if (allHavePrefix) {
-        lines.map { stripLinePrefix(it) }
-    } else {
-        lines.mapIndexed { index, line ->
-            val stripped = stripLinePrefix(line)
-            if (prefix == "1. ") "${index + 1}. $stripped" else prefix + stripped
-        }
-    }
-
-    val newBlockText = newLines.joinToString("\n")
-    val newText = text.substring(0, blockStart) + newBlockText + text.substring(blockEnd)
-    return value.copy(text = newText, selection = computeBlockSelection(text, selection, blockStart, lines, newLines, newBlockText))
-}
-
-private fun insertHeading(value: TextFieldValue, level: Int): TextFieldValue {
-    val text = value.text
-    val selection = value.selection
-    val (blockStart, blockEnd) = getSelectedLines(text, selection)
-    val lines = text.substring(blockStart, blockEnd).split("\n")
-    val targetPrefix = "#".repeat(level) + " "
-
-    val allHaveHeading = lines.all { Regex("^#{1,6} ").find(it)?.value == targetPrefix }
-
-    val newLines = if (allHaveHeading) {
-        lines.map { stripLinePrefix(it) }
-    } else {
-        lines.map { targetPrefix + stripLinePrefix(it) }
-    }
-
-    val newBlockText = newLines.joinToString("\n")
-    val newText = text.substring(0, blockStart) + newBlockText + text.substring(blockEnd)
-    return value.copy(text = newText, selection = computeBlockSelection(text, selection, blockStart, lines, newLines, newBlockText))
-}
-
-private fun isInlineFormatActive(text: String, selection: TextRange, marker: String): Boolean {
-    val (blockStart, blockEnd) = getSelectedLines(text, selection)
-    val lines = text.substring(blockStart, blockEnd).split("\n").filter { it.isNotBlank() }
-    return lines.isNotEmpty() && lines.all { hasInlineMarker(it.substring(getLinePrefix(it).length), marker) }
-}
-
-private fun isLinePrefixActive(text: String, selection: TextRange, prefix: String): Boolean {
-    val (blockStart, blockEnd) = getSelectedLines(text, selection)
-    return text.substring(blockStart, blockEnd).split("\n").all { matchesPrefix(it, prefix) }
-}
-
-private fun getActiveHeadingLevel(text: String, cursorPos: Int): Int? {
-    val lineStart = text.lastIndexOf('\n', (cursorPos - 1).coerceAtLeast(0)) + 1
-    val lineEnd = text.indexOf('\n', cursorPos).let { if (it == -1) text.length else it }
-    val match = Regex("^(#{1,6}) ").find(text.substring(lineStart, lineEnd)) ?: return null
-    return match.groupValues[1].length
-}
-
-private fun insertCodeBlock(value: TextFieldValue): TextFieldValue {
-    val text = value.text
-    val selection = value.selection
-    if (selection.collapsed) {
-        val insert = "```\n\n```"
-        val newText = text.substring(0, selection.start) + insert + text.substring(selection.start)
-        return value.copy(text = newText, selection = TextRange(selection.start + 4))
-    }
-    val selectedText = text.substring(selection.start, selection.end)
-    val newText = text.substring(0, selection.start) + "```\n" + selectedText + "\n```" + text.substring(selection.end)
-    return value.copy(text = newText, selection = TextRange(selection.start + 4, selection.start + 4 + selectedText.length))
-}
-
-private fun insertHorizontalRule(value: TextFieldValue): TextFieldValue {
-    val text = value.text
-    val cursor = value.selection.start
-    val insert = "\n---\n"
-    val newText = text.substring(0, cursor) + insert + text.substring(cursor)
-    return value.copy(text = newText, selection = TextRange(cursor + insert.length))
-}
-
-private fun insertLink(value: TextFieldValue): TextFieldValue {
-    val text = value.text
-    val selection = value.selection
-    if (selection.collapsed) {
-        val insert = "[link](url)"
-        val newText = text.substring(0, selection.start) + insert + text.substring(selection.start)
-        return value.copy(text = newText, selection = TextRange(selection.start + 1, selection.start + 5))
-    }
-    val selectedText = text.substring(selection.start, selection.end)
-    val newText = text.substring(0, selection.start) + "[" + selectedText + "](url)" + text.substring(selection.end)
-    return value.copy(text = newText, selection = TextRange(selection.end + 3, selection.end + 6))
-}
-
-private val checkboxPattern = Regex("^(\\s*- )\\[([ xX])] ")
-
-private fun tryToggleCheckbox(offset: Int, value: TextFieldValue): TextFieldValue? {
-    val text = value.text
-    val lineStart = text.lastIndexOf('\n', (offset - 1).coerceAtLeast(0)) + 1
-    val lineEnd = text.indexOf('\n', offset).let { if (it == -1) text.length else it }
-    val match = checkboxPattern.find(text.substring(lineStart, lineEnd)) ?: return null
-    val bracketOffset = lineStart + match.groups[1]!!.value.length
-    if (offset > bracketOffset + 3) return null
-    val newChar = if (match.groups[2]!!.value.lowercase() == "x") " " else "x"
-    val newText = text.substring(0, bracketOffset + 1) + newChar + text.substring(bracketOffset + 2)
-    return value.copy(text = newText, selection = TextRange(offset))
-}
-
-private fun findCheckboxPositions(text: String): List<Pair<Int, Boolean>> =
-    Regex("(?m)^(\\s*- )\\[([ xX])] ").findAll(text).map { match ->
-        val bracketOffset = match.groups[1]!!.range.last + 1
-        val isChecked = match.groups[2]!!.value.lowercase() == "x"
-        bracketOffset to isChecked
-    }.toList()
+// Markdown editing helpers now live in the shared :library:ui module
+// (com.vayunmathur.library.ui.MarkdownEditor) so notes and email share them.
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable

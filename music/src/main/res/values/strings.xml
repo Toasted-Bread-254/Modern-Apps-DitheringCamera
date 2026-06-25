@@ -38,9 +38,16 @@
     <string name="dialog_cancel">Cancel</string>
     <string name="dialog_rename_playlist">Rename Playlist</string>
     <string name="dialog_rename">Rename</string>
+    <string name="dialog_delete_playlist">Delete Playlist</string>
+    <string name="dialog_delete_playlist_confirm">Delete \"%1$s\"? This cannot be undone.</string>
+    <string name="dialog_delete">Delete</string>
+    <string name="menu_delete_playlist">Delete playlist</string>
 
     <!-- Playlist -->
     <string name="new_playlist">New Playlist</string>
+    <string name="dialog_create_playlist">Create Playlist</string>
+    <string name="dialog_create">Create</string>
+    <string name="playlist_name_hint">Playlist name</string>
 
     <!-- Permissions -->
     <string name="grant_audio_permissions">Grant Audio Media Permissions</string>

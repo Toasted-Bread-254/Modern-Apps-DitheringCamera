@@ -609,12 +609,16 @@ fun MessageListScreen(
                         if (!isPending) {
                         val accountColor = Color(EmailAccount(message.accountEmail).getColor())
                         val isSelected = message.id in selectedUids
+                        // Read the latest message snapshot inside the swipe handler so
+                        // repeated read/unread swipes toggle the CURRENT persisted state
+                        // (the confirmValueChange lambda is captured once by the state).
+                        val currentMessage by rememberUpdatedState(message)
                         val dismissState = androidx.compose.material3.rememberSwipeToDismissBoxState(
                             confirmValueChange = { value ->
                                 when (value) {
-                                    androidx.compose.material3.SwipeToDismissBoxValue.EndToStart -> { pendingDelete = message; true }
+                                    androidx.compose.material3.SwipeToDismissBoxValue.EndToStart -> { pendingDelete = currentMessage; true }
                                     androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd -> {
-                                        viewModel.markAsRead(message.accountEmail, message.folderName, message.id, !message.isRead)
+                                        viewModel.markAsRead(currentMessage.accountEmail, currentMessage.folderName, currentMessage.id, !currentMessage.isRead)
                                         false
                                     }
                                     else -> false
@@ -624,12 +628,20 @@ fun MessageListScreen(
                         androidx.compose.material3.SwipeToDismissBox(
                             state = dismissState,
                             backgroundContent = {
-                                val toStart = dismissState.dismissDirection == androidx.compose.material3.SwipeToDismissBoxValue.EndToStart
-                                Box(
-                                    modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-                                    contentAlignment = if (toStart) Alignment.CenterEnd else Alignment.CenterStart,
-                                ) {
-                                    if (toStart) com.vayunmathur.library.ui.IconDelete() else IconMarkRead()
+                                // Only show a background icon while an active swipe is in
+                                // progress in that direction — never when settled.
+                                when (dismissState.dismissDirection) {
+                                    androidx.compose.material3.SwipeToDismissBoxValue.EndToStart ->
+                                        Box(
+                                            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+                                            contentAlignment = Alignment.CenterEnd,
+                                        ) { com.vayunmathur.library.ui.IconDelete() }
+                                    androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd ->
+                                        Box(
+                                            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+                                            contentAlignment = Alignment.CenterStart,
+                                        ) { IconMarkRead() }
+                                    else -> {}
                                 }
                             },
                         ) {
@@ -1075,16 +1087,18 @@ fun ComposerScreen(
     var showCcBcc by remember { mutableStateOf(false) }
     var subject by remember { mutableStateOf(initialSubject) }
     var bodyV by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(initialBody)) }
-    var richText by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var attachments by remember { mutableStateOf<List<Uri>>(emptyList()) }
     
     var showAccountPicker by remember { mutableStateOf(false) }
     var showSchedule by remember { mutableStateOf(false) }
 
-    // Pick a recipient from the system contact picker (no READ_CONTACTS needed —
-    // the picker grants temporary read access to the chosen email row).
+    // Pick recipients from the system contact picker (no READ_CONTACTS needed —
+    // the picker grants temporary read access to the chosen email row). After
+    // each pick we re-open the picker so several contacts can be added in a row;
+    // the user dismisses it (cancel) when done.
     var pickTarget by remember { mutableStateOf(0) } // 0=to, 1=cc, 2=bcc
+    var pickTick by remember { mutableStateOf(0) }
     val contactPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -1096,14 +1110,20 @@ fun ComposerScreen(
                     1 -> cc = appendRecipient(cc, email)
                     2 -> bcc = appendRecipient(bcc, email)
                 }
+                pickTick++ // re-open so more contacts can be added
             }
+        }
+    }
+    LaunchedEffect(pickTick) {
+        if (pickTick > 0) {
+            contactPicker.launch(
+                Intent(Intent.ACTION_PICK, android.provider.ContactsContract.CommonDataKinds.Email.CONTENT_URI)
+            )
         }
     }
     val pickContact = { target: Int ->
         pickTarget = target
-        contactPicker.launch(
-            Intent(Intent.ACTION_PICK, android.provider.ContactsContract.CommonDataKinds.Email.CONTENT_URI)
-        )
+        pickTick++
     }
 
     // Draft auto-save / resume state.
@@ -1179,8 +1199,8 @@ fun ComposerScreen(
                                 fromAccount?.let { acc ->
                                     viewModel.scheduleSend(
                                         account = acc, to = to, subject = subject,
-                                        body = if (richText) markdownToHtml(bodyV.text) else bodyV.text,
-                                        asHtml = richText,
+                                        body = markdownToHtml(bodyV.text),
+                                        asHtml = true,
                                         cc = cc.ifBlank { null }, bcc = bcc.ifBlank { null },
                                         attachments = attachments, inReplyTo = inReplyTo,
                                         references = references, scheduledAt = at,
@@ -1201,8 +1221,8 @@ fun ComposerScreen(
                             account = acc,
                             to = to, 
                             subject = subject, 
-                            body = if (richText) markdownToHtml(bodyV.text) else bodyV.text,
-                            asHtml = richText,
+                            body = markdownToHtml(bodyV.text),
+                            asHtml = true,
                             cc = cc.ifBlank { null },
                             bcc = bcc.ifBlank { null },
                             attachments = attachments,
@@ -1230,15 +1250,33 @@ fun ComposerScreen(
             )
         }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // Account Picker
-            ListItem(
-                headlineContent = { Text(fromAccount?.email ?: stringResource(R.string.select_account)) },
-                overlineContent = { Text(stringResource(R.string.from_label)) },
-                trailingContent = { IconChevronRight() },
-                modifier = Modifier.clickable { showAccountPicker = true }
-            )
-            HorizontalDivider()
+        Column(modifier = Modifier.padding(padding).padding(horizontal = 16.dp, vertical = 8.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            // Compact account ("From") picker.
+            Surface(
+                onClick = { showAccountPicker = true },
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                tonalElevation = 1.dp,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "${stringResource(R.string.from_label)}: ",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        fromAccount?.email ?: stringResource(R.string.select_account),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconChevronRight()
+                }
+            }
 
             if (showAccountPicker) {
                 AlertDialog(
@@ -1266,6 +1304,8 @@ fun ComposerScreen(
                     value = to, onValueChange = { to = it },
                     label = { Text(stringResource(R.string.to_label)) },
                     trailingIcon = { IconButton(onClick = { pickContact(0) }) { com.vayunmathur.library.ui.IconAdd() } },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = { showCcBcc = !showCcBcc }) { Text("Cc/Bcc") }
@@ -1274,27 +1314,34 @@ fun ComposerScreen(
                 OutlinedTextField(
                     value = cc, onValueChange = { cc = it }, label = { Text("Cc") },
                     trailingIcon = { IconButton(onClick = { pickContact(1) }) { com.vayunmathur.library.ui.IconAdd() } },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = bcc, onValueChange = { bcc = it }, label = { Text("Bcc") },
                     trailingIcon = { IconButton(onClick = { pickContact(2) }) { com.vayunmathur.library.ui.IconAdd() } },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            OutlinedTextField(value = subject, onValueChange = { subject = it }, label = { Text(stringResource(R.string.subject_label)) }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                value = subject, onValueChange = { subject = it },
+                label = { Text(stringResource(R.string.subject_label)) },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Rich text", style = MaterialTheme.typography.bodySmall)
-                Switch(checked = richText, onCheckedChange = { richText = it })
-                if (richText) {
-                    TextButton(onClick = { bodyV = wrapSelection(bodyV, "**", "**") }) { Text("B", fontWeight = FontWeight.Bold) }
-                    TextButton(onClick = { bodyV = wrapSelection(bodyV, "*", "*") }) { Text("I", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic) }
-                    TextButton(onClick = { bodyV = wrapSelection(bodyV, "\n- ", "") }) { Text("•") }
-                    TextButton(onClick = { bodyV = wrapSelection(bodyV, "[", "](https://)") }) { Text("Link") }
-                }
-            }
-            OutlinedTextField(value = bodyV, onValueChange = { bodyV = it }, label = { Text(stringResource(R.string.body_label)) }, modifier = Modifier.fillMaxWidth().weight(1f))
+            // Rich-text body editor (markdown editing -> HTML on send), shared
+            // with the notes app so the editors stay in sync.
+            com.vayunmathur.library.ui.MarkdownEditor(
+                value = bodyV,
+                onValueChange = { bodyV = it },
+                placeholder = stringResource(R.string.body_label),
+                modifier = Modifier.fillMaxWidth().weight(1f),
+            )
             
             if (attachments.isNotEmpty()) {
                 val totalBytes = remember(attachments) { attachments.sumOf { uriSize(context, it) } }
@@ -1634,43 +1681,4 @@ private fun parseUnsubscribeUri(header: String): android.net.Uri? {
     val pick = urls.firstOrNull { it.startsWith("http", ignoreCase = true) }
         ?: urls.firstOrNull { it.startsWith("mailto:", ignoreCase = true) }
     return pick?.let { runCatching { android.net.Uri.parse(it) }.getOrNull() }
-}
-
-/** Wrap the current selection (or insert at cursor) with [prefix]/[suffix]. */
-private fun wrapSelection(
-    tfv: androidx.compose.ui.text.input.TextFieldValue,
-    prefix: String,
-    suffix: String,
-): androidx.compose.ui.text.input.TextFieldValue {
-    val sel = tfv.selection
-    val start = minOf(sel.start, sel.end)
-    val end = maxOf(sel.start, sel.end)
-    val text = tfv.text
-    val selected = text.substring(start, end)
-    val newText = text.substring(0, start) + prefix + selected + suffix + text.substring(end)
-    val cursor = start + prefix.length + selected.length + suffix.length
-    return tfv.copy(text = newText, selection = androidx.compose.ui.text.TextRange(cursor))
-}
-
-/** Minimal Markdown to HTML for compose: bold, italic, links, and "- " lists. */
-private fun markdownToHtml(md: String): String {
-    val escaped = md.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    val sb = StringBuilder()
-    var inList = false
-    for (line in escaped.split("\n")) {
-        var l = line
-        l = Regex("\\[([^\\]]+)\\]\\(([^)]+)\\)").replace(l) { m -> "<a href=\"${m.groupValues[2]}\">${m.groupValues[1]}</a>" }
-        l = Regex("\\*\\*([^*]+)\\*\\*").replace(l) { m -> "<b>${m.groupValues[1]}</b>" }
-        l = Regex("(?<!\\*)\\*([^*]+)\\*(?!\\*)").replace(l) { m -> "<i>${m.groupValues[1]}</i>" }
-        l = Regex("_([^_]+)_").replace(l) { m -> "<i>${m.groupValues[1]}</i>" }
-        if (line.trimStart().startsWith("- ")) {
-            if (!inList) { sb.append("<ul>"); inList = true }
-            sb.append("<li>").append(l.trimStart().removePrefix("- ")).append("</li>")
-        } else {
-            if (inList) { sb.append("</ul>"); inList = false }
-            if (l.isBlank()) sb.append("<br>") else sb.append(l).append("<br>")
-        }
-    }
-    if (inList) sb.append("</ul>")
-    return "<html><body>$sb</body></html>"
 }

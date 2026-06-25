@@ -78,6 +78,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
@@ -90,6 +91,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.AnnotatedString
@@ -115,6 +117,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.vayunmathur.office.odf.*
+import kotlinx.coroutines.delay
 
 // --- Headings for outline ---
 
@@ -722,6 +725,39 @@ private fun ContinuousParagraphEditor(
     val transformation = remember(paras, fontSizeMultiplier, onSurface, prefixColor) {
         VisualTransformation { buildDocTransformed(it.text, paras, lens, prefixes, onSurface, prefixColor, fontSizeMultiplier) }
     }
+    // Drive the caret from the laid-out (visually transformed) text so it tracks the glyphs for
+    // every paragraph alignment. The built-in caret assumes left alignment and lands at the line
+    // start for centered/right/justified paragraphs, so it is disabled and drawn manually here. (caret-align fix)
+    val cursorColor = MaterialTheme.colorScheme.primary
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    var focused by remember { mutableStateOf(false) }
+    var blinkOn by remember { mutableStateOf(true) }
+    LaunchedEffect(focused, tfv.selection) {
+        if (!focused) { blinkOn = false; return@LaunchedEffect }
+        blinkOn = true
+        while (true) { delay(500); blinkOn = !blinkOn }
+    }
+    // Original caret offset -> transformed offset (mirrors PrefixOffsetMapping / buildDocTransformed).
+    val caretStarts = remember(lens, prefixes) {
+        val n = paras.size
+        val origStarts = IntArray(n)
+        val transStarts = IntArray(n)
+        val prefixLens = IntArray(n) { prefixes[it].length }
+        var oAcc = 0; var tAcc = 0
+        for (i in 0 until n) {
+            origStarts[i] = oAcc; transStarts[i] = tAcc
+            oAcc += lens[i] + 1; tAcc += prefixLens[i] + lens[i] + 1
+        }
+        Triple(origStarts, transStarts, prefixLens)
+    }
+    fun origToTransformed(offset: Int): Int {
+        val (origStarts, transStarts, prefixLens) = caretStarts
+        if (origStarts.isEmpty()) return 0
+        var p = 0
+        for (i in origStarts.indices) { if (origStarts[i] <= offset) p = i else break }
+        val inPara = (offset - origStarts[p]).coerceIn(0, lens[p])
+        return transStarts[p] + prefixLens[p] + inPara
+    }
     BasicTextField(
         value = tfv,
         onValueChange = { nv ->
@@ -732,8 +768,19 @@ private fun ContinuousParagraphEditor(
         },
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = onSurface, lineHeight = (22f * fontSizeMultiplier).sp),
         visualTransformation = transformation,
-        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        onTextLayout = { layout = it },
+        cursorBrush = SolidColor(Color.Transparent),
         modifier = Modifier.fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
+            .drawWithContent {
+                drawContent()
+                val lr = layout
+                if (focused && blinkOn && tfv.selection.collapsed && lr != null) {
+                    val tOff = origToTransformed(tfv.selection.end).coerceIn(0, lr.layoutInput.text.length)
+                    val rect = lr.getCursorRect(tOff)
+                    drawLine(cursorColor, Offset(rect.left, rect.top), Offset(rect.left, rect.bottom), 2.dp.toPx())
+                }
+            }
     )
 }
 

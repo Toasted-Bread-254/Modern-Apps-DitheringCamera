@@ -62,6 +62,24 @@ interface EmailDao {
     @Query("DELETE FROM EmailMessage WHERE accountEmail = :accountEmail AND folderName = :folderName AND id = :uid")
     suspend fun deleteMessageRow(accountEmail: String, folderName: String, uid: Long)
 
+    // ---- Deleted-UID tombstones ----
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDeletedUid(tombstone: com.vayunmathur.email.DeletedUid)
+
+    /** UIDs the user deleted locally — consulted by sync to avoid re-inserting them. */
+    @Query("SELECT uid FROM DeletedUid WHERE accountEmail = :accountEmail AND folderName = :folderName")
+    suspend fun getDeletedUids(accountEmail: String, folderName: String): List<Long>
+
+    /** Record a tombstone and remove the local row in one step. */
+    @Transaction
+    suspend fun deleteMessageRow(accountEmail: String, folderName: String, uid: Long, tombstone: Boolean) {
+        if (tombstone) {
+            insertDeletedUid(com.vayunmathur.email.DeletedUid(accountEmail, folderName, uid))
+        }
+        deleteMessageRow(accountEmail, folderName, uid)
+    }
+
     /** UIDs already stored for a given folder — used to skip body re-fetch in sync. */
     @Query("SELECT id FROM EmailMessage WHERE accountEmail = :accountEmail AND folderName = :folderName")
     suspend fun getKnownUids(accountEmail: String, folderName: String): List<Long>

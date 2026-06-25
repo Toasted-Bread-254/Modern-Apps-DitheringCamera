@@ -48,6 +48,19 @@ data class BlockedSender(
     @PrimaryKey val address: String,
 )
 
+/**
+ * Tombstone for a locally-deleted message. Recorded when the user deletes a
+ * message so that the sync worker / IMAP IDLE fetch skips its UID and never
+ * re-inserts it (the server expunge can lag or fail, leaving the UID briefly
+ * fetchable). Keyed by the same (account, folder, uid) tuple as EmailMessage.
+ */
+@Entity(primaryKeys = ["accountEmail", "folderName", "uid"])
+data class DeletedUid(
+    val accountEmail: String,
+    val folderName: String,
+    val uid: Long,
+)
+
 @Serializable
 @Entity(primaryKeys = ["accountEmail", "messageId", "partId"])
 data class Attachment(
