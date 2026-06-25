@@ -7,9 +7,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.filled.FormatListNumbered
+import androidx.compose.material.icons.filled.HorizontalRule
+import androidx.compose.material.icons.filled.IntegrationInstructions
+import androidx.compose.material.icons.filled.Title
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LocalContentColor
@@ -23,6 +32,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontStyle
@@ -33,15 +44,15 @@ import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.util.parseMarkdown
 
 /**
- * A reusable Markdown body editor: a formatting toolbar plus a text field that
- * renders the markdown live (bold shows bold, headings grow, etc.) using the
- * shared [parseMarkdown]. The caller owns the raw markdown text via [value] /
- * [onValueChange]; the styled rendering is derived for display only so the
- * cursor/selection stay aligned with the underlying text.
+ * A reusable Markdown body field: a [BasicTextField] that renders the markdown
+ * live (bold shows bold, headings grow, …) via the shared [parseMarkdown]. The
+ * caller owns the raw markdown via [value]/[onValueChange]; styled rendering is
+ * derived for display only so the cursor stays aligned with the text.
  *
- * The formatting logic (toggleInlineFormat, toggleLinePrefix, …) is shared with
- * the notes editor so the two never diverge. For HTML consumers (e.g. email),
- * convert the resulting markdown with [markdownToHtml] before sending.
+ * Pair it with a [MarkdownFormatToolbar] (typically in a Scaffold bottomBar,
+ * shown only while [onFocusChanged] reports focus). The formatting logic is
+ * shared so the notes, contacts, calendar and email editors never diverge. For
+ * HTML consumers, convert with [markdownToHtml].
  */
 @Composable
 fun MarkdownEditor(
@@ -49,115 +60,134 @@ fun MarkdownEditor(
     onValueChange: (TextFieldValue) -> Unit,
     modifier: Modifier = Modifier,
     placeholder: String? = null,
+    onFocusChanged: (Boolean) -> Unit = {},
 ) {
-    Column(modifier) {
-        MarkdownToolbar(value = value, onValueChange = onValueChange)
-        val styled = value.copy(
-            annotatedString = parseMarkdown(
-                value.text,
-                showMarkers = false,
-                process = false,
-                softWrap = false,
-            )
+    val styled = value.copy(
+        annotatedString = parseMarkdown(
+            value.text,
+            showMarkers = false,
+            process = false,
+            softWrap = false,
         )
-        BasicTextField(
-            value = styled,
-            onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 8.dp),
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = LocalContentColor.current),
-            cursorBrush = SolidColor(LocalContentColor.current),
-            decorationBox = { inner ->
-                Box {
-                    if (value.text.isEmpty() && placeholder != null) {
-                        Text(
-                            text = placeholder,
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            ),
-                        )
-                    }
-                    inner()
+    )
+    BasicTextField(
+        value = styled,
+        onValueChange = { nv ->
+            if (nv.text == value.text && nv.selection.collapsed) {
+                tryToggleCheckbox(nv.selection.start, value)?.let { onValueChange(it); return@BasicTextField }
+            }
+            onValueChange(nv)
+        },
+        modifier = modifier.fillMaxWidth().onFocusChanged { onFocusChanged(it.isFocused) },
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = LocalContentColor.current),
+        cursorBrush = SolidColor(LocalContentColor.current),
+        decorationBox = { inner ->
+            Box {
+                if (value.text.isEmpty() && placeholder != null) {
+                    Text(
+                        text = placeholder,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                    )
                 }
-            },
-        )
-    }
+                inner()
+            }
+        },
+    )
 }
 
-/** Standalone formatting toolbar driving a markdown [TextFieldValue]. */
-@OptIn(ExperimentalLayoutApi::class)
+/** [EditorFormatter] over a markdown [TextFieldValue]. */
+class MarkdownFormatter(
+    private val value: TextFieldValue,
+    private val onValueChange: (TextFieldValue) -> Unit,
+) : EditorFormatter {
+    override val supported = setOf(
+        EditorFormat.BOLD, EditorFormat.ITALIC, EditorFormat.STRIKETHROUGH,
+        EditorFormat.BULLET, EditorFormat.LINK,
+    )
+
+    override fun isActive(format: EditorFormat): Boolean = when (format) {
+        EditorFormat.BOLD -> isInlineFormatActive(value.text, value.selection, "**")
+        EditorFormat.ITALIC -> isInlineFormatActive(value.text, value.selection, "*")
+        EditorFormat.STRIKETHROUGH -> isInlineFormatActive(value.text, value.selection, "~~")
+        EditorFormat.BULLET -> isLinePrefixActive(value.text, value.selection, "- ")
+        else -> false
+    }
+
+    override fun toggle(format: EditorFormat) {
+        val nv = when (format) {
+            EditorFormat.BOLD -> toggleInlineFormat(value, "**")
+            EditorFormat.ITALIC -> toggleInlineFormat(value, "*")
+            EditorFormat.STRIKETHROUGH -> toggleInlineFormat(value, "~~")
+            EditorFormat.BULLET -> toggleLinePrefix(value, "- ")
+            else -> return
+        }
+        onValueChange(nv)
+    }
+
+    override fun linkContext(): LinkContext? = markdownLinkContext(value)
+
+    override fun applyLink(context: LinkContext, text: String, url: String) =
+        onValueChange(applyMarkdownLink(value, context, text, url))
+}
+
+/**
+ * Shared bottom formatting toolbar driving a markdown [TextFieldValue]. Renders
+ * the mandated base buttons via [EditorBaseButtons] plus markdown-specific extras
+ * (inline code, headings, quote, numbered list, checkbox, code block, rule).
+ */
 @Composable
-fun MarkdownToolbar(
+fun MarkdownFormatToolbar(
     value: TextFieldValue,
     onValueChange: (TextFieldValue) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
+    val formatter = MarkdownFormatter(value, onValueChange)
     var showHeadingMenu by remember { mutableStateOf(false) }
-    val activeBg = Modifier.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(8.dp))
 
     fun apply(transform: (TextFieldValue) -> TextFieldValue) = onValueChange(transform(value))
 
-    Surface(tonalElevation = 2.dp) {
-        FlowRow(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            val boldActive = isInlineFormatActive(value.text, value.selection, "**")
-            val italicActive = isInlineFormatActive(value.text, value.selection, "*")
-            val strikeActive = isInlineFormatActive(value.text, value.selection, "~~")
-            val quoteActive = isLinePrefixActive(value.text, value.selection, "> ")
-            val bulletActive = isLinePrefixActive(value.text, value.selection, "- ")
-            val numberedActive = isLinePrefixActive(value.text, value.selection, "1. ")
-            val headingActive = getActiveHeadingLevel(value.text, value.selection.start) != null
+    EditorBottomBar(modifier, scrollable = true) {
+        EditorBaseButtons(formatter)
 
-            TextButton(
-                onClick = { apply { toggleInlineFormat(it, "**") } },
-                modifier = if (boldActive) activeBg else Modifier,
-            ) { Text("B", fontWeight = FontWeight.Bold) }
+        FormatIconButton(
+            Icons.Filled.Code, "Inline code",
+            active = isInlineFormatActive(value.text, value.selection, "`"),
+        ) { apply { toggleInlineFormat(it, "`") } }
 
-            TextButton(
-                onClick = { apply { toggleInlineFormat(it, "*") } },
-                modifier = if (italicActive) activeBg else Modifier,
-            ) { Text("I", fontStyle = FontStyle.Italic) }
-
-            TextButton(
-                onClick = { apply { toggleInlineFormat(it, "~~") } },
-                modifier = if (strikeActive) activeBg else Modifier,
-            ) { Text("S", textDecoration = TextDecoration.LineThrough) }
-
-            Box {
-                TextButton(
-                    onClick = { showHeadingMenu = true },
-                    modifier = if (headingActive) activeBg else Modifier,
-                ) { Text("H") }
-                DropdownMenu(expanded = showHeadingMenu, onDismissRequest = { showHeadingMenu = false }) {
-                    (1..3).forEach { level ->
-                        DropdownMenuItem(
-                            text = { Text("Heading $level") },
-                            onClick = {
-                                apply { insertHeading(it, level) }
-                                showHeadingMenu = false
-                            },
-                        )
-                    }
+        Box {
+            FormatIconButton(
+                Icons.Filled.Title, "Heading",
+                active = getActiveHeadingLevel(value.text, value.selection.start) != null,
+            ) { showHeadingMenu = true }
+            DropdownMenu(expanded = showHeadingMenu, onDismissRequest = { showHeadingMenu = false }) {
+                (1..3).forEach { level ->
+                    DropdownMenuItem(text = { Text("Heading $level") }, onClick = {
+                        apply { insertHeading(it, level) }
+                        showHeadingMenu = false
+                    })
                 }
             }
-
-            TextButton(
-                onClick = { apply { toggleLinePrefix(it, "> ") } },
-                modifier = if (quoteActive) activeBg else Modifier,
-            ) { Text("\u201C\u201D") }
-
-            TextButton(
-                onClick = { apply { toggleLinePrefix(it, "- ") } },
-                modifier = if (bulletActive) activeBg else Modifier,
-            ) { Text("\u2022") }
-
-            TextButton(
-                onClick = { apply { toggleLinePrefix(it, "1. ") } },
-                modifier = if (numberedActive) activeBg else Modifier,
-            ) { Text("1.") }
-
-            TextButton(onClick = { apply { insertLink(it) } }) { Text("Link") }
         }
+
+        FormatIconButton(
+            Icons.Filled.FormatQuote, "Quote",
+            active = isLinePrefixActive(value.text, value.selection, "> "),
+        ) { apply { toggleLinePrefix(it, "> ") } }
+
+        FormatIconButton(
+            Icons.Filled.FormatListNumbered, "Numbered list",
+            active = isLinePrefixActive(value.text, value.selection, "1. "),
+        ) { apply { toggleLinePrefix(it, "1. ") } }
+
+        FormatIconButton(
+            Icons.Filled.CheckBox, "Checkbox",
+            active = isLinePrefixActive(value.text, value.selection, "- [ ] "),
+        ) { apply { toggleLinePrefix(it, "- [ ] ") } }
+
+        FormatIconButton(Icons.Filled.IntegrationInstructions, "Code block") { apply { insertCodeBlock(it) } }
+        FormatIconButton(Icons.Filled.HorizontalRule, "Horizontal rule") { apply { insertHorizontalRule(it) } }
     }
 }
 
@@ -227,35 +257,33 @@ private fun hasInlineMarker(content: String, marker: String): Boolean {
 
 fun toggleInlineFormat(value: TextFieldValue, marker: String): TextFieldValue {
     val text = value.text
-    val selection = value.selection
-    if (selection.collapsed) {
-        val newText = text.substring(0, selection.start) + marker + marker + text.substring(selection.start)
-        return value.copy(text = newText, selection = TextRange(selection.start + marker.length))
-    }
-    val (blockStart, blockEnd) = getSelectedLines(text, selection)
-    val lines = text.substring(blockStart, blockEnd).split("\n")
-
-    val allHaveMarker = lines.all { line ->
-        line.isBlank() || hasInlineMarker(line.substring(getLinePrefix(line).length), marker)
+    val sel = value.selection
+    val start = minOf(sel.start, sel.end)
+    val end = maxOf(sel.start, sel.end)
+    if (start == end) {
+        // No selection: drop an empty pair and place the cursor between them.
+        val newText = text.substring(0, start) + marker + marker + text.substring(start)
+        return value.copy(text = newText, selection = TextRange(start + marker.length))
     }
 
-    val newLines = lines.map { line ->
-        if (line.isBlank()) line
-        else {
-            val prefix = getLinePrefix(line)
-            val content = line.substring(prefix.length)
-            if (allHaveMarker) {
-                prefix + content.substring(marker.length, content.length - marker.length)
-            } else {
-                if (hasInlineMarker(content, marker)) line
-                else prefix + marker + content + marker
-            }
-        }
+    val selected = text.substring(start, end)
+
+    // The markers are part of the selection itself.
+    if (hasInlineMarker(selected, marker)) {
+        val unwrapped = selected.substring(marker.length, selected.length - marker.length)
+        val newText = text.substring(0, start) + unwrapped + text.substring(end)
+        return value.copy(text = newText, selection = TextRange(start, start + unwrapped.length))
     }
 
-    val newBlockText = newLines.joinToString("\n")
-    val newText = text.substring(0, blockStart) + newBlockText + text.substring(blockEnd)
-    return value.copy(text = newText, selection = TextRange(blockStart, blockStart + newBlockText.length))
+    // The markers sit just outside the selection (greedy, delimiter-run aware).
+    if (emphasisActive(text, start, end, marker)) {
+        val newText = text.substring(0, start - marker.length) + selected + text.substring(end + marker.length)
+        return value.copy(text = newText, selection = TextRange(start - marker.length, start - marker.length + selected.length))
+    }
+
+    // Otherwise wrap exactly the selected characters (e.g. a single word), not the line.
+    val newText = text.substring(0, start) + marker + selected + marker + text.substring(end)
+    return value.copy(text = newText, selection = TextRange(start + marker.length, start + marker.length + selected.length))
 }
 
 fun toggleLinePrefix(value: TextFieldValue, prefix: String): TextFieldValue {
@@ -301,9 +329,44 @@ fun insertHeading(value: TextFieldValue, level: Int): TextFieldValue {
 }
 
 fun isInlineFormatActive(text: String, selection: TextRange, marker: String): Boolean {
-    val (blockStart, blockEnd) = getSelectedLines(text, selection)
-    val lines = text.substring(blockStart, blockEnd).split("\n").filter { it.isNotBlank() }
-    return lines.isNotEmpty() && lines.all { hasInlineMarker(it.substring(getLinePrefix(it).length), marker) }
+    val start = minOf(selection.start, selection.end)
+    val end = maxOf(selection.start, selection.end)
+    if (start == end) return false
+    val selected = text.substring(start, end)
+    return hasInlineMarker(selected, marker) || emphasisActive(text, start, end, marker)
+}
+
+/** Length of the run of [ch] immediately to the left of [pos]. */
+private fun runLengthLeft(text: String, pos: Int, ch: Char): Int {
+    var i = pos; var n = 0
+    while (i > 0 && text[i - 1] == ch) { n++; i-- }
+    return n
+}
+
+/** Length of the run of [ch] immediately to the right of [pos]. */
+private fun runLengthRight(text: String, pos: Int, ch: Char): Int {
+    var i = pos; var n = 0
+    while (i < text.length && text[i] == ch) { n++; i++ }
+    return n
+}
+
+/**
+ * Whether [marker] emphasis surrounds the selection, using greedy CommonMark
+ * delimiter-run semantics. For asterisks a run is consumed as bold pairs (`**`)
+ * with any leftover single asterisk being italic (`*`), so `**`=bold, `*`=italic
+ * and `***`=both with no ambiguity. Other markers (`~~`, `` ` ``) just need a
+ * full run on each side.
+ */
+private fun emphasisActive(text: String, start: Int, end: Int, marker: String): Boolean {
+    val ch = marker[0]
+    val left = runLengthLeft(text, start, ch)
+    val right = runLengthRight(text, end, ch)
+    return if (ch == '*') {
+        if (marker == "*") (left % 2 == 1) && (right % 2 == 1) // italic = leftover single
+        else left >= 2 && right >= 2                            // bold = a pair available
+    } else {
+        left >= marker.length && right >= marker.length
+    }
 }
 
 fun isLinePrefixActive(text: String, selection: TextRange, prefix: String): Boolean {
@@ -339,17 +402,49 @@ fun insertHorizontalRule(value: TextFieldValue): TextFieldValue {
     return value.copy(text = newText, selection = TextRange(cursor + insert.length))
 }
 
-fun insertLink(value: TextFieldValue): TextFieldValue {
-    val text = value.text
-    val selection = value.selection
-    if (selection.collapsed) {
-        val insert = "[link](url)"
-        val newText = text.substring(0, selection.start) + insert + text.substring(selection.start)
-        return value.copy(text = newText, selection = TextRange(selection.start + 1, selection.start + 5))
+private val markdownLinkRegex = Regex("\\[([^\\]]*)]\\(([^)]*)\\)")
+
+/** An existing `[text](url)` link spanning [range] in the document. */
+data class MarkdownLinkMatch(val range: IntRange, val text: String, val url: String)
+
+/** The markdown link whose `[text](url)` span contains [cursor], or null. */
+fun findMarkdownLinkAt(text: String, cursor: Int): MarkdownLinkMatch? {
+    for (m in markdownLinkRegex.findAll(text)) {
+        if (cursor >= m.range.first && cursor <= m.range.last + 1) {
+            return MarkdownLinkMatch(m.range.first..m.range.last, m.groupValues[1], m.groupValues[2])
+        }
     }
-    val selectedText = text.substring(selection.start, selection.end)
-    val newText = text.substring(0, selection.start) + "[" + selectedText + "](url)" + text.substring(selection.end)
-    return value.copy(text = newText, selection = TextRange(selection.end + 3, selection.end + 6))
+    return null
+}
+
+/** Link-button state for a markdown [value]; null means the button is disabled. */
+fun markdownLinkContext(value: TextFieldValue): LinkContext? {
+    val sel = value.selection
+    val existing = if (sel.collapsed) findMarkdownLinkAt(value.text, sel.start) else null
+    return when {
+        existing != null -> LinkContext(editing = true, text = existing.text, url = existing.url)
+        !sel.collapsed -> LinkContext(
+            editing = false,
+            text = value.text.substring(minOf(sel.start, sel.end), maxOf(sel.start, sel.end)),
+            url = "",
+        )
+        else -> null
+    }
+}
+
+/** Create or edit a markdown link given a [context] (from [markdownLinkContext]). */
+fun applyMarkdownLink(value: TextFieldValue, context: LinkContext, text: String, url: String): TextFieldValue {
+    val replacement = "[$text]($url)"
+    return if (context.editing) {
+        val m = findMarkdownLinkAt(value.text, value.selection.start) ?: return value
+        val newText = value.text.substring(0, m.range.first) + replacement + value.text.substring(m.range.last + 1)
+        value.copy(text = newText, selection = TextRange(m.range.first + replacement.length))
+    } else {
+        val start = minOf(value.selection.start, value.selection.end)
+        val end = maxOf(value.selection.start, value.selection.end)
+        val newText = value.text.substring(0, start) + replacement + value.text.substring(end)
+        value.copy(text = newText, selection = TextRange(start + replacement.length))
+    }
 }
 
 private val checkboxPattern = Regex("^(\\s*- )\\[([ xX])] ")

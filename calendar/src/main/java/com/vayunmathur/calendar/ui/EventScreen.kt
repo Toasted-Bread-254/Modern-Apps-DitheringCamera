@@ -127,7 +127,7 @@ fun EventScreen(viewModel: CalendarViewModel, instance: Instance, backStack: Nav
                 Box(Modifier.size(24.dp).background(Color(calendar.color), RoundedCornerShape(4.dp)))
             })
             if(event.description.isNotBlank()) ListItem({
-                Text(event.description)
+                Text(com.vayunmathur.library.util.parseMarkdown(event.description, showMarkers = false))
             }, leadingContent = {
                 Icon(painterResource(R.drawable.description_24px), null)
             })

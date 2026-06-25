@@ -36,6 +36,9 @@ import androidx.compose.ui.unit.dp
 import com.vayunmathur.office.R
 import com.vayunmathur.office.odf.*
 import com.vayunmathur.office.util.OfficeViewModel
+import com.vayunmathur.library.ui.EditorBaseButtons
+import com.vayunmathur.library.ui.EditorFormat
+import com.vayunmathur.library.ui.EditorFormatter
 
 /** What the shared bottom bar is currently formatting. (Phase 2) */
 sealed interface FormatTarget {
@@ -154,12 +157,10 @@ private fun TextFormatControls(
     var alignMenu by remember { mutableStateOf(false) }
     var tableMenu by remember { mutableStateOf(false) }
 
-    val isBold = enabled && viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.bold }
-    val isItalic = enabled && viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.italic }
-    val isUnderline = enabled && viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.underline }
-    val isStrike = enabled && viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.strikethrough }
     val isBullet = para?.style == ParagraphStyle.LIST_ITEM && para.listType == ListType.BULLET
     val isNumbered = para?.style == ParagraphStyle.LIST_ITEM && para.listType == ListType.NUMBERED
+
+    val textFormatter = TextRunFormatter(viewModel, runStart, runEnd, selStart, selEnd, enabled)
 
     val styleLabel = when (para?.style) {
         ParagraphStyle.HEADING1 -> "H1"; ParagraphStyle.HEADING2 -> "H2"; ParagraphStyle.HEADING3 -> "H3"; ParagraphStyle.HEADING4 -> "H4"; else -> "Normal"
@@ -186,10 +187,7 @@ private fun TextFormatControls(
             DropdownMenuItem(text = { Text("Heading 4") }, onClick = { styleMenu = false; setStyle(ParagraphStyle.HEADING4) })
         }
     }
-    FmtIcon(R.drawable.format_bold_24px, isBold, enabled, "Bold") { val t = !isBold; viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(bold = t) } }
-    FmtIcon(R.drawable.format_italic_24px, isItalic, enabled, "Italic") { val t = !isItalic; viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(italic = t) } }
-    FmtIcon(R.drawable.format_underlined_24px, isUnderline, enabled, "Underline") { val t = !isUnderline; viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(underline = t) } }
-    FmtIcon(R.drawable.format_strikethrough_24px, isStrike, enabled, "Strikethrough") { val t = !isStrike; viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(strikethrough = t) } }
+    EditorBaseButtons(textFormatter)
     FmtIcon(R.drawable.format_color_text_24px, false, enabled, "Text color") { actions.onTextColor() }
     Box {
         FmtIcon(alignIcon, false, enabled, "Alignment") { alignMenu = true }
@@ -253,8 +251,7 @@ private fun CellFormatControls(target: FormatTarget.Cell?, viewModel: OfficeView
     val r = target?.row ?: -1
     val c = target?.col ?: -1
     var alignMenu by remember { mutableStateOf(false) }
-    FmtIcon(R.drawable.format_bold_24px, false, enabled, "Bold") { if (enabled) viewModel.setCellBold(s, r, c) }
-    FmtIcon(R.drawable.format_italic_24px, false, enabled, "Italic") { if (enabled) viewModel.setCellItalic(s, r, c) }
+    EditorBaseButtons(CellFormatter(viewModel, s, r, c, enabled))
     FmtIcon(R.drawable.format_color_text_24px, false, enabled, "Text color") { actions.onCellTextColor() }
     TextButton(onClick = { actions.onCellBgColor() }, enabled = enabled) { Text("Fill") }
     Box {
@@ -289,7 +286,78 @@ private fun CellFormatControls(target: FormatTarget.Cell?, viewModel: OfficeView
     }
 }
 
-// --- Presentation element branch ---
+// --- EditorFormatter adapters: map the shared base buttons onto office actions ---
+
+/** Inline character formatting for a text-document run selection. */
+private class TextRunFormatter(
+    private val viewModel: OfficeViewModel,
+    private val runStart: Int,
+    private val runEnd: Int,
+    private val selStart: Int,
+    private val selEnd: Int,
+    override val enabled: Boolean,
+) : EditorFormatter {
+    override val supported = setOf(
+        EditorFormat.BOLD, EditorFormat.ITALIC, EditorFormat.UNDERLINE, EditorFormat.STRIKETHROUGH,
+    )
+
+    override fun isActive(format: EditorFormat): Boolean = enabled && when (format) {
+        EditorFormat.BOLD -> viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.bold }
+        EditorFormat.ITALIC -> viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.italic }
+        EditorFormat.UNDERLINE -> viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.underline }
+        EditorFormat.STRIKETHROUGH -> viewModel.runRangeHasFormat(runStart, runEnd, selStart, selEnd) { it.strikethrough }
+        else -> false
+    }
+
+    override fun toggle(format: EditorFormat) {
+        if (!enabled) return
+        when (format) {
+            EditorFormat.BOLD -> { val t = !isActive(EditorFormat.BOLD); viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(bold = t) } }
+            EditorFormat.ITALIC -> { val t = !isActive(EditorFormat.ITALIC); viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(italic = t) } }
+            EditorFormat.UNDERLINE -> { val t = !isActive(EditorFormat.UNDERLINE); viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(underline = t) } }
+            EditorFormat.STRIKETHROUGH -> { val t = !isActive(EditorFormat.STRIKETHROUGH); viewModel.applyRunSpanStyle(runStart, runEnd, selStart, selEnd) { it.copy(strikethrough = t) } }
+            else -> {}
+        }
+    }
+}
+
+/** Inline character formatting for a spreadsheet cell. */
+private class CellFormatter(
+    private val viewModel: OfficeViewModel,
+    private val sheet: Int,
+    private val row: Int,
+    private val col: Int,
+    override val enabled: Boolean,
+) : EditorFormatter {
+    override val supported = setOf(EditorFormat.BOLD, EditorFormat.ITALIC)
+    override fun toggle(format: EditorFormat) {
+        if (!enabled) return
+        when (format) {
+            EditorFormat.BOLD -> viewModel.setCellBold(sheet, row, col)
+            EditorFormat.ITALIC -> viewModel.setCellItalic(sheet, row, col)
+            else -> {}
+        }
+    }
+}
+
+/** Inline character formatting for a presentation slide element. */
+private class SlideFormatter(
+    private val viewModel: OfficeViewModel,
+    private val slide: Int,
+    private val element: Int,
+    override val enabled: Boolean,
+) : EditorFormatter {
+    override val supported = setOf(EditorFormat.BOLD, EditorFormat.ITALIC, EditorFormat.UNDERLINE)
+    override fun toggle(format: EditorFormat) {
+        if (!enabled) return
+        when (format) {
+            EditorFormat.BOLD -> viewModel.toggleSlideElementBold(slide, element)
+            EditorFormat.ITALIC -> viewModel.toggleSlideElementItalic(slide, element)
+            EditorFormat.UNDERLINE -> viewModel.toggleSlideElementUnderline(slide, element)
+            else -> {}
+        }
+    }
+}
 
 @Composable
 private fun ElementFormatControls(target: FormatTarget.Element?, viewModel: OfficeViewModel, actions: BottomBarActions) {
@@ -297,9 +365,7 @@ private fun ElementFormatControls(target: FormatTarget.Element?, viewModel: Offi
     val s = target?.slide ?: -1
     val e = target?.element ?: -1
     var alignMenu by remember { mutableStateOf(false) }
-    FmtIcon(R.drawable.format_bold_24px, false, enabled, "Bold") { if (enabled) viewModel.toggleSlideElementBold(s, e) }
-    FmtIcon(R.drawable.format_italic_24px, false, enabled, "Italic") { if (enabled) viewModel.toggleSlideElementItalic(s, e) }
-    FmtIcon(R.drawable.format_underlined_24px, false, enabled, "Underline") { if (enabled) viewModel.toggleSlideElementUnderline(s, e) }
+    EditorBaseButtons(SlideFormatter(viewModel, s, e, enabled))
     FmtIcon(R.drawable.format_color_text_24px, false, enabled, "Text color") { actions.onSlideTextColor() }
     TextButton(onClick = { actions.onSlideFill() }, enabled = enabled) { Text("Fill") }
     TextButton(onClick = { actions.onSlideStroke() }, enabled = enabled) { Text("Border") }

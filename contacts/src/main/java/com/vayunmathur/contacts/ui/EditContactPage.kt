@@ -8,6 +8,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,11 +21,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -58,6 +61,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.scale
@@ -114,6 +118,14 @@ fun EditContactPage(backStack: NavBackStack<Route>, viewModel: ContactViewModel,
     }
 
     val currentDraft = draft
+    // Markdown note editor state (hoisted so the bottom toolbar can drive it).
+    var noteFocused by remember { mutableStateOf(false) }
+    var noteEdited by remember(contactId) { mutableStateOf<TextFieldValue?>(null) }
+    val noteValue = noteEdited ?: TextFieldValue(currentDraft?.noteContent ?: "")
+    val onNoteChange: (TextFieldValue) -> Unit = { nv ->
+        noteEdited = nv
+        viewModel.updateEditDraft { it.copy(noteContent = nv.text) }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -135,6 +147,14 @@ fun EditContactPage(backStack: NavBackStack<Route>, viewModel: ContactViewModel,
                     }
                 }
             )
+        },
+        bottomBar = {
+            if (noteFocused) {
+                com.vayunmathur.library.ui.MarkdownFormatToolbar(
+                    value = noteValue,
+                    onValueChange = onNoteChange,
+                )
+            }
         }
     ) { paddingValues ->
         if (currentDraft == null) return@Scaffold
@@ -294,15 +314,23 @@ fun EditContactPage(backStack: NavBackStack<Route>, viewModel: ContactViewModel,
 
             Spacer(Modifier.height(16.dp))
 
-            OutlinedTextField(
-                value = currentDraft.noteContent,
-                onValueChange = { v -> viewModel.updateEditDraft { it.copy(noteContent = v) } },
-                label = { Text(stringResource(R.string.note)) },
-                leadingIcon = {
-                    IconEdit()
-                },
+            Text(
+                text = stringResource(R.string.note),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth(),
-                minLines = 3
+            )
+            Spacer(Modifier.height(4.dp))
+            com.vayunmathur.library.ui.MarkdownEditor(
+                value = noteValue,
+                onValueChange = onNoteChange,
+                placeholder = stringResource(R.string.note),
+                onFocusChanged = { noteFocused = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 96.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                    .padding(12.dp),
             )
 
             Spacer(Modifier.height(16.dp))

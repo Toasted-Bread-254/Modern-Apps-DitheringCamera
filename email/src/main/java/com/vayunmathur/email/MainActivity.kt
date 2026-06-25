@@ -1086,7 +1086,7 @@ fun ComposerScreen(
     var bcc by remember { mutableStateOf("") }
     var showCcBcc by remember { mutableStateOf(false) }
     var subject by remember { mutableStateOf(initialSubject) }
-    val bodyController = remember { com.vayunmathur.email.ui.HtmlEditorController(initialBody) }
+    val bodyController = remember { com.vayunmathur.library.ui.HtmlEditorController(initialBody) }
     var sending by remember { mutableStateOf(false) }
     var attachments by remember { mutableStateOf<List<Uri>>(emptyList()) }
     
@@ -1250,7 +1250,9 @@ fun ComposerScreen(
             )
         },
         bottomBar = {
-            com.vayunmathur.email.ui.HtmlFormatToolbar(controller = bodyController)
+            if (bodyController.focused) {
+                com.vayunmathur.library.ui.HtmlFormatToolbar(controller = bodyController)
+            }
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).padding(horizontal = 16.dp, vertical = 8.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1339,7 +1341,7 @@ fun ComposerScreen(
 
             // True HTML body editor (real spans → HTML); the formatting toolbar
             // lives in the Scaffold bottomBar so it docks above the keyboard.
-            com.vayunmathur.email.ui.HtmlEditor(
+            com.vayunmathur.library.ui.HtmlEditor(
                 controller = bodyController,
                 placeholder = stringResource(R.string.body_label),
                 modifier = Modifier.fillMaxWidth().weight(1f),

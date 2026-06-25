@@ -1,5 +1,6 @@
-package com.vayunmathur.email.ui
+package com.vayunmathur.library.ui
 
+import android.content.Context
 import android.graphics.Typeface
 import android.text.Editable
 import android.text.Spanned
@@ -11,13 +12,12 @@ import android.text.style.UnderlineSpan
 import android.view.Gravity
 import android.widget.EditText
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -45,9 +44,35 @@ import androidx.core.text.HtmlCompat
  * (bold/italic/underline/strike/bullets/links) and serialized to HTML — so the
  * email body is genuinely HTML, never markdown.
  */
-class HtmlEditorController(initialHtml: String = "") {
+class HtmlEditorController(initialHtml: String = "") : EditorFormatter {
     /** Live HTML of the body; recomposes readers on every edit. */
     var html by mutableStateOf(initialHtml)
+        internal set
+
+    override val supported = setOf(
+        EditorFormat.BOLD, EditorFormat.ITALIC, EditorFormat.UNDERLINE,
+        EditorFormat.STRIKETHROUGH, EditorFormat.BULLET, EditorFormat.LINK,
+    )
+
+    override fun toggle(format: EditorFormat) {
+        when (format) {
+            EditorFormat.BOLD -> toggleBold()
+            EditorFormat.ITALIC -> toggleItalic()
+            EditorFormat.UNDERLINE -> toggleUnderline()
+            EditorFormat.STRIKETHROUGH -> toggleStrikethrough()
+            EditorFormat.BULLET -> toggleBullet()
+            EditorFormat.LINK -> {}
+        }
+    }
+
+    /** Current selection, mirrored from the view so toolbars can react to it. */
+    var selectionStart by mutableStateOf(0)
+        internal set
+    var selectionEnd by mutableStateOf(0)
+        internal set
+
+    /** Whether the editor currently has input focus (drives toolbar visibility). */
+    var focused by mutableStateOf(false)
         internal set
 
     /** Bumped whenever [setHtml] requests the view to reload from [html]. */
@@ -110,21 +135,54 @@ class HtmlEditorController(initialHtml: String = "") {
         refresh()
     }
 
-    /** Apply [url] as a link over the selection, or insert it as linked text. */
-    fun applyLink(url: String) {
+    /**
+     * The link button state for the current selection/cursor, or null when the
+     * button should be disabled (no selection and not on a link). Reads the
+     * observable selection/html so callers recompute as the user moves around.
+     */
+    override fun linkContext(): LinkContext? = computeLinkContext()
+
+    private fun computeLinkContext(): LinkContext? {
+        val e = editText?.text ?: return null
+        @Suppress("UNUSED_EXPRESSION") html // subscribe so edits re-evaluate
+        val start = minOf(selectionStart, selectionEnd).coerceIn(0, e.length)
+        val end = maxOf(selectionStart, selectionEnd).coerceIn(0, e.length)
+        val span = urlSpanAt(e, start, end)
+        if (span != null) {
+            val ss = e.getSpanStart(span).coerceIn(0, e.length)
+            val se = e.getSpanEnd(span).coerceIn(0, e.length)
+            return LinkContext(editing = true, text = e.substring(ss, se), url = span.url ?: "")
+        }
+        return if (start < end) LinkContext(editing = false, text = e.substring(start, end), url = "") else null
+    }
+
+    /** Create or edit a link per [context], using the new [text]/[url]. */
+    override fun applyLink(context: LinkContext, text: String, url: String) {
         val e = editText?.text ?: return
         if (url.isBlank()) return
-        var start = minOf(selStart(), selEnd())
-        var end = maxOf(selStart(), selEnd())
-        if (start >= end) {
+        if (context.editing) {
+            val start = minOf(selStart(), selEnd()).coerceIn(0, e.length)
+            val end = maxOf(selStart(), selEnd()).coerceIn(0, e.length)
+            val span = urlSpanAt(e, start, end) ?: return
+            val ss = e.getSpanStart(span)
+            val se = e.getSpanEnd(span)
+            e.removeSpan(span)
             updating = true
-            e.insert(start, url)
+            e.replace(ss, se, text)
             updating = false
-            end = start + url.length
+            e.setSpan(URLSpan(url), ss, ss + text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            editText?.setSelection(ss + text.length)
+        } else {
+            val start = minOf(selStart(), selEnd()).coerceIn(0, e.length)
+            val end = maxOf(selStart(), selEnd()).coerceIn(0, e.length)
+            updating = true
+            e.replace(start, end, text)
+            updating = false
+            val newEnd = start + text.length
+            e.getSpans(start, newEnd, URLSpan::class.java).forEach { e.removeSpan(it) }
+            e.setSpan(URLSpan(url), start, newEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            editText?.setSelection(newEnd)
         }
-        e.getSpans(start, end, URLSpan::class.java).forEach { e.removeSpan(it) }
-        e.setSpan(URLSpan(url), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        editText?.setSelection(end)
         refresh()
     }
 
@@ -135,6 +193,15 @@ class HtmlEditorController(initialHtml: String = "") {
 @Composable
 fun rememberHtmlEditorController(initialHtml: String = ""): HtmlEditorController =
     remember { HtmlEditorController(initialHtml) }
+
+/** EditText that reports selection changes so Compose toolbars can react. */
+private class RichEditText(context: Context) : EditText(context) {
+    var onSelectionChange: ((Int, Int) -> Unit)? = null
+    override fun onSelectionChanged(selStart: Int, selEnd: Int) {
+        super.onSelectionChanged(selStart, selEnd)
+        onSelectionChange?.invoke(selStart, selEnd)
+    }
+}
 
 /**
  * An HTML-backed rich-text body field. Renders/edits real spans via a native
@@ -153,7 +220,7 @@ fun HtmlEditor(
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
-            EditText(ctx).apply {
+            RichEditText(ctx).apply {
                 background = null
                 setTextColor(textColor)
                 setHintTextColor(hintColor)
@@ -165,6 +232,11 @@ fun HtmlEditor(
                     android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
                     android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
                 controller.editText = this
+                onSelectionChange = { s, e ->
+                    controller.selectionStart = s
+                    controller.selectionEnd = e
+                }
+                setOnFocusChangeListener { _, hasFocus -> controller.focused = hasFocus }
                 controller.updating = true
                 setText(HtmlCompat.fromHtml(controller.html, HtmlCompat.FROM_HTML_MODE_COMPACT))
                 setSelection(text?.length ?: 0)
@@ -197,51 +269,22 @@ fun HtmlFormatToolbar(
     controller: HtmlEditorController,
     modifier: Modifier = Modifier,
 ) {
-    var showLinkDialog by remember { mutableStateOf(false) }
-    var linkUrl by remember { mutableStateOf(TextFieldValue("https://")) }
-
-    Surface(modifier = modifier.imePadding(), tonalElevation = 3.dp) {
-        androidx.compose.foundation.layout.Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            TextButton(onClick = { controller.toggleBold() }) { Text("B", fontWeight = FontWeight.Bold) }
-            TextButton(onClick = { controller.toggleItalic() }) { Text("I", fontStyle = FontStyle.Italic) }
-            TextButton(onClick = { controller.toggleUnderline() }) { Text("U", textDecoration = TextDecoration.Underline) }
-            TextButton(onClick = { controller.toggleStrikethrough() }) { Text("S", textDecoration = TextDecoration.LineThrough) }
-            TextButton(onClick = { controller.toggleBullet() }) { Text("\u2022") }
-            TextButton(onClick = { showLinkDialog = true }) { Text("Link") }
-        }
-    }
-
-    if (showLinkDialog) {
-        AlertDialog(
-            onDismissRequest = { showLinkDialog = false },
-            title = { Text("Insert link") },
-            text = {
-                OutlinedTextField(
-                    value = linkUrl,
-                    onValueChange = { linkUrl = it },
-                    singleLine = true,
-                    label = { Text("URL") },
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    controller.applyLink(linkUrl.text.trim())
-                    showLinkDialog = false
-                    linkUrl = TextFieldValue("https://")
-                }) { Text("Add") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLinkDialog = false }) { Text("Cancel") }
-            },
-        )
+    EditorBottomBar(modifier) {
+        EditorBaseButtons(controller)
     }
 }
 
 private fun serializeHtml(s: Spanned): String =
     HtmlCompat.toHtml(s, HtmlCompat.TO_HTML_PARAGRAPH_LINES_CONSECUTIVE)
+
+/** The URLSpan covering the selection, or the one just before a collapsed cursor. */
+private fun urlSpanAt(e: Editable, start: Int, end: Int): URLSpan? {
+    e.getSpans(start, maxOf(end, start), URLSpan::class.java).firstOrNull()?.let { return it }
+    if (start == end && start > 0) {
+        e.getSpans(start - 1, start, URLSpan::class.java).firstOrNull()?.let { return it }
+    }
+    return null
+}
 
 private fun Editable.isFullyCovered(start: Int, end: Int, matches: (Any) -> Boolean): Boolean {
     var pos = start

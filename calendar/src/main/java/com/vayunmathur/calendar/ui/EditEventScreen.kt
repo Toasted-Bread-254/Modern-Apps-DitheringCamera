@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.provider.CalendarContract
 import android.text.format.DateFormat
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,10 +12,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenu
@@ -44,6 +47,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.calendar.util.CalendarViewModel
@@ -95,7 +99,8 @@ fun EditEventScreen(viewModel: CalendarViewModel, editRoute: Route.EditEvent, ba
     val now = znow.time
 
     var title by remember { mutableStateOf(event?.title ?: editRoute.title ?: "") }
-    var description by remember { mutableStateOf(event?.description ?: editRoute.description ?: "") }
+    var description by remember { mutableStateOf(TextFieldValue(event?.description ?: editRoute.description ?: "")) }
+    var descriptionFocused by remember { mutableStateOf(false) }
     var location by remember { mutableStateOf(event?.location ?: editRoute.location ?: "") }
     // default to the event's calendar if editing; otherwise prefer the first editable calendar
     var selectedCalendar by remember { mutableLongStateOf(event?.calendarID ?: (calendars.firstOrNull { it.canModify }?.id ?: calendars.firstOrNull()?.id ?: -1L)) }
@@ -195,11 +200,18 @@ fun EditEventScreen(viewModel: CalendarViewModel, editRoute: Route.EditEvent, ba
         TopAppBar({}, navigationIcon = {
             IconNavigation(backStack)
         })
+    }, bottomBar = {
+        if (descriptionFocused) {
+            com.vayunmathur.library.ui.MarkdownFormatToolbar(
+                value = description,
+                onValueChange = { description = it },
+            )
+        }
     }, floatingActionButton = {
         FloatingActionButton(onClick = {
             val values = ContentValues().apply {
                 put(CalendarContract.Events.TITLE, title)
-                put(CalendarContract.Events.DESCRIPTION, description)
+                put(CalendarContract.Events.DESCRIPTION, description.text)
                 put(CalendarContract.Events.EVENT_LOCATION, location)
                 put(CalendarContract.Events.CALENDAR_ID, selectedCalendar)
                 val tz = if(allDay) "UTC" else timezone
@@ -247,7 +259,24 @@ fun EditEventScreen(viewModel: CalendarViewModel, editRoute: Route.EditEvent, ba
                 )
             }
 
-            OutlinedTextField(description, { description = it }, Modifier.fillMaxWidth().padding(8.dp), label = { Text(stringResource(R.string.label_description)) })
+            Text(
+                text = stringResource(R.string.label_description),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            )
+            com.vayunmathur.library.ui.MarkdownEditor(
+                value = description,
+                onValueChange = { description = it },
+                placeholder = stringResource(R.string.label_description),
+                onFocusChanged = { descriptionFocused = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+                    .heightIn(min = 96.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                    .padding(12.dp),
+            )
             HorizontalDivider(Modifier.padding(vertical = 16.dp))
             Item(
                 { Icon(painterResource(R.drawable.nest_clock_farsight_analog_24px), null) },

@@ -68,6 +68,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
@@ -89,7 +90,6 @@ import com.vayunmathur.library.ui.getActiveHeadingLevel
 import com.vayunmathur.library.ui.insertCodeBlock
 import com.vayunmathur.library.ui.insertHorizontalRule
 import com.vayunmathur.library.ui.insertHeading
-import com.vayunmathur.library.ui.insertLink
 import com.vayunmathur.library.ui.isInlineFormatActive
 import com.vayunmathur.library.ui.isLinePrefixActive
 import com.vayunmathur.library.ui.toggleInlineFormat
@@ -160,6 +160,7 @@ fun NotePage(
     }
 
     var showHeadingMenu by remember { mutableStateOf(false) }
+    var contentFocused by remember { mutableStateOf(false) }
 
     fun applyFormat(transform: (TextFieldValue) -> TextFieldValue) {
         contentValue = transform(contentValue)
@@ -244,108 +245,11 @@ fun NotePage(
             }
         }
     }, bottomBar = {
-        if (!showSearchBar) {
-            Surface(
-                modifier = Modifier.imePadding(),
-                tonalElevation = 3.dp,
-            ) {
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                ) {
-                    val isBoldActive = isInlineFormatActive(contentValue.text, contentValue.selection, "**")
-                    val isItalicActive = isInlineFormatActive(contentValue.text, contentValue.selection, "*")
-                    val isStrikethroughActive = isInlineFormatActive(contentValue.text, contentValue.selection, "~~")
-                    val isCodeActive = isInlineFormatActive(contentValue.text, contentValue.selection, "`")
-                    val isQuoteActive = isLinePrefixActive(contentValue.text, contentValue.selection, "> ")
-                    val isBulletActive = isLinePrefixActive(contentValue.text, contentValue.selection, "- ")
-                    val isNumberedActive = isLinePrefixActive(contentValue.text, contentValue.selection, "1. ")
-                    val isCheckboxActive = isLinePrefixActive(contentValue.text, contentValue.selection, "- [ ] ")
-                    val activeHeadingLevel = getActiveHeadingLevel(contentValue.text, contentValue.selection.start)
-                    val activeBg = Modifier.background(
-                        MaterialTheme.colorScheme.secondaryContainer,
-                        RoundedCornerShape(8.dp)
-                    )
-
-                    IconButton(
-                        onClick = { applyFormat { toggleInlineFormat(it, "**") } },
-                        modifier = if (isBoldActive) activeBg else Modifier
-                    ) { Icon(Icons.Default.FormatBold, "Bold") }
-
-                    IconButton(
-                        onClick = { applyFormat { toggleInlineFormat(it, "*") } },
-                        modifier = if (isItalicActive) activeBg else Modifier
-                    ) { Icon(Icons.Default.FormatItalic, "Italic") }
-
-                    IconButton(
-                        onClick = { applyFormat { toggleInlineFormat(it, "~~") } },
-                        modifier = if (isStrikethroughActive) activeBg else Modifier
-                    ) { Icon(Icons.Default.FormatStrikethrough, "Strikethrough") }
-
-                    IconButton(
-                        onClick = { applyFormat { toggleInlineFormat(it, "`") } },
-                        modifier = if (isCodeActive) activeBg else Modifier
-                    ) { Icon(Icons.Default.Code, "Inline Code") }
-
-                    Box {
-                        IconButton(
-                            onClick = { showHeadingMenu = true },
-                            modifier = if (activeHeadingLevel != null) activeBg else Modifier
-                        ) {
-                            Icon(Icons.Default.Title, "Heading")
-                        }
-                        DropdownMenu(
-                            expanded = showHeadingMenu,
-                            onDismissRequest = { showHeadingMenu = false }
-                        ) {
-                            (1..6).forEach { level ->
-                                val isActive = activeHeadingLevel == level
-                                DropdownMenuItem(
-                                    text = { Text("H$level") },
-                                    onClick = {
-                                        applyFormat { insertHeading(it, level) }
-                                        showHeadingMenu = false
-                                    },
-                                    modifier = if (isActive) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier,
-                                    trailingIcon = if (isActive) {{ Icon(Icons.Default.Check, "Active") }} else null
-                                )
-                            }
-                        }
-                    }
-
-                    IconButton(
-                        onClick = { applyFormat { toggleLinePrefix(it, "> ") } },
-                        modifier = if (isQuoteActive) activeBg else Modifier
-                    ) { Icon(Icons.Default.FormatQuote, "Quote") }
-
-                    IconButton(
-                        onClick = { applyFormat { toggleLinePrefix(it, "- ") } },
-                        modifier = if (isBulletActive) activeBg else Modifier
-                    ) { Icon(Icons.Default.FormatListBulleted, "Bullet List") }
-
-                    IconButton(
-                        onClick = { applyFormat { toggleLinePrefix(it, "1. ") } },
-                        modifier = if (isNumberedActive) activeBg else Modifier
-                    ) { Icon(Icons.Default.FormatListNumbered, "Numbered List") }
-
-                    IconButton(
-                        onClick = { applyFormat { toggleLinePrefix(it, "- [ ] ") } },
-                        modifier = if (isCheckboxActive) activeBg else Modifier
-                    ) { Icon(Icons.Default.CheckBox, "Checkbox") }
-
-                    IconButton({ applyFormat { insertCodeBlock(it) } }) {
-                        Icon(Icons.Default.IntegrationInstructions, "Code Block")
-                    }
-
-                    IconButton({ applyFormat { insertHorizontalRule(it) } }) {
-                        Icon(Icons.Default.HorizontalRule, "Horizontal Rule")
-                    }
-
-                    IconButton({ applyFormat { insertLink(it) } }) {
-                        Icon(Icons.Default.Link, "Link")
-                    }
-                }
-            }
+        if (!showSearchBar && contentFocused) {
+            com.vayunmathur.library.ui.MarkdownFormatToolbar(
+                value = contentValue,
+                onValueChange = { nv -> applyFormat { nv } },
+            )
         }
     }) { paddingValues ->
         LazyColumn(contentPadding = paddingValues + PaddingValues(horizontal = 16.dp) + PaddingValues(bottom = 16.dp)) {
@@ -402,7 +306,7 @@ fun NotePage(
                             }
                             applyFormat { _ -> newValue }
                         },
-                        Modifier.fillMaxSize(),
+                        Modifier.fillMaxSize().onFocusChanged { contentFocused = it.isFocused },
                         textStyle = MaterialTheme.typography.bodyMedium.copy(color = LocalContentColor.current),
                         cursorBrush = SolidColor(LocalContentColor.current),
                         onTextLayout = { textLayoutResult = it },
