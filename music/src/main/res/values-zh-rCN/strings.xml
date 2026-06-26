@@ -38,4 +38,11 @@
     <string name="notification_shuffle">随机播放</string>
     <string name="notification_repeat">循环播放</string>
     <string name="go_to_source">转到 %1$s</string>
+    <string name="dialog_delete_playlist">删除播放列表</string>
+    <string name="dialog_delete_playlist_confirm">删除“%1$s”？此操作无法撤销。</string>
+    <string name="dialog_delete">删除</string>
+    <string name="menu_delete_playlist">删除播放列表</string>
+    <string name="dialog_create_playlist">创建播放列表</string>
+    <string name="dialog_create">创建</string>
+    <string name="playlist_name_hint">播放列表名称</string>
 </resources>
