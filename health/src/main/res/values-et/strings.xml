@@ -102,4 +102,13 @@
     <string name="ingredients">Koostisosad</string>
     <string name="nutrition_breakdown">Toitainete jaotus</string>
     <string name="custom_name">Sinu loodud nimi</string>
+    <string name="label_height">Pikkus</string>
+    <string name="label_weight">Kaal</string>
+    <string name="nav_today">Täna</string>
+    <string name="nav_activity">Tegevus</string>
+    <string name="nav_nutrition">Toitumine</string>
+    <string name="nav_body">Keha</string>
+    <string name="label_workouts">Treeningud</string>
+    <string name="section_workouts">Treeningud</string>
+    <string name="no_workouts">Ühtegi treeningut pole kirjas</string>
 </resources>
