@@ -77,4 +77,5 @@
     <string name="select_calendar_to_import">选择要导入到的日历：</string>
     <string name="create_new_calendar">+ 创建新日历</string>
     <string name="default_layout">默认布局</string>
+    <string name="add_reminder">添加提醒</string>
 </resources>
