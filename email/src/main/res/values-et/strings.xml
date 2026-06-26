@@ -26,4 +26,7 @@
     <string name="ssl_tls">SSL/TLS</string>
     <string name="starttls">STARTTLS</string>
     <string name="listening_for_new_mail">Ootan, kas on uusi kirju</string>
+    <string name="settings">Seadistused</string>
+    <string name="drafts">Kavandid</string>
+    <string name="save">Salvesta</string>
 </resources>
