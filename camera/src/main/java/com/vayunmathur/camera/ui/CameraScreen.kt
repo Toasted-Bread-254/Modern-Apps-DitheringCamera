@@ -35,6 +35,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -190,6 +192,7 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
     val cameraMode by viewModel.cameraMode.collectAsState()
     val lensFacing by viewModel.lensFacing.collectAsState()
     val flashMode by viewModel.flashMode.collectAsState()
+    val torchEnabled by viewModel.torchEnabled.collectAsState()
     val isRecording by viewModel.isRecording.collectAsState()
     val recordingDuration by viewModel.recordingDurationSec.collectAsState()
     val timerCountdown by viewModel.timerCountdown.collectAsState()
@@ -280,6 +283,10 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
 
     LaunchedEffect(flashMode) {
         controller.imageCaptureFlashMode = viewModel.getImageCaptureFlashMode()
+    }
+
+    LaunchedEffect(torchEnabled) {
+        controller.enableTorch(torchEnabled)
     }
 
     LaunchedEffect(zoomRatio) {
@@ -400,6 +407,7 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
             Column(modifier = Modifier.fillMaxSize()) {
                 TopBar(
                     flashMode = flashMode,
+                    torchEnabled = torchEnabled,
                     gridEnabled = gridEnabled,
                     isPhotoType = isPhotoType,
                     timerDuration = timerDuration,
@@ -411,6 +419,7 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
                         }
                         viewModel.setFlashMode(next)
                     },
+                    onTorchToggle = { viewModel.toggleTorch() },
                     onGridToggle = { viewModel.toggleGrid() },
                     onTimerCycle = {
                         val next = when (timerDuration) {
@@ -662,13 +671,16 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TopBar(
     flashMode: FlashMode,
+    torchEnabled: Boolean,
     gridEnabled: Boolean,
     isPhotoType: Boolean,
     timerDuration: TimerDuration,
     onFlashToggle: () -> Unit,
+    onTorchToggle: () -> Unit,
     onGridToggle: () -> Unit,
     onTimerCycle: () -> Unit,
     iconRotation: Float
@@ -679,19 +691,28 @@ private fun TopBar(
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val flashBg = if (flashMode == FlashMode.OFF) Color.Transparent else Color(0xFF3C3C3C)
-        IconButton(
-            onClick = onFlashToggle,
+        val flashBg = if (torchEnabled || flashMode != FlashMode.OFF) Color(0xFF3C3C3C) else Color.Transparent
+        Box(
             modifier = Modifier
                 .size(40.dp)
+                .clip(CircleShape)
                 .background(flashBg, CircleShape)
+                .combinedClickable(
+                    onClick = onFlashToggle,
+                    onLongClick = onTorchToggle
+                ),
+            contentAlignment = Alignment.Center
         ) {
             Icon(
                 painterResource(
-                    when (flashMode) {
-                        FlashMode.ON -> R.drawable.flash_on_24px
-                        FlashMode.OFF -> R.drawable.flash_off_24px
-                        FlashMode.AUTO -> R.drawable.flash_auto_24px
+                    if (torchEnabled) {
+                        R.drawable.flashlight_24px
+                    } else {
+                        when (flashMode) {
+                            FlashMode.ON -> R.drawable.flash_on_24px
+                            FlashMode.OFF -> R.drawable.flash_off_24px
+                            FlashMode.AUTO -> R.drawable.flash_auto_24px
+                        }
                     }
                 ),
                 contentDescription = null,

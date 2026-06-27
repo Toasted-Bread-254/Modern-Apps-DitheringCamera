@@ -80,6 +80,9 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
     private val _flashMode = MutableStateFlow(FlashMode.OFF)
     val flashMode = _flashMode.asStateFlow()
 
+    private val _torchEnabled = MutableStateFlow(false)
+    val torchEnabled = _torchEnabled.asStateFlow()
+
     private val _timerDuration = MutableStateFlow(TimerDuration.NONE)
     val timerDuration = _timerDuration.asStateFlow()
 
@@ -190,6 +193,10 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
     fun setFlashMode(mode: FlashMode) {
         _flashMode.value = mode
         viewModelScope.launch { ds.setString("camera_flash", mode.name) }
+    }
+
+    fun toggleTorch() {
+        _torchEnabled.value = !_torchEnabled.value
     }
 
     fun setTimerDuration(duration: TimerDuration) {
