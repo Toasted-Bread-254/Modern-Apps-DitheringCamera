@@ -417,12 +417,16 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
                     isPhotoType = isPhotoType,
                     timerDuration = timerDuration,
                     onFlashToggle = {
-                        val next = when (flashMode) {
-                            FlashMode.OFF -> FlashMode.ON
-                            FlashMode.ON -> FlashMode.AUTO
-                            FlashMode.AUTO -> FlashMode.OFF
+                        if (torchEnabled) {
+                            viewModel.toggleTorch()
+                        } else {
+                            val next = when (flashMode) {
+                                FlashMode.OFF -> FlashMode.ON
+                                FlashMode.ON -> FlashMode.AUTO
+                                FlashMode.AUTO -> FlashMode.OFF
+                            }
+                            viewModel.setFlashMode(next)
                         }
-                        viewModel.setFlashMode(next)
                     },
                     onTorchToggle = { viewModel.toggleTorch() },
                     onGridToggle = { viewModel.toggleGrid() },
