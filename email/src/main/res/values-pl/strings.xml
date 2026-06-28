@@ -26,4 +26,7 @@
     <string name="listening_for_new_mail">Oczekiwanie na nową pocztę</string>
     <string name="compose">Utwórz</string>
     <string name="body_label">Treść</string>
+    <string name="settings">Ustawienia</string>
+    <string name="drafts">Wersje robocze</string>
+    <string name="save">Zapisz</string>
 </resources>
