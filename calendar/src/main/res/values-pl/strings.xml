@@ -77,4 +77,5 @@
     <string name="create_new_calendar">+ Utwórz nowy kalendarz</string>
     <string name="import_button">Importuj</string>
     <string name="default_layout">Domyślny układ</string>
+    <string name="add_reminder">Dodaj przypomnienie</string>
 </resources>
