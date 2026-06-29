@@ -854,7 +854,8 @@ fun EditPhotoPage(
 
             // Bottom controls: Home (category bar) or a tool screen
             val cat = activeCategory
-            when (cat) {
+            Surface(color = MaterialTheme.colorScheme.surface) {
+                when (cat) {
                 null -> CategoryBar(onSelect = { openCategory(it) })
                 ToolCategory.Draw -> {
                     Column(modifier = Modifier.fillMaxWidth()) {
@@ -980,6 +981,7 @@ fun EditPhotoPage(
                         onSelectionFeatherCommit = { committedSel?.let { s -> commitSelection(s.rect, s.isEllipse, s.inverted, selectionFeather) } },
                     )
                     }
+                }
                 }
             }
         }
