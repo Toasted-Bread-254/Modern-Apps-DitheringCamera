@@ -30,4 +30,6 @@
     <string name="piece_black_bishop">黑象</string>
     <string name="piece_black_knight">黑马</string>
     <string name="piece_black_pawn">黑兵</string>
+    <string name="stalemate">逼和！和棋。</string>
+    <string name="draw_insufficient_material">和棋 — 子力不足。</string>
 </resources>
