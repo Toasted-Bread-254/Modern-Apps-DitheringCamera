@@ -71,6 +71,9 @@ object WhatsAppClient {
     // Collector jobs for the current socket; cancelled on teardown so old (zombie) sockets
     // don't keep running keepalives or trigger reconnects, which causes self-conflicts.
     private var socketCollectorJobs: MutableList<Job> = mutableListOf()
+    // Set when the server tells us this session is terminal (conflict/replaced/device removed),
+    // so the disconnect handler does not start a pointless reconnect loop.
+    private var suppressReconnect = false
     private var db: WhatsAppDatabase? = null
     private var e2e: WhatsAppE2E? = null
     private var backfillJob: Job? = null
@@ -292,7 +295,7 @@ object WhatsAppClient {
     /** Ack the pair-device IQ and rotate through the QR refs. Ref whatsmeow pair.go + qrchan.go. */
     private fun handlePairDevice(node: WhatsAppProtocol.Node, pairDevice: WhatsAppProtocol.Node) {
         val keys = provisioning ?: return
-        val from = node.attrs["from"] ?: "s.whatsapp.net"
+        val from = (node.attrs["from"] ?: "s.whatsapp.net").removePrefix("@").ifEmpty { "s.whatsapp.net" }
         val id = node.attrs["id"] ?: return
         // Ack
         webSocket?.send(
@@ -342,7 +345,7 @@ object WhatsAppClient {
     private suspend fun handlePairSuccess(node: WhatsAppProtocol.Node, pairSuccess: WhatsAppProtocol.Node) {
         val keys = provisioning ?: return
         val reqId = node.attrs["id"] ?: return
-        val from = node.attrs["from"] ?: "s.whatsapp.net"
+        val from = (node.attrs["from"] ?: "s.whatsapp.net").removePrefix("@").ifEmpty { "s.whatsapp.net" }
         try {
             qrRotateJob?.cancel()
             WhatsAppDiag.log(TAG, "pair-success received, verifying device identity…")
@@ -452,7 +455,9 @@ object WhatsAppClient {
                     )
                 ),
             )
-            webSocket?.send(WhatsAppProtocol.encodeNode(confirm))
+            val encodedConfirm = WhatsAppProtocol.encodeNode(confirm)
+            val sent = webSocket?.send(encodedConfirm) ?: false
+            WhatsAppDiag.log(TAG, "pair-device-sign sent=$sent to=$from keyIndex=$keyIndex selfSigned=${selfSigned.size}B deviceSig=${deviceSignature.size}B encoded=${encodedConfirm.size}B")
             provisioning = null
             Log.i(TAG, "Pairing confirmed for $jid; awaiting reconnect with credentials")
             // The server disconnects after this; reconnect() / start() will connect as the
@@ -711,6 +716,7 @@ object WhatsAppClient {
 
     private suspend fun connect(auth: WhatsAppAuthData) {
         _state.value = State.Connecting
+        suppressReconnect = false
         // Ensure no previous socket (provisioning or a prior login attempt) is still alive,
         // otherwise overlapping sessions make the server reject us with <stream:error><conflict>.
         teardownSocket()
@@ -728,7 +734,7 @@ object WhatsAppClient {
                         }
                         is WebViewWebSocket.ConnectionState.Disconnected -> {
                             WhatsAppDiag.log(TAG, "login socket: Disconnected (${state.reason})")
-                            if (authData != null) {
+                            if (authData != null && !suppressReconnect) {
                                 scheduleReconnect()
                             } else {
                                 _state.value = State.Disconnected(state.reason)
@@ -797,8 +803,28 @@ object WhatsAppClient {
 
                 if (node.tag == "stream:error") {
                     val errorNode = node.content.firstOrNull()
-                    WhatsAppDiag.log(TAG, "login stream:error code=${node.attrs["code"]} child=${errorNode?.tag} full=${nodeSummary(node)}")
-                    _state.value = State.Disconnected("Stream error")
+                    val code = node.attrs["code"]
+                    val conflict = node.getChildByTag("conflict")
+                    val conflictType = conflict?.attrs?.get("type")
+                    WhatsAppDiag.log(TAG, "login stream:error code=$code child=${errorNode?.tag} conflictType=$conflictType")
+                    when {
+                        // Device removed from the account on the phone, or another session took over.
+                        conflict != null || code == "401" -> {
+                            suppressReconnect = true
+                            if (conflictType == "device_removed" || code == "401") {
+                                WhatsAppDiag.log(TAG, "device removed/logged out — clearing credentials")
+                                scope.launch { WhatsAppAuthData.clear(appContext) }
+                                authData = null
+                                _state.value = State.NeedsSetup
+                            } else {
+                                // "replaced" or other conflict: another WhatsApp session is active.
+                                _state.value = State.Disconnected("Session replaced by another device")
+                            }
+                        }
+                        // 515 = restart required (normal after first pair-login); allow reconnect.
+                        code == "515" -> _state.value = State.Disconnected("Restart required")
+                        else -> _state.value = State.Disconnected("Stream error${if (code != null) " $code" else ""}")
+                    }
                     return@launch
                 }
 
@@ -1421,34 +1447,11 @@ object WhatsAppClient {
     }
 
     private fun kickoffBackfill() {
-        backfillJob?.cancel()
-        backfillJob = scope.launch {
-            Log.i(TAG, "Starting history sync")
-            try {
-                // Request initial history sync from server (Go handleWAAppStateSyncComplete)
-                val ws = webSocket ?: return@launch
-                val id = WhatsAppProtocol.generateMessageId(authData?.wid)
-                val syncNode = WhatsAppProtocol.Node(
-                    tag = "iq",
-                    attrs = mapOf(
-                        "id" to id,
-                        "type" to "set",
-                        "xmlns" to "w:web",
-                        "to" to "s.whatsapp.net",
-                    ),
-                    content = listOf(
-                        WhatsAppProtocol.Node(
-                            tag = "web",
-                            attrs = mapOf("type" to "initial")
-                        )
-                    )
-                )
-                ws.send(WhatsAppProtocol.encodeNode(syncNode))
-                Log.i(TAG, "History sync request sent")
-            } catch (e: Exception) {
-                Log.e(TAG, "History sync failed", e)
-            }
-        }
+        // History is PUSHED by the phone after linking as encrypted <message> stanzas carrying a
+        // protocolMessage.historySyncNotification (gated by DeviceProps.HistorySyncConfig sent at
+        // pairing). There is no w:web "initial" request in the multidevice protocol, so we just
+        // wait for those messages here. Ref whatsmeow appstate/history sync.
+        WhatsAppDiag.log(TAG, "awaiting pushed history sync messages from phone")
     }
 
     suspend fun sendMessage(conversationId: String, body: String): Boolean {

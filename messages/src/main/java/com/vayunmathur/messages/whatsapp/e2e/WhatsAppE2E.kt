@@ -64,12 +64,16 @@ class WhatsAppE2E(
         val local = jid.substringBefore("@")
         val user = local.substringBefore(":").substringBefore(".")
         val device = local.substringAfter(":", "0").toIntOrNull() ?: 0
-        return SignalProtocolAddress(user, device)
+        // libsignal-client requires a NONZERO device id (DeviceId::new_nonzero), but WhatsApp's
+        // primary device is 0. The device id is only a local Signal store key — it never appears
+        // on the wire or in key derivation — so shift every id by +1 to keep it valid. Must be
+        // applied consistently to all addresses (see signalAddress(jid, device) below).
+        return SignalProtocolAddress(user, device + 1)
     }
 
     private fun signalAddress(jid: String, device: Int): SignalProtocolAddress {
         val user = jid.substringBefore("@").substringBefore(":").substringBefore(".")
-        return SignalProtocolAddress(user, device)
+        return SignalProtocolAddress(user, device + 1)
     }
 
     fun hasSession(jid: String): Boolean = sessionStore.containsSession(signalAddress(jid))
@@ -290,7 +294,7 @@ class WhatsAppE2E(
             // kyberPreKeyId = -1 -> bridging treats kyber as absent (classic X3DH); the dummy
             // KEMPublicKey only satisfies the non-null Kotlin type. Same pattern as signal module.
             PreKeyBundle(
-                registrationId, deviceId,
+                registrationId, deviceId + 1,
                 preKeyId, preKeyPublic,
                 signedPreKeyId, ECPublicKey.fromPublicKeyBytes(signedPub), signedSig,
                 identityKey,

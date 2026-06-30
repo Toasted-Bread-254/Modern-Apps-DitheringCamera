@@ -425,6 +425,24 @@ class WebViewWebSocket(
                 )
                 .setPlatformType(com.vayunmathur.messages.whatsapp.proto.WhatsAppPayloadProto.DeviceProps.PlatformType.UNKNOWN)
                 .setRequireFullSync(false)
+                // History sync config tells the phone what message history to push to this
+                // companion after linking. Without it the phone pushes nothing. Ref whatsmeow
+                // store/clientpayload.go DeviceProps.HistorySyncConfig.
+                .setHistorySyncConfig(
+                    com.vayunmathur.messages.whatsapp.proto.WhatsAppPayloadProto.DeviceProps.HistorySyncConfig.newBuilder()
+                        .setStorageQuotaMb(10240)
+                        .setInlineInitialPayloadInE2EeMsg(true)
+                        .setSupportCallLogHistory(false)
+                        .setSupportBotUserAgentChatHistory(true)
+                        .setSupportCagReactionsAndPolls(true)
+                        .setSupportBizHostedMsg(true)
+                        .setSupportRecentSyncChunkMessageCountTuning(true)
+                        .setSupportHostedGroupMsg(true)
+                        .setSupportFbidBotChatHistory(true)
+                        .setSupportMessageAssociation(true)
+                        .setSupportGroupHistory(true)
+                        .setThumbnailSyncDaysLimit(60)
+                )
                 .build()
                 .toByteArray()
             val pairing = com.vayunmathur.messages.whatsapp.proto.WhatsAppPayloadProto.ClientPayload.DevicePairingRegistrationData.newBuilder()
