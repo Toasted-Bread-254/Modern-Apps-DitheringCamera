@@ -1954,16 +1954,26 @@ object WhatsAppClient {
     }
 
     /**
-     * Build a group text message: sender-key encrypt the content (skmsg) and 1:1 fan out the
+     * Build a group text message. Delegates to [buildEncryptedGroupMessageNode] with a plain
+     * conversation proto.
+     */
+    private suspend fun buildEncryptedGroupTextNode(groupJid: String, id: String, body: String): WhatsAppProtocol.Node? =
+        buildEncryptedGroupMessageNode(groupJid, id, WhatsAppProtocol.buildConversationMessage(body))
+
+    /**
+     * Build an arbitrary group message: sender-key encrypt the content (skmsg) and 1:1 fan out the
      * SenderKeyDistributionMessage to every member device. Mirrors whatsmeow send.go sendGroup.
      * UNVERIFIED: libsignal-client's sender-key wire format (distribution UUID + versioned
      * SenderKeyMessage) differs from WhatsApp's legacy libsignal sender-key format, so group
      * skmsg crypto interop is not runtime-verified.
      */
-    private suspend fun buildEncryptedGroupTextNode(groupJid: String, id: String, body: String): WhatsAppProtocol.Node? {
+    private suspend fun buildEncryptedGroupMessageNode(
+        groupJid: String,
+        id: String,
+        msg: WhatsAppE2EProto.Message,
+    ): WhatsAppProtocol.Node? {
         val auth = authData ?: return null
         val crypto = ensureE2E(auth) ?: return null
-        val msg = WhatsAppProtocol.buildConversationMessage(body)
         val contentPadded = WhatsAppProtocol.padMessage(msg.toByteArray())
 
         val skmsgCiphertext = try {
@@ -2307,6 +2317,12 @@ object WhatsAppClient {
      * Send a poll creation message.
      * From Go HandleMatrixPollStart / PollStartToWhatsApp.
      */
+    /**
+     * Send a native WhatsApp poll (PollCreationMessage), routed through the normal multi-device
+     * fan-out (1:1) or sender-key path (groups). A fresh 32-byte messageSecret is generated and
+     * stored keyed by the message id so later votes can derive their encryption key. Mirrors
+     * whatsmeow BuildPollCreation.
+     */
     suspend fun sendPollCreation(
         conversationId: String,
         question: String,
@@ -2315,11 +2331,17 @@ object WhatsAppClient {
     ): Boolean {
         if (_state.value !is State.Connected) return false
         val ws = webSocket ?: return false
-        val chatJid = extractJid(conversationId) ?: return false
+        val to = extractJid(conversationId) ?: return false
         val id = WhatsAppProtocol.generateMessageId(authData?.wid)
 
-        val messageSecret = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
-        val node = WhatsAppProtocol.buildPollCreationMessage(chatJid, question, options, selectableCount, id, messageSecret)
+        val messageSecret = ByteArray(32).also { random.nextBytes(it) }
+        val msg = WhatsAppProtocol.buildPollCreationProto(question, options, selectableCount, messageSecret)
+        val node = if (to.contains("@g.us")) {
+            buildEncryptedGroupMessageNode(to, id, msg)
+        } else {
+            buildEncryptedMessageNode(to, id, msg, "text")
+        } ?: return false
+
         pendingMessageIDs.add(id)
         val sent = ws.send(WhatsAppProtocol.encodeNode(node))
         if (sent) {
@@ -2330,6 +2352,22 @@ object WhatsAppClient {
         }
         return sent
     }
+
+    /**
+     * Shared media-send contract poll entrypoint (called by MessagesSessionManager).
+     * Maps [allowMultiple] to selectableCount (whatsmeow PollCreationMessage semantics).
+     */
+    suspend fun sendPoll(
+        conversationId: String,
+        question: String,
+        options: List<String>,
+        allowMultiple: Boolean,
+    ): Boolean = sendPollCreation(
+        conversationId = conversationId,
+        question = question,
+        options = options,
+        selectableCount = if (allowMultiple) options.size else 1,
+    )
 
     /**
      * Send a poll vote.
@@ -2368,8 +2406,9 @@ object WhatsAppClient {
     }
 
     /**
-     * Send a location message.
-     * From Go from-matrix.go parseGeoURI / location handling.
+     * Send a location message natively (LocationMessage proto), routed through the normal
+     * multi-device Signal fan-out so it actually encrypts/delivers like a text message.
+     * From whatsmeow from-matrix.go location handling.
      */
     suspend fun sendLocation(
         conversationId: String,
@@ -2380,11 +2419,15 @@ object WhatsAppClient {
     ): Boolean {
         if (_state.value !is State.Connected) return false
         val ws = webSocket ?: return false
-        val chatJid = extractJid(conversationId) ?: return false
+        val to = extractJid(conversationId) ?: return false
         val id = WhatsAppProtocol.generateMessageId(authData?.wid)
 
-        val node = WhatsAppProtocol.buildLocationMessage(chatJid, latitude, longitude, name, address, id)
-        return ws.send(WhatsAppProtocol.encodeNode(node))
+        val msg = WhatsAppProtocol.buildLocationProto(latitude, longitude, name, address)
+        val node = buildEncryptedMessageNode(to, id, msg, "text") ?: return false
+        pendingMessageIDs.add(id)
+        val sent = ws.send(WhatsAppProtocol.encodeNode(node))
+        if (!sent) pendingMessageIDs.remove(id)
+        return sent
     }
 
     /**

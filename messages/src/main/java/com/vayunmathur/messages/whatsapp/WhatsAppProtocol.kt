@@ -1625,50 +1625,57 @@ object WhatsAppProtocol {
     }
 
     /**
-     * Build a poll creation message.
-     * From whatsmeow matrixpoll.go PollStartToWhatsApp()
+     * Build a native PollCreationMessage proto. Mirrors whatsmeow BuildPollCreation: only
+     * optionName is set per option (option hashes are computed later at vote time), and the poll's
+     * shared secret is carried in the sibling MessageContextInfo.messageSecret (encKey is left
+     * unset). [selectableCount] clamps to 0 (unlimited) when negative or greater than the option
+     * count. Returned as a Message proto so the caller routes it through the normal fan-out.
      */
-    fun buildPollCreationMessage(
-        chatJid: String,
-        question: String,
+    fun buildPollCreationProto(
+        name: String,
         options: List<String>,
-        selectableCount: Int = 0,
-        id: String,
-        messageSecret: ByteArray = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) },
-    ): Node {
-        throw UnsupportedOperationException("PollCreationMessage is not available in the current protobuf schema")
+        selectableCount: Int,
+        messageSecret: ByteArray,
+    ): com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message {
+        val poll = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.PollCreationMessage.newBuilder()
+            .setName(name)
+            .setSelectableOptionsCount(
+                if (selectableCount < 0 || selectableCount > options.size) 0 else selectableCount
+            )
+        for (opt in options) {
+            poll.addOptions(
+                com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.PollCreationMessage.Option.newBuilder()
+                    .setOptionName(opt)
+            )
+        }
+        val ctx = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.MessageContextInfo.newBuilder()
+            .setMessageSecret(com.google.protobuf.ByteString.copyFrom(messageSecret))
+        return com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message.newBuilder()
+            .setPollCreationMessage(poll.build())
+            .setMessageContextInfo(ctx.build())
+            .build()
     }
 
     /**
-     * Build a location message.
-     * From whatsmeow from-matrix.go location handling via parseGeoURI()
+     * Build a LocationMessage proto (lat/long + optional name/address). Returned as a Message
+     * proto so the caller can route it through the normal multi-device Signal fan-out
+     * (buildEncryptedMessageNode), matching whatsmeow from-matrix.go location handling.
      */
-    fun buildLocationMessage(
-        chatJid: String,
+    fun buildLocationProto(
         latitude: Double,
         longitude: Double,
         name: String? = null,
         address: String? = null,
-        id: String,
-    ): Node {
+    ): com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message {
         val locBuilder = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.LocationMessage.newBuilder()
             .setDegreesLatitude(latitude)
             .setDegreesLongitude(longitude)
         if (!name.isNullOrEmpty()) locBuilder.setName(name)
         if (!address.isNullOrEmpty()) locBuilder.setAddress(address)
 
-        val e2eMessage = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message.newBuilder()
+        return com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message.newBuilder()
             .setLocationMessage(locBuilder.build())
             .build()
-
-        val plaintext = e2eMessage.toByteArray()
-        return Node(
-            tag = "message",
-            attrs = mapOf("to" to chatJid, "id" to id, "type" to "text"),
-            content = listOf(
-                Node(tag = "enc", attrs = mapOf("v" to "2", "type" to "msg"), data = padMessage(plaintext))
-            )
-        )
     }
 
     /**

@@ -40,6 +40,7 @@ message Message {
     optional ContactMessage contactMessage = 4;
     optional LocationMessage locationMessage = 16;
     optional ReactionMessage reactionMessage = 46;
+    optional PollCreationMessage pollCreationMessage = 49;
     optional ProtocolMessage protocolMessage = 12;
     optional SenderKeyDistributionMessage senderKeyDistributionMessage = 2;
     optional DeviceSentMessage deviceSentMessage = 31;
@@ -293,5 +294,23 @@ message DeviceSentMessage {
 }
 
 message MessageContextInfo {
-    optional bytes messageSecret = 1;
+    // Field number MUST be 3 to match WhatsApp/whatsmeow — poll vote key derivation reads this
+    // secret off the original poll message, so the wire field must line up with the peer.
+    optional bytes messageSecret = 3;
+}
+
+// Native poll creation. Mirrors whatsmeow waE2E.PollCreationMessage. At creation time only
+// optionName is set (option hashes are computed at vote time); the poll's shared secret lives in
+// the sibling MessageContextInfo.messageSecret, not in encKey.
+message PollCreationMessage {
+    message Option {
+        optional string optionName = 1;
+        optional string optionHash = 2;
+    }
+
+    optional bytes encKey = 1;
+    optional string name = 2;
+    repeated Option options = 3;
+    optional uint32 selectableOptionsCount = 4;
+    optional ContextInfo contextInfo = 5;
 }
