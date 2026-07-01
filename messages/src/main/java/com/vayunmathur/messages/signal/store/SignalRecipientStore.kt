@@ -55,6 +55,29 @@ class SignalRecipientStore(private val db: SignalDatabase) {
         return entity.blocked
     }
 
+    suspend fun isWhitelisted(aci: String): Boolean {
+        val entity = getRecipient(aci) ?: return false
+        return entity.whitelisted
+    }
+
+    suspend fun setWhitelisted(aci: String, whitelisted: Boolean) {
+        val existing = getRecipient(aci)
+        if (existing != null) {
+            storeRecipient(existing.copy(whitelisted = whitelisted))
+        } else {
+            storeRecipient(SignalRecipientEntity(aci = aci, whitelisted = whitelisted))
+        }
+    }
+
+    suspend fun setBlocked(aci: String, blocked: Boolean) {
+        val existing = getRecipient(aci)
+        if (existing != null) {
+            storeRecipient(existing.copy(blocked = blocked))
+        } else {
+            storeRecipient(SignalRecipientEntity(aci = aci, blocked = blocked))
+        }
+    }
+
     suspend fun updateRecipientE164(aci: String, pni: String?, e164: String) {
         val existing = getRecipient(aci)
         if (existing != null) {

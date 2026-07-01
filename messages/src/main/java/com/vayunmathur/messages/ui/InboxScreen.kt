@@ -55,6 +55,7 @@ import com.vayunmathur.messages.data.MessagesDatabase
 import com.vayunmathur.messages.util.MessagesSessionManager
 import com.vayunmathur.messages.util.MessagesViewModel
 import com.vayunmathur.messages.util.SourceConnectionState
+import com.vayunmathur.messages.util.isMessageRequest
 import java.text.DateFormat
 import java.util.Date
 
@@ -328,8 +329,12 @@ private fun ConversationRow(
             }
         },
         supportingContent = {
-            conversation.lastMessagePreview?.let {
-                Text(it, maxLines = 1)
+            if (conversation.isMessageRequest()) {
+                MessageRequestChip()
+            } else {
+                conversation.lastMessagePreview?.let {
+                    Text(it, maxLines = 1)
+                }
             }
         },
         trailingContent = {
@@ -351,6 +356,23 @@ private fun ConversationRow(
         ),
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
     )
+}
+
+@Composable
+private fun MessageRequestChip() {
+    val color = MaterialTheme.colorScheme.error
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = color.copy(alpha = 0.15f),
+        contentColor = color,
+    ) {
+        Text(
+            "Message request",
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
 }
 
 @Composable

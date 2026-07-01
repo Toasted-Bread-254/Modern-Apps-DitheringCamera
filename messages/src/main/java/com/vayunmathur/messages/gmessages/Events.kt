@@ -32,6 +32,12 @@ sealed interface GMEvent {
         val outgoingId: String? = null,
         /** Service-specific JSON metadata to persist on the conversation row. */
         val serviceData: String? = null,
+        /** True when this conversation is an unaccepted message request.
+         *  Persisted into [Conversation.serviceData] JSON by the session
+         *  manager (no schema bump). Sources may instead signal this via
+         *  [serviceData] directly (e.g. Signal) or a separate
+         *  [MessageRequestReceived] event (e.g. Meta/Instagram). */
+        val isMessageRequest: Boolean = false,
     ) : GMEvent
 
     /** A message row appeared / was updated. Used for backfill + live sync. */
