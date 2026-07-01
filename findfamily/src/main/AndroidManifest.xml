@@ -65,6 +65,13 @@
             android:theme="@android:style/Theme.NoDisplay"
             android:permission="com.vayunmathur.findfamily.permissions.ACCESS_FAMILY">
         </activity>
+
+        <activity
+            android:name=".intents.CreateLinkIntent"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:permission="com.vayunmathur.findfamily.permissions.ACCESS_FAMILY">
+        </activity>
     </application>
 
 </manifest>
