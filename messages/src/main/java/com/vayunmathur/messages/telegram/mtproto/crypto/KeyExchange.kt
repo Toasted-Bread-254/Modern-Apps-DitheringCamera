@@ -28,7 +28,7 @@ class KeyExchange(private val transport: TcpTransport, private val dc: Int = 2) 
         // Step 1: req_pq_multi
         val nonce = randomInt128()
         val reqPq = TlBuffer()
-        reqPq.putId(0x60469778.toInt()) // req_pq_multi
+        reqPq.putId(0xbe7e8ef1.toInt()) // req_pq_multi#be7e8ef1 (modern; NOT the deprecated req_pq#60469778)
         reqPq.putInt128(nonce)
         sendUnencrypted(reqPq.raw)
 

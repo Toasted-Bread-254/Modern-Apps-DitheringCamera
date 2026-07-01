@@ -86,9 +86,20 @@ class TcpTransport {
             throw ProtocolException(-len)
         }
         require(len in 1..16 * 1024 * 1024) { "Invalid frame length: $len" }
+        android.util.Log.d("TcpTransport", "recv frame len=$len codec=${if (c != null) "obf" else "intermediate"}")
         val payload = ByteArray(len)
         inp.readFully(payload)
-        if (c != null) c.decrypt(payload) else payload
+        val frame = if (c != null) c.decrypt(payload) else payload
+        // A 4-byte frame is never a valid MTProto message (the unencrypted envelope
+        // alone is auth_key_id+message_id+length = 20 bytes minimum); it's a
+        // transport-level error code (negative LE int32) — e.g. the server rejecting
+        // a malformed req_DH_params. Surface it as a ProtocolException instead of
+        // letting readUnencrypted throw an opaque "Buffer underflow" on int64.
+        if (frame.size == 4) {
+            val code = ByteBuffer.wrap(frame).order(ByteOrder.LITTLE_ENDIAN).int
+            throw ProtocolException(if (code < 0) -code else code)
+        }
+        frame
     }
 
     fun close() {
