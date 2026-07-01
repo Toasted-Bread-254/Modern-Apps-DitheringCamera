@@ -143,6 +143,16 @@ fun LocationsScreen(
     val locations by viewModel.savedLocations.collectAsState()
     val forecasts by viewModel.forecasts.collectAsState()
 
+    // Ticks every 30s so the "Last updated Xm ago" labels advance over time
+    // rather than being frozen at whatever they read when the drawer opened.
+    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(30_000)
+            nowMs = System.currentTimeMillis()
+        }
+    }
+
     var longPressedLocation: SavedLocation? by remember { mutableStateOf(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -237,7 +247,7 @@ fun LocationsScreen(
                         val state = forecasts[loc.id]
                         val description = state?.fetchedAtEpochMs
                             ?.takeIf { it > 0L }
-                            ?.let { "Last updated ${formatAgo(it)}" }
+                            ?.let { "Last updated ${formatAgo(it, nowMs)}" }
                             ?: "No data yet"
                         LocationItem(
                             location = loc,
@@ -317,9 +327,9 @@ fun LocationsScreen(
     }
 }
 
-/** Format a "X ago" delta from now to the given epoch ms. */
-private fun formatAgo(epochMs: Long): String {
-    val deltaSec = ((System.currentTimeMillis() - epochMs) / 1000L).coerceAtLeast(0L)
+/** Format a "X ago" delta from [nowMs] to the given epoch ms. */
+private fun formatAgo(epochMs: Long, nowMs: Long = System.currentTimeMillis()): String {
+    val deltaSec = ((nowMs - epochMs) / 1000L).coerceAtLeast(0L)
     return when {
         deltaSec < 60 -> "just now"
         deltaSec < 3600 -> "${deltaSec / 60}m ago"

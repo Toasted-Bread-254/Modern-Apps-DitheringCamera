@@ -34,6 +34,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.weather.R
 import com.vayunmathur.weather.Route
@@ -136,10 +139,17 @@ private fun LocationPage(
     val use24Hour = com.vayunmathur.weather.util.rememberUse24Hour()
     var graphMetric by remember { mutableStateOf<com.vayunmathur.weather.util.WeatherMetric?>(null) }
 
-    LaunchedEffect(location.id) {
-        while (true) {
-            viewModel.ensureForecast(location)
-            kotlinx.coroutines.delay(60_000)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(location.id, lifecycleOwner) {
+        // Only poll while the app is actually in the foreground; repeatOnLifecycle
+        // cancels the loop when the app is backgrounded and restarts it on resume,
+        // so we don't hit the network every 60s behind the user's back (the hourly
+        // WorkManager job covers background refreshes).
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                viewModel.refreshAll()
+                kotlinx.coroutines.delay(60_000)
+            }
         }
     }
 
@@ -149,7 +159,7 @@ private fun LocationPage(
 
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
         isRefreshing = state?.refreshing == true,
-        onRefresh = { viewModel.ensureForecast(location, force = true) },
+        onRefresh = { viewModel.refreshAll(force = true) },
         modifier = Modifier.fillMaxSize(),
     ) {
         Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState)) {

@@ -27,7 +27,10 @@ class WeatherRefreshWorker(
             for (location in locations) {
                 try {
                     val forecast = WeatherApi.forecast(location.latitude, location.longitude)
-                    dao.writeForecastCache(location.latitude, location.longitude, forecast)
+                    val airQuality = runCatching {
+                        WeatherApi.airQuality(location.latitude, location.longitude)
+                    }.getOrNull()
+                    dao.writeForecastCache(location.latitude, location.longitude, forecast, airQuality)
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to refresh weather for ${location.name}: ${e.message}")
                 }

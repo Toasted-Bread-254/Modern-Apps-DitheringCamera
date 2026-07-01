@@ -5,11 +5,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.glance.appwidget.updateAll
 import com.vayunmathur.weather.data.SavedLocation
 import com.vayunmathur.weather.data.WeatherDao
 import com.vayunmathur.weather.data.WeatherRefreshWorker
 import com.vayunmathur.weather.data.weatherJson
 import com.vayunmathur.weather.data.writeForecastCache
+import com.vayunmathur.weather.glance.WeatherGlanceWidget
 import com.vayunmathur.weather.network.AirQualityResponse
 import com.vayunmathur.weather.network.ForecastResponse
 import com.vayunmathur.weather.network.WeatherApi
@@ -62,6 +64,15 @@ class WeatherViewModel(
     val forecasts: StateFlow<Map<Long, ForecastUiState>> = _forecasts.asStateFlow()
 
     /**
+     * IDs with a refresh currently in flight. Guards against overlapping
+     * fetches for the same location (e.g. a pull-to-refresh landing in the
+     * same window as the 60-second poll), which the previous `refreshing`
+     * flag couldn't do reliably because that flag was only set *inside* the
+     * launched coroutine, after the guard had already been checked.
+     */
+    private val inFlight = mutableSetOf<Long>()
+
+    /**
      * The hour/day the user is inspecting, or null for "now / today". Reset
      * whenever the active location changes (see [clearSelection]).
      */
@@ -108,74 +119,124 @@ class WeatherViewModel(
      * flight are no-ops.
      */
     fun ensureForecast(location: SavedLocation, force: Boolean = false) {
-        val existing = _forecasts.value[location.id]
-        if (existing != null && existing.refreshing) return
-
-        val isStale = existing?.forecast == null ||
-            (System.currentTimeMillis() - existing.fetchedAtEpochMs) >= STALE_THRESHOLD_MS
-        if (!force && !isStale) return
+        synchronized(inFlight) {
+            if (location.id in inFlight) return
+            // Fast path: already have fresh in-memory data, so there's nothing to do.
+            val existing = _forecasts.value[location.id]
+            val memStale = existing?.forecast == null ||
+                (System.currentTimeMillis() - existing.fetchedAtEpochMs) >= STALE_THRESHOLD_MS
+            if (!force && !memStale) return
+            inFlight.add(location.id)
+        }
 
         viewModelScope.launch {
-            // 1. Hydrate from cache if we don't have anything in memory yet.
-            if (existing?.forecast == null) {
-                val cache = dao.getCache(roundCoord(location.latitude), roundCoord(location.longitude))
-                if (cache != null) {
-                    runCatching { weatherJson.decodeFromString<ForecastResponse>(cache.forecastJson) }
-                        .onSuccess { decoded ->
-                            _forecasts.update { current ->
-                                current + (location.id to ForecastUiState(
-                                    forecast = decoded,
-                                    refreshing = true,
-                                    fetchedAtEpochMs = cache.fetchedAtEpochMs,
-                                ))
+            try {
+                // 1. Hydrate from cache if we don't have anything in memory yet.
+                //    Track whether that cache is itself still fresh so we can
+                //    skip a redundant network round-trip on cold start.
+                var haveFreshCache = false
+                if (_forecasts.value[location.id]?.forecast == null) {
+                    val cache = dao.getCache(roundCoord(location.latitude), roundCoord(location.longitude))
+                    if (cache != null) {
+                        runCatching { weatherJson.decodeFromString<ForecastResponse>(cache.forecastJson) }
+                            .onSuccess { decoded ->
+                                val cachedAir = cache.airQualityJson?.let { json ->
+                                    runCatching { weatherJson.decodeFromString<AirQualityResponse>(json) }.getOrNull()
+                                }
+                                _forecasts.update { current ->
+                                    current + (location.id to ForecastUiState(
+                                        forecast = decoded,
+                                        airQuality = cachedAir,
+                                        refreshing = false,
+                                        fetchedAtEpochMs = cache.fetchedAtEpochMs,
+                                    ))
+                                }
+                                haveFreshCache = (System.currentTimeMillis() - cache.fetchedAtEpochMs) < STALE_THRESHOLD_MS
                             }
-                        }
-                } else {
-                    _forecasts.update { it + (location.id to ForecastUiState(refreshing = true)) }
+                    }
                 }
-            } else {
+
+                // 2. Skip the network when the (now hydrated) data is still fresh.
+                //    Staleness is judged from the cache's own timestamp, not from
+                //    whether we happened to have anything in memory — so opening
+                //    the app no longer refetches every location's fresh data.
+                if (!force && haveFreshCache) return@launch
+
+                // 3. Mark refreshing, then fetch forecast + air quality in parallel.
                 _forecasts.update { current ->
-                    current + (location.id to existing.copy(refreshing = true))
+                    val prev = current[location.id]
+                    current + (location.id to (prev?.copy(refreshing = true) ?: ForecastUiState(refreshing = true)))
                 }
-            }
 
-            // 2. Network refresh — forecast + air quality fetched in parallel.
-            data class FetchResult(val forecast: kotlin.Result<ForecastResponse>, val air: AirQualityResponse?)
-            val fetched: FetchResult = coroutineScope {
-                val forecastDeferred = async {
-                    runCatching { WeatherApi.forecast(location.latitude, location.longitude) }
+                data class FetchResult(val forecast: kotlin.Result<ForecastResponse>, val air: AirQualityResponse?)
+                val fetched: FetchResult = coroutineScope {
+                    val forecastDeferred = async {
+                        runCatching { WeatherApi.forecast(location.latitude, location.longitude) }
+                    }
+                    val airQualityDeferred = async {
+                        runCatching { WeatherApi.airQuality(location.latitude, location.longitude) }.getOrNull()
+                    }
+                    FetchResult(forecastDeferred.await(), airQualityDeferred.await())
                 }
-                val airQualityDeferred = async {
-                    runCatching { WeatherApi.airQuality(location.latitude, location.longitude) }.getOrNull()
-                }
-                FetchResult(forecastDeferred.await(), airQualityDeferred.await())
-            }
-            val forecastResult = fetched.forecast
-            val airQuality = fetched.air
+                val forecastResult = fetched.forecast
+                val airQuality = fetched.air
 
-            forecastResult
-                .onSuccess { fresh ->
-                    val now = System.currentTimeMillis()
-                    dao.writeForecastCache(location.latitude, location.longitude, fresh, now)
-                    _forecasts.update { current ->
-                        current + (location.id to ForecastUiState(
-                            forecast = fresh,
-                            airQuality = airQuality,
-                            refreshing = false,
-                            error = null,
-                            fetchedAtEpochMs = now,
-                        ))
+                forecastResult
+                    .onSuccess { fresh ->
+                        val now = System.currentTimeMillis()
+                        // Keep previously-known air quality if this round's air-quality
+                        // fetch failed, so a transient AQ error doesn't blank the block.
+                        val resolvedAir = airQuality ?: _forecasts.value[location.id]?.airQuality
+                        dao.writeForecastCache(location.latitude, location.longitude, fresh, resolvedAir, now)
+                        _forecasts.update { current ->
+                            current + (location.id to ForecastUiState(
+                                forecast = fresh,
+                                airQuality = resolvedAir,
+                                refreshing = false,
+                                error = null,
+                                fetchedAtEpochMs = now,
+                            ))
+                        }
+                        // Keep the home-screen widget in sync with a foreground refresh
+                        // instead of leaving it stale until the next hourly worker run.
+                        runCatching { WeatherGlanceWidget().updateAll(getApplication<Application>()) }
                     }
-                }
-                .onFailure { e ->
-                    _forecasts.update { current ->
-                        val prev = current[location.id]
-                        current + (location.id to (prev?.copy(
-                            refreshing = false,
-                            error = e.message ?: "Failed to load forecast",
-                        ) ?: ForecastUiState(refreshing = false, error = e.message)))
+                    .onFailure { e ->
+                        _forecasts.update { current ->
+                            val prev = current[location.id]
+                            // Forecast failed, but if air quality did come back, fold it
+                            // in rather than discarding a successful fetch.
+                            current + (location.id to (prev?.copy(
+                                airQuality = airQuality ?: prev.airQuality,
+                                refreshing = false,
+                                error = e.message ?: "Failed to load forecast",
+                            ) ?: ForecastUiState(
+                                airQuality = airQuality,
+                                refreshing = false,
+                                error = e.message,
+                            )))
+                        }
                     }
-                }
+            } finally {
+                synchronized(inFlight) { inFlight.remove(location.id) }
+            }
+        }
+    }
+
+    /**
+     * Refresh every saved location together, so the user never sees one
+     * location freshly updated while others show "No data yet". Each location
+     * hydrates from its on-disk cache immediately (populating the drawer's
+     * "Last updated" timestamp) and then refreshes over the network.
+     *
+     * Per-location staleness gating in [ensureForecast] keeps this cheap:
+     * locations refreshed within [STALE_THRESHOLD_MS] are skipped unless
+     * [force] is set (pull-to-refresh), so a 60-second poll won't spam the
+     * network.
+     */
+    fun refreshAll(force: Boolean = false) {
+        for (location in savedLocations.value) {
+            ensureForecast(location, force)
         }
     }
 
