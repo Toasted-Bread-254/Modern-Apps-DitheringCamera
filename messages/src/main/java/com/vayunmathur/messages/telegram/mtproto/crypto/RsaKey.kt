@@ -169,5 +169,15 @@ object RsaKey {
         "+aEyZ+uVgLLQbRA1dEjSDZ2iGRy12Mk5gpYc397aYp438fsJoHIgJ2lgMv5h7WY9" +
         "t6N/byY9Nw9p21Og3AoXSL2q/2IJ1WRUhebgAdGVMlV1fkuOQoEzR7EdpqtQD9Cs" +
         "5+bfo3Nhmcyvk5ftB0WkJ9z6bNZ7yxrP8wIDAQAB",
+        // Key 3 — legacy pre-2021 Telegram production key. Some DC endpoints still
+        // present its fingerprint in resPQ. Big-endian fp 0x216be86c022bb4c3 ==
+        // 0xc3b42b026ce86b21 in this app's little-endian fingerprint format.
+        // Authentic well-known key (core.telegram.org; gotd rsagen testdata).
+        "MIIBCgKCAQEAwVACPi9w23mF3tBkdZz+zwrzKOaaQdr01vAbU4E1pvkfj4sqDsm6" +
+        "lyDONS789sVoD/xCS9Y0hkkC3gtL1tSfTlgCMOOul9lcixlEKzwKENj1Yz/s7daS" +
+        "an9tqw3bfUV/nqgbhGX81v/+7RFAEd+RwFnK7a+XYl9sluzHRyVVaTTveB2GazTw" +
+        "Efzk2DWgkBluml8OREmvfraX3bkHZJTKX4EQSjBbbdJ2ZXIsRrYOXfaA+xayEGB+" +
+        "8hdlLmAjbCVfaigxX0CDqWeR1yFL9kwd9P0NsZRPsmoqVwMbMu7mStFai6aIhc3n" +
+        "Slv8kg9qv1m6XHVQY3PnEw+QQtqSIXklHwIDAQAB",
     )
 }
