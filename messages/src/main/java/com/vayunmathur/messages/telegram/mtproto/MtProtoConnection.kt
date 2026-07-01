@@ -93,7 +93,7 @@ class MtProtoConnection(
             val handshakeOffset = result.serverTime.toLong() - (System.currentTimeMillis() / 1000)
             MessageId.setTimeOffsetSeconds(handshakeOffset)
             MessageId.reset()
-            Log.d(TAG, "Server time offset from handshake: ${handshakeOffset}s (applied to msg_id gen + validation)")
+            Log.d(TAG, "serverTimeOffset=${handshakeOffset}s source=handshake")
         }
         connected = true
         seqNo.set(0)
@@ -264,6 +264,22 @@ class MtProtoConnection(
         if (buf.remaining < 4) return
         val typeId = buf.peekId()
 
+        // One-time server-time offset bootstrap from the first genuine server LEAF
+        // message's msg_id. We SKIP the msg_container wrapper and use the INNER message's
+        // msg_id (handleDecrypted is invoked per-inner-message), because the container/
+        // transport id proved unreliable (~local time → 0s offset). The high 32 bits of a
+        // server msg_id ARE server unixtime, so this is legitimate. This covers the
+        // reconnect path (handshake skipped); handshake / new_session_created / bad_msg
+        // 16-17 also set and later refine the offset. Guarded so it runs at most once.
+        if (!MessageId.isOffsetInitialized() &&
+            typeId != MessageFraming.TYPE_MSG_CONTAINER &&
+            MessageId.isServerType(msgId)
+        ) {
+            val off = MessageId.timeSeconds(msgId) - (System.currentTimeMillis() / 1000)
+            MessageId.setTimeOffsetSeconds(off)
+            Log.d(TAG, "serverTimeOffset=${off}s source=inbound")
+        }
+
         when (typeId) {
             MessageFraming.TYPE_MSG_CONTAINER -> {
                 buf.int32() // consume type id
@@ -344,7 +360,7 @@ class MtProtoConnection(
                     MessageId.setTimeOffsetSeconds(newOffset)
                     MessageId.reset()
                     updateSalt()
-                    Log.d(TAG, "Time resynced: offset=${newOffset}s (bad_msg $code)")
+                    Log.d(TAG, "serverTimeOffset=${newOffset}s source=bad_msg($code)")
                     resendPending(notification.badMsgId, code)
                 } else if (isSeqError) {
                     // Resend with a fresh msg_id + the next seqno (send() assigns both),
@@ -381,7 +397,7 @@ class MtProtoConnection(
                 // with offset 0 it ≈ localNow → a bogus ~0s offset.
                 val nsOffset = MessageId.timeSeconds(msgId) - (System.currentTimeMillis() / 1000)
                 MessageId.setTimeOffsetSeconds(nsOffset)
-                Log.d(TAG, "Server time offset from new session: ${nsOffset}s")
+                Log.d(TAG, "serverTimeOffset=${nsOffset}s source=new_session")
             }
             else -> {
                 try {
