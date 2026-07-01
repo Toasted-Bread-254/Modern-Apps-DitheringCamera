@@ -13,6 +13,7 @@ import kotlinx.coroutines.withTimeout
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 class RpcException(val errorCode: Int, override val message: String) : Exception("RPC error $errorCode: $message")
 
@@ -43,10 +44,14 @@ class RpcEngine(
         val encoded = buf.raw
         val deferred = CompletableDeferred<TlBuffer>()
         val ackDeferred = CompletableDeferred<Unit>()
-        val msgId = sendFn(encoded, 0)
-        pending[msgId] = deferred
-        payloads[msgId] = encoded
-        acks[msgId] = ackDeferred
+        val firstMsgId = sendFn(encoded, 0)
+        // A resend (retry / bad_msg) uses a FRESH msg_id, so track the current id and
+        // migrate the pending/ack/payload entries to it — otherwise the server's reply
+        // to the retried msg_id finds "No pending request" and the call never completes.
+        val currentMsgId = AtomicLong(firstMsgId)
+        pending[firstMsgId] = deferred
+        payloads[firstMsgId] = encoded
+        acks[firstMsgId] = ackDeferred
 
         val retryJob = launch {
             var retries = 0
@@ -55,15 +60,22 @@ class RpcEngine(
                     withTimeout(retryInterval) { ackDeferred.await() }
                     return@launch
                 } catch (_: TimeoutCancellationException) {
-                    Log.w(TAG, "Ack timeout for msgId=$msgId, retry ${retries + 1}/$maxRetries")
-                    try { sendFn(encoded, msgId) } catch (e: Exception) {
-                        Log.e(TAG, "Retry send failed for msgId=$msgId", e)
+                    Log.w(TAG, "Ack timeout for msgId=${currentMsgId.get()}, retry ${retries + 1}/$maxRetries")
+                    try {
+                        val old = currentMsgId.get()
+                        val newMsgId = sendFn(encoded, old)
+                        if (newMsgId != old) {
+                            migratePending(old, newMsgId)
+                            currentMsgId.set(newMsgId)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Retry send failed for msgId=${currentMsgId.get()}", e)
                         deferred.completeExceptionally(e)
                         return@launch
                     }
                     retries++
                     if (retries >= maxRetries) {
-                        Log.e(TAG, "Retry limit reached for msgId=$msgId")
+                        Log.e(TAG, "Retry limit reached for msgId=${currentMsgId.get()}")
                         deferred.completeExceptionally(RetryLimitReachedException(retries))
                         return@launch
                     }
@@ -75,12 +87,12 @@ class RpcEngine(
             val result = withTimeout(30_000) { deferred.await() }
             decoder(result)
         } catch (e: Exception) {
-            pending.remove(msgId)
-            payloads.remove(msgId)
+            pending.remove(currentMsgId.get())
+            payloads.remove(currentMsgId.get())
             throw e
         } finally {
             retryJob.cancel()
-            acks.remove(msgId)
+            acks.remove(currentMsgId.get())
             if (activeCount.decrementAndGet() == 0) {
                 synchronized(idleLock) { idleLock.notifyAll() }
             }
