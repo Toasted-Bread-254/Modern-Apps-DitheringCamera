@@ -20,4 +20,7 @@
     <string name="crop_image">Przytnij zdjęcie</string>
     <string name="continue_label">Kontynuuj</string>
     <string name="unsupported_version">Ta aplikacja wymaga Android 15 lub najnowszej wersji usług Google Play. Jeśli nie możesz spełnić żadnego z tych warunków, twoje urządzenie niestety nie jest obsługiwane.</string>
+    <string name="pdf_save">Zapisz</string>
+    <string name="pdf_save_as_copy">Zapisz kopię</string>
+    <string name="auto_detect">Automatyczne wykrywanie</string>
 </resources>
