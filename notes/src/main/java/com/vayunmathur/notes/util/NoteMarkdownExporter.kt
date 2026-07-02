@@ -1,11 +1,17 @@
 package com.vayunmathur.notes.util
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.util.Base64
+import androidx.core.content.FileProvider
 import com.vayunmathur.library.util.SerializedStroke
 import com.vayunmathur.notes.data.Note
 import com.vayunmathur.notes.data.NoteBlock
 import com.vayunmathur.notes.data.body
+import java.io.ByteArrayOutputStream
+import java.io.File
 import kotlin.math.roundToInt
 
 /**
@@ -30,16 +36,82 @@ fun exportNoteMarkdown(context: Context, note: Note): String =
         .joinToString("\n\n")
         .trim() + "\n"
 
+/**
+ * Writes [markdown] to `cacheDir/shared_notes/<title>.md` and returns a shareable
+ * FileProvider URI for it. Reuses the same cache dir + authority as
+ * [NotesViewModel.requestShare], so no extra manifest setup is needed. Used by copy
+ * so a note with inlined (multi-MB) images is passed as a URI instead of raw text.
+ */
+fun markdownCacheUri(context: Context, note: Note, markdown: String): Uri {
+    val cachePath = File(context.cacheDir, "shared_notes")
+    cachePath.mkdirs()
+    val file = File(cachePath, "${note.title.ifBlank { "note" }}.md")
+    file.writeText(markdown)
+    return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+}
+
+/** Longest-side pixel cap and JPEG quality used when inlining images, to keep the export small. */
+private const val MAX_IMAGE_DIMENSION = 1024
+private const val JPEG_QUALITY = 60
+
 /** An image inlined as an HTML `<img>` with a base64 data URI, honoring [NoteBlock.Image.widthFraction]. */
 private fun imageMarkdown(context: Context, block: NoteBlock.Image): String {
     val bytes = try {
-        NoteImageStore.fileFor(context, block.fileName).readBytes()
+        downscaledJpegBytes(NoteImageStore.fileFor(context, block.fileName))
     } catch (e: Exception) {
         return ""
-    }
+    } ?: return ""
     val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
     val widthPercent = (block.widthFraction * 100).roundToInt().coerceIn(1, 100)
     return "<img src=\"data:image/jpeg;base64,$base64\" style=\"width:$widthPercent%\" />"
+}
+
+/**
+ * Decodes [file], downscales so the longest side is at most [MAX_IMAGE_DIMENSION]
+ * (never upscales), and re-encodes as JPEG at [JPEG_QUALITY] so the inlined base64
+ * stays small. Uses inSampleSize so large files aren't fully loaded into memory, and
+ * recycles bitmaps. Returns null if the file can't be decoded.
+ */
+private fun downscaledJpegBytes(file: File): ByteArray? {
+    val path = file.absolutePath
+
+    // First pass: read only the dimensions (inJustDecodeBounds loads no pixels).
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    // Second pass: decode at a reduced sample size to save memory on big images.
+    val longest = maxOf(bounds.outWidth, bounds.outHeight)
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = sampleSizeFor(longest, MAX_IMAGE_DIMENSION)
+    }
+    val decoded = BitmapFactory.decodeFile(path, options) ?: return null
+
+    // Scale exactly to the cap if the sampled bitmap is still too large.
+    val scaled = scaleToMax(decoded, MAX_IMAGE_DIMENSION)
+    return ByteArrayOutputStream().use { out ->
+        scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+        if (scaled != decoded) scaled.recycle()
+        decoded.recycle()
+        out.toByteArray()
+    }
+}
+
+/** Largest power-of-two sample size that keeps the decoded longest side at least [target]. */
+private fun sampleSizeFor(longest: Int, target: Int): Int {
+    var sample = 1
+    while (longest / (sample * 2) >= target) sample *= 2
+    return sample
+}
+
+/** [bitmap] scaled so its longest side is [max], or the original if it's already small enough. */
+private fun scaleToMax(bitmap: Bitmap, max: Int): Bitmap {
+    val longest = maxOf(bitmap.width, bitmap.height)
+    if (longest <= max) return bitmap
+    val ratio = max.toFloat() / longest
+    val width = (bitmap.width * ratio).roundToInt().coerceAtLeast(1)
+    val height = (bitmap.height * ratio).roundToInt().coerceAtLeast(1)
+    return Bitmap.createScaledBitmap(bitmap, width, height, true)
 }
 
 /** A drawing as an inline `<svg>`, one `<path>` per stroke, using the raw point coordinates. */

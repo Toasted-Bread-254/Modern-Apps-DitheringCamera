@@ -78,6 +78,7 @@ import com.vayunmathur.notes.data.withBody
 import com.vayunmathur.notes.util.NoteImageStore
 import com.vayunmathur.notes.util.NotesViewModel
 import com.vayunmathur.notes.util.exportNoteMarkdown
+import com.vayunmathur.notes.util.markdownCacheUri
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -199,8 +200,19 @@ fun NotePage(
                 actions = {
                     IconButton({
                         scope.launch {
-                            val markdown = withContext(Dispatchers.IO) { exportNoteMarkdown(context, note) }
-                            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("note", markdown)))
+                            val clip = withContext(Dispatchers.IO) {
+                                val markdown = exportNoteMarkdown(context, note)
+                                // Big base64 images blow past Binder's ~1MB clip limit
+                                // (TransactionTooLargeException), so for large notes copy a
+                                // URI to the exported .md instead of the raw text.
+                                if (markdown.length < 100_000) {
+                                    ClipData.newPlainText("note", markdown)
+                                } else {
+                                    val uri = markdownCacheUri(context, note, markdown)
+                                    ClipData.newUri(context.contentResolver, "note", uri)
+                                }
+                            }
+                            clipboard.setClipEntry(ClipEntry(clip))
                         }
                     }) { IconCopy() }
                     IconButton({ notesViewModel.requestShare(note) }) { IconShare() }

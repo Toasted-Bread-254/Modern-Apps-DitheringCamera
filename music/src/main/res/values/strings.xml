@@ -19,6 +19,7 @@
     <string name="content_desc_repeat">Repeat</string>
     <string name="content_desc_shuffle">Shuffle</string>
     <string name="no_lyrics_available">No lyrics available</string>
+    <string name="show_lyrics_on_lock_screen">Show lyrics on lock screen</string>
 
     <!-- Detail screen overlines / section headers -->
     <string name="label_album">Album</string>
