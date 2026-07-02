@@ -5,12 +5,13 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.location.Location
 import android.location.LocationManager
-import android.media.MediaMetadataRetriever
+import android.media.MediaFormat
 import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
 import android.util.Size
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
@@ -26,7 +27,6 @@ import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
-import androidx.camera.view.video.AudioConfig
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LifecycleOwner
@@ -165,10 +165,22 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
     private var highSpeedVideoCapture: VideoCapture<Recorder>? = null
     private var highSpeedRecording: Recording? = null
     private var highSpeedCamera: androidx.camera.core.Camera? = null
-    private var highSpeedLifecycleOwner: HighSpeedLifecycleOwner? = null
+    private var highSpeedLifecycleOwner: ManualLifecycleOwner? = null
 
     private val _highSpeedActive = MutableStateFlow(false)
     val highSpeedActive = _highSpeedActive.asStateFlow()
+
+    // Manual video session state (VIDEO / TIMELAPSE modes)
+    private var videoCapture: VideoCapture<Recorder>? = null
+    private var videoCamera: androidx.camera.core.Camera? = null
+    private var videoLifecycleOwner: ManualLifecycleOwner? = null
+
+    private val _videoSessionActive = MutableStateFlow(false)
+    val videoSessionActive = _videoSessionActive.asStateFlow()
+
+    /** True when the active video session is encoding AV1 (vs. the default codec). */
+    var recordingWithAv1: Boolean = false
+        private set
 
     fun setSloMoFps(fps: Int) {
         sloMoFps = fps
@@ -266,7 +278,7 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun setZoomRatio(ratio: Float) {
         _zoomRatio.value = ratio
-        highSpeedCamera?.cameraControl?.setZoomRatio(ratio)
+        (videoCamera ?: highSpeedCamera)?.cameraControl?.setZoomRatio(ratio)
     }
 
     fun updateZoomLevels(minZoom: Float, maxZoom: Float) {
@@ -342,7 +354,7 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
             sloMoFps = bestRange.upper
             Log.d("SloMo", "High-speed session configured at ${bestRange.upper}fps, slow-mo baked in")
 
-            val hsOwner = HighSpeedLifecycleOwner()
+            val hsOwner = ManualLifecycleOwner()
             hsOwner.start()
             highSpeedLifecycleOwner = hsOwner
             highSpeedCamera = provider.bindToLifecycle(hsOwner, selector, configBuilder.build())
@@ -385,6 +397,101 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
         highSpeedCamera = null
         cameraProvider = null
         _highSpeedActive.value = false
+    }
+
+    /**
+     * Binds a manual Preview + VideoCapture session for VIDEO/TIMELAPSE, encoding AV1 + Opus
+     * when the device has a hardware AV1 encoder and the camera reports AV1 support. Falls back
+     * to CameraX default codecs (H.264 + AAC) otherwise, and again if binding the AV1 session
+     * throws (a present encoder can still reject a given resolution/profile).
+     */
+    suspend fun setupVideoSession(surfaceProvider: Preview.SurfaceProvider): Boolean {
+        return try {
+            val provider = ProcessCameraProvider.awaitInstance(app)
+            cameraProvider = provider
+            provider.unbindAll()
+
+            val selector = CameraSelector.Builder()
+                .requireLensFacing(_lensFacing.value)
+                .build()
+            val cameraInfo = provider.getCameraInfo(selector)
+
+            val useAv1 = CodecSupport.isHardwareAv1EncoderAvailable && av1SupportedByCamera(cameraInfo)
+            val useOpus = CodecSupport.isOpusEncoderAvailable
+            Log.d("VideoSession", "Codec selection: av1=$useAv1, opus=$useOpus")
+
+            val preview = Preview.Builder().build()
+            preview.surfaceProvider = surfaceProvider
+
+            val owner = ManualLifecycleOwner()
+            owner.start()
+            videoLifecycleOwner = owner
+
+            fun bind(av1: Boolean, opus: Boolean): androidx.camera.core.Camera {
+                val recorderBuilder = Recorder.Builder()
+                if (av1) recorderBuilder.setVideoMimeType(MediaFormat.MIMETYPE_VIDEO_AV1)
+                if (opus) recorderBuilder.setAudioMimeType(MediaFormat.MIMETYPE_AUDIO_OPUS)
+                val capture = VideoCapture.withOutput(recorderBuilder.build())
+                videoCapture = capture
+                recordingWithAv1 = av1
+                return provider.bindToLifecycle(owner, selector, preview, capture)
+            }
+
+            videoCamera = try {
+                bind(useAv1, useOpus)
+            } catch (e: Exception) {
+                if (!useAv1 && !useOpus) throw e
+                Log.w("VideoSession", "AV1/Opus session failed to bind; falling back to defaults", e)
+                provider.unbindAll()
+                bind(av1 = false, opus = false)
+            }
+
+            videoCamera?.cameraInfo?.zoomState?.value?.let {
+                updateZoomLevels(it.minZoomRatio, it.maxZoomRatio)
+            }
+            _videoSessionActive.value = true
+            true
+        } catch (e: Exception) {
+            Log.e("VideoSession", "Failed to set up video session", e)
+            false
+        }
+    }
+
+    private fun av1SupportedByCamera(cameraInfo: androidx.camera.core.CameraInfo): Boolean = try {
+        val caps = Recorder.getVideoCapabilities(cameraInfo, MediaFormat.MIMETYPE_VIDEO_AV1)
+        caps?.getSupportedQualities(androidx.camera.core.DynamicRange.SDR)?.isNotEmpty() == true
+    } catch (e: Exception) {
+        Log.w("VideoSession", "Could not query AV1 video capabilities", e)
+        false
+    }
+
+    fun teardownVideoSession() {
+        currentRecording?.stop()
+        currentRecording = null
+        videoLifecycleOwner?.destroy()
+        videoLifecycleOwner = null
+        cameraProvider?.unbindAll()
+        videoCapture = null
+        videoCamera = null
+        cameraProvider = null
+        _videoSessionActive.value = false
+    }
+
+    // --- Manual video session control wiring (mirrors what the controller provided) ---
+
+    fun startVideoFocusAndMetering(action: FocusMeteringAction) {
+        videoCamera?.cameraControl?.startFocusAndMetering(action)
+    }
+
+    fun applyVideoTorch(enabled: Boolean) {
+        videoCamera?.cameraControl?.enableTorch(enabled)
+    }
+
+    fun applyVideoExposureCompensation(value: Float) {
+        val cam = videoCamera ?: return
+        val range = cam.cameraInfo.exposureState.exposureCompensationRange
+        val index = (value * range.upper).toInt().coerceIn(range.lower, range.upper)
+        cam.cameraControl.setExposureCompensationIndex(index)
     }
 
     private fun startRecordingTimer() {
@@ -572,7 +679,7 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     @android.annotation.SuppressLint("MissingPermission")
-    fun toggleRecording(controller: LifecycleCameraController) {
+    fun toggleRecording() {
         if (_isRecording.value) {
             currentRecording?.stop()
             currentRecording = null
@@ -580,9 +687,10 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
             return
         }
 
+        val capture = videoCapture ?: return
+
         val timestamp = MediaStoreSaver.timestamp()
         val prefix = when (_cameraMode.value) {
-            CameraMode.SLOW_MO -> "SLOMO"
             CameraMode.TIMELAPSE -> "TL"
             else -> "VID"
         }
@@ -593,47 +701,30 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
         val recordingMode = _cameraMode.value
 
         startRecordingTimer()
-        currentRecording = controller.startRecording(
-            outputOptions,
-            AudioConfig.create(recordingMode == CameraMode.VIDEO),
-            ContextCompat.getMainExecutor(app)
-        ) { event ->
+
+        var pending = capture.output.prepareRecording(app, outputOptions)
+        if (recordingMode == CameraMode.VIDEO) {
+            pending = pending.withAudioEnabled()
+        }
+        currentRecording = pending.start(ContextCompat.getMainExecutor(app)) { event ->
             if (event is VideoRecordEvent.Finalize) {
                 stopRecordingTimer()
                 viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     if (!cacheFile.exists()) return@launch
                     val fileToSave = when (recordingMode) {
-                        CameraMode.SLOW_MO -> {
-                            val processed = java.io.File(app.cacheDir, "SLOMO_$timestamp.mp4")
-                            val actualFps = try {
-                                val retriever = MediaMetadataRetriever()
-                                retriever.setDataSource(cacheFile.path)
-                                val frameCount = retriever.extractMetadata(
-                                    MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT
-                                )?.toLongOrNull() ?: 0L
-                                val durationMs = retriever.extractMetadata(
-                                    MediaMetadataRetriever.METADATA_KEY_DURATION
-                                )?.toLongOrNull() ?: 0L
-                                retriever.release()
-                                val detected = if (durationMs > 0) (frameCount * 1000f / durationMs) else sloMoFps.toFloat()
-                                Log.d("SloMo", "Fallback: ${frameCount} frames, ${durationMs}ms, detected=${detected}fps")
-                                detected
-                            } catch (e: Exception) {
-                                Log.e("SloMo", "Failed to detect FPS", e)
-                                sloMoFps.toFloat()
-                            }
-                            val effectiveFps = maxOf(actualFps, sloMoFps.toFloat())
-                            val speedFactor = 30f / effectiveFps
-                            Log.d("SloMo", "Fallback slowing: effectiveFps=$effectiveFps, speedFactor=$speedFactor")
-                            VideoProcessor.adjustSpeed(cacheFile, processed, speedFactor)
-                            cacheFile.delete()
-                            processed
-                        }
                         CameraMode.TIMELAPSE -> {
                             val processed = java.io.File(app.cacheDir, "TL_$timestamp.mp4")
-                            VideoProcessor.adjustSpeed(cacheFile, processed, 8f)
-                            cacheFile.delete()
-                            processed
+                            try {
+                                VideoProcessor.adjustSpeed(cacheFile, processed, 8f)
+                                cacheFile.delete()
+                                processed
+                            } catch (e: Exception) {
+                                // MediaMuxer can reject an av01 track (or an oversized keyframe)
+                                // on some devices; keep the raw recording rather than crash.
+                                Log.e("CameraViewModel", "Timelapse remux failed; saving unprocessed", e)
+                                processed.delete()
+                                cacheFile
+                            }
                         }
                         else -> cacheFile
                     }
@@ -672,7 +763,7 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 }
 
-private class HighSpeedLifecycleOwner : LifecycleOwner {
+private class ManualLifecycleOwner : LifecycleOwner {
     private val registry = androidx.lifecycle.LifecycleRegistry(this)
     override val lifecycle: androidx.lifecycle.Lifecycle get() = registry
 

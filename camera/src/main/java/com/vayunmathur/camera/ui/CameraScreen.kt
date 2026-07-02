@@ -180,6 +180,9 @@ private enum class CameraSetting {
     BRIGHTNESS, SHADOWS, WARMTH, EXPOSURE_TIME
 }
 
+/** Which camera pipeline drives the preview for the current mode. */
+private enum class SessionKind { CONTROLLER, HIGH_SPEED, VIDEO }
+
 private fun Modifier.selectedPill(
     selected: Boolean,
     shape: Shape,
@@ -217,6 +220,12 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
     var maskBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     val isPhotoType = cameraMode in listOf(CameraMode.PHOTO, CameraMode.PORTRAIT, CameraMode.PANORAMA, CameraMode.PHOTOSPHERE)
     val isSloMo = cameraMode == CameraMode.SLOW_MO
+    val isVideoType = cameraMode == CameraMode.VIDEO || cameraMode == CameraMode.TIMELAPSE
+    val sessionKind = when {
+        isSloMo -> SessionKind.HIGH_SPEED
+        isVideoType -> SessionKind.VIDEO
+        else -> SessionKind.CONTROLLER
+    }
     val highSpeedActive by viewModel.highSpeedActive.collectAsState()
     val availableZoomLevels by viewModel.availableZoomLevels.collectAsState()
     val bokehShader = remember { lazy { RuntimeShader(BOKEH_SHADER) } }
@@ -278,8 +287,8 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
             .build()
     }
 
-    LaunchedEffect(lensFacing, isSloMo) {
-        if (isSloMo) return@LaunchedEffect
+    LaunchedEffect(lensFacing, sessionKind) {
+        if (sessionKind != SessionKind.CONTROLLER) return@LaunchedEffect
         delay(500)
         val zoomState = controller.zoomState.value
         viewModel.updateZoomLevels(
@@ -307,7 +316,8 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
     }
 
     LaunchedEffect(torchEnabled) {
-        controller.enableTorch(torchEnabled)
+        if (isVideoType) viewModel.applyVideoTorch(torchEnabled)
+        else controller.enableTorch(torchEnabled)
     }
 
     LaunchedEffect(zoomRatio) {
@@ -319,10 +329,14 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
     }
 
     LaunchedEffect(exposureComp) {
-        controller.cameraInfo?.let { camera ->
-            val range = camera.exposureState.exposureCompensationRange
-            val index = (exposureComp * range.upper).toInt().coerceIn(range.lower, range.upper)
-            controller.cameraControl?.setExposureCompensationIndex(index)
+        if (isVideoType) {
+            viewModel.applyVideoExposureCompensation(exposureComp)
+        } else {
+            controller.cameraInfo?.let { camera ->
+                val range = camera.exposureState.exposureCompensationRange
+                val index = (exposureComp * range.upper).toInt().coerceIn(range.lower, range.upper)
+                controller.cameraControl?.setExposureCompensationIndex(index)
+            }
         }
     }
 
@@ -360,8 +374,6 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
             }
             else -> {
                 maskBitmap = null
-                controller.setEnabledUseCases(CameraController.VIDEO_CAPTURE)
-                controller.clearImageAnalysisAnalyzer()
                 viewModel.setQrResult(null)
             }
         }
@@ -400,17 +412,34 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
         }
     }
 
-    LaunchedEffect(lensFacing, isSloMo) {
-        if (isSloMo) {
-            controller.unbind()
-            viewModel.teardownHighSpeedSession()
-            delay(250)
-            viewModel.setupHighSpeedSession(
-                highSpeedPreviewView.surfaceProvider
-            )
-        } else {
-            viewModel.teardownHighSpeedSession()
-            controller.bindToLifecycle(lifecycleOwner)
+    val videoPreviewView = remember {
+        PreviewView(context).apply {
+            scaleType = PreviewView.ScaleType.FIT_CENTER
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        }
+    }
+
+    LaunchedEffect(lensFacing, sessionKind) {
+        when (sessionKind) {
+            SessionKind.HIGH_SPEED -> {
+                controller.unbind()
+                viewModel.teardownVideoSession()
+                viewModel.teardownHighSpeedSession()
+                delay(250)
+                viewModel.setupHighSpeedSession(highSpeedPreviewView.surfaceProvider)
+            }
+            SessionKind.VIDEO -> {
+                controller.unbind()
+                viewModel.teardownHighSpeedSession()
+                viewModel.teardownVideoSession()
+                delay(250)
+                viewModel.setupVideoSession(videoPreviewView.surfaceProvider)
+            }
+            SessionKind.CONTROLLER -> {
+                viewModel.teardownHighSpeedSession()
+                viewModel.teardownVideoSession()
+                controller.bindToLifecycle(lifecycleOwner)
+            }
         }
     }
 
@@ -515,12 +544,19 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
                             )
                             .pointerInteropFilter { event ->
                                 if (event.action == MotionEvent.ACTION_UP) {
-                                    val factory = SurfaceOrientedMeteringPointFactory(
-                                        event.x, event.y
-                                    )
-                                    val point = factory.createPoint(event.x, event.y)
-                                    val action = FocusMeteringAction.Builder(point).build()
-                                    controller.cameraControl?.startFocusAndMetering(action)
+                                    if (isVideoType) {
+                                        val point = videoPreviewView.meteringPointFactory
+                                            .createPoint(event.x, event.y)
+                                        val action = FocusMeteringAction.Builder(point).build()
+                                        viewModel.startVideoFocusAndMetering(action)
+                                    } else {
+                                        val factory = SurfaceOrientedMeteringPointFactory(
+                                            event.x, event.y
+                                        )
+                                        val point = factory.createPoint(event.x, event.y)
+                                        val action = FocusMeteringAction.Builder(point).build()
+                                        controller.cameraControl?.startFocusAndMetering(action)
+                                    }
                                 }
                                 false
                             }
@@ -528,6 +564,11 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
                     if (isSloMo) {
                         AndroidView(
                             factory = { highSpeedPreviewView },
+                            modifier = previewModifier
+                        )
+                    } else if (isVideoType) {
+                        AndroidView(
+                            factory = { videoPreviewView },
                             modifier = previewModifier
                         )
                     } else {
@@ -638,7 +679,7 @@ fun CameraScreen(backStack: NavBackStack<Route>, viewModel: CameraViewModel) {
                             }
                             isSloMo && highSpeedActive -> viewModel.toggleHighSpeedRecording()
                             isPhotoType -> viewModel.takePhoto(controller)
-                            else -> viewModel.toggleRecording(controller)
+                            else -> viewModel.toggleRecording()
                         }
                     },
                     onFlipCamera = { viewModel.flipCamera() },
