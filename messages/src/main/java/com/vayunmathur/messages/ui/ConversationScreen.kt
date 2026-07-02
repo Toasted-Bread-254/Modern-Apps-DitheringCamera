@@ -60,6 +60,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -86,6 +87,7 @@ import com.vayunmathur.messages.util.ReactionAction
 import com.vayunmathur.messages.util.isMessageRequest
 import com.vayunmathur.messages.util.mediaCapabilities
 import com.vayunmathur.messages.util.participantNames
+import com.vayunmathur.messages.util.displayTitle
 import kotlinx.coroutines.launch
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -223,8 +225,10 @@ fun ConversationScreen(
                         Spacer(Modifier.size(12.dp))
                         Column {
                             Text(
-                                conversation?.peerName ?: "Conversation",
+                                conversation?.displayTitle() ?: "Conversation",
                                 fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                             conversation?.let {
                                 val subtitle = if (it.isGroup) {

@@ -66,3 +66,20 @@ fun Conversation.participantNames(): List<String> {
         }
     }.getOrDefault(emptyList())
 }
+
+/**
+ * The title to show for a conversation:
+ *  - Use the explicit [Conversation.peerName] (a 1:1 peer name or a NAMED group's title) when set.
+ *  - For an UNNAMED group, join the participant names ("Alice, Bob, Carol…"); the caller's Text
+ *    should be single-line with ellipsis so it shows as many as fit on one line.
+ *  - Fall back to "Group" for a group with no known participants, else "(unknown)".
+ */
+fun Conversation.displayTitle(): String {
+    peerName?.takeIf { it.isNotBlank() }?.let { return it }
+    if (isGroup) {
+        val names = participantNames()
+        if (names.isNotEmpty()) return names.joinToString(", ")
+        return "Group"
+    }
+    return "(unknown)"
+}

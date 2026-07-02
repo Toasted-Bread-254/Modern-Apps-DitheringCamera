@@ -43,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vayunmathur.library.ui.IconSettings
@@ -55,6 +56,7 @@ import com.vayunmathur.messages.data.MessagesDatabase
 import com.vayunmathur.messages.util.MessagesSessionManager
 import com.vayunmathur.messages.util.MessagesViewModel
 import com.vayunmathur.messages.util.SourceConnectionState
+import com.vayunmathur.messages.util.displayTitle
 import com.vayunmathur.messages.util.isMessageRequest
 import java.text.DateFormat
 import java.util.Date
@@ -318,8 +320,10 @@ private fun ConversationRow(
         headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    conversation.peerName ?: "(unknown)",
+                    conversation.displayTitle(),
                     fontWeight = if (conversation.unreadCount > 0) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))

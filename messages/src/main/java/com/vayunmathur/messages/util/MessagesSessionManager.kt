@@ -874,7 +874,14 @@ object MessagesSessionManager {
                     Conversation(
                         id = convId,
                         source = event.source,
-                        peerName = event.peerName ?: existing?.peerName,
+                        // ConversationUpdate is the authoritative source for the
+                        // conversation title (group name / peer). An incoming
+                        // message must NOT rename an established conversation to
+                        // its per-message sender — otherwise a named group gets
+                        // retitled to whoever sent last, and a chat where you sent
+                        // last gets named after you. Only use the event's name as
+                        // a first-time fallback when there is no existing title.
+                        peerName = existing?.peerName ?: event.peerName,
                         peerPhoneE164 = event.peerPhone ?: existing?.peerPhoneE164,
                         avatarUrl = existing?.avatarUrl,
                         lastMessagePreview = event.body,
@@ -895,10 +902,11 @@ object MessagesSessionManager {
                         direction = MessageDirection.INCOMING,
                         state = MessageState.DELIVERED,
                         timestamp = event.timestamp,
-                        // In groups the sender differs from the conversation
-                        // peer; prefer the explicit sender, fall back to peer
-                        // (1:1 chats leave senderName null).
-                        senderName = event.senderName ?: event.peerName,
+                        // Per-message sender (shown in group bubbles). Never fall
+                        // back to the conversation/group name here — an unknown
+                        // sender leaves this null rather than mislabeling the
+                        // message as being from the group/peer.
+                        senderName = event.senderName,
                         senderId = event.senderId,
                         mediaJson = attachmentsToJson(event.attachments),
                     )
