@@ -36,6 +36,9 @@ import com.vayunmathur.photos.data.FilterBlur
 import com.vayunmathur.photos.data.FilterBlurMode
 import com.vayunmathur.photos.data.LevelsAdjustment
 import com.vayunmathur.photos.data.NoiseParams
+import com.vayunmathur.photos.data.PhotoFilterAdj
+import com.vayunmathur.photos.data.SelectiveColorAdj
+import com.vayunmathur.photos.data.SelectiveColorRange
 import com.vayunmathur.photos.data.StylizeMode
 import com.vayunmathur.photos.data.StylizeParams
 import com.vayunmathur.photos.data.UnsharpMask
@@ -247,4 +250,73 @@ fun FiltersPanel(onApply: ((android.graphics.Bitmap) -> android.graphics.Bitmap)
             "Emboss" -> onApply { StylizeParams(StylizeMode.Emboss).applyToBitmap(it) }
         }
     }
+}
+
+@Composable
+fun VibrancePanel(amount: Float, onChange: (Float) -> Unit) = PanelColumn {
+    LabeledSlider("Vibrance", amount, -100f..100f, onChange)
+}
+
+@Composable
+fun PosterizePanel(levels: Int, onChange: (Int) -> Unit) = PanelColumn {
+    LabeledSlider("Levels", levels.toFloat(), 2f..64f) { onChange(it.roundToInt()) }
+}
+
+@Composable
+fun ThresholdPanel(level: Int, onChange: (Int) -> Unit) = PanelColumn {
+    LabeledSlider("Level", level.toFloat(), 0f..255f) { onChange(it.roundToInt()) }
+}
+
+@Composable
+fun InvertPanel() = PanelColumn {
+    Text(
+        "Colors inverted. Toggle the layer's visibility or delete the Invert layer to undo.",
+        fontSize = 12.sp,
+        modifier = Modifier.padding(horizontal = 8.dp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+fun PhotoFilterPanel(adj: PhotoFilterAdj, onChange: (PhotoFilterAdj) -> Unit) = PanelColumn {
+    val presets = listOf(
+        "Warm" to 0xFFEC8A00.toInt(),
+        "Cool" to 0xFF00B4EC.toInt(),
+        "Sepia" to 0xFF9C6B30.toInt(),
+        "Red" to 0xFFEA3323.toInt(),
+        "Green" to 0xFF00A651.toInt(),
+        "Blue" to 0xFF2E5CFF.toInt(),
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        presets.forEach { (name, color) ->
+            FilterChip(
+                selected = adj.color == color,
+                onClick = { onChange(adj.copy(color = color)) },
+                label = { Text(name, fontSize = 12.sp) },
+            )
+        }
+    }
+    LabeledSlider("Density", adj.density * 100f, 0f..100f) { onChange(adj.copy(density = it / 100f)) }
+}
+
+@Composable
+fun SelectiveColorPanel(adj: SelectiveColorAdj, onChange: (SelectiveColorAdj) -> Unit) = PanelColumn {
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        SelectiveColorRange.entries.forEach { range ->
+            FilterChip(
+                selected = adj.range == range,
+                onClick = { onChange(adj.copy(range = range)) },
+                label = { Text(range.name, fontSize = 12.sp) },
+            )
+        }
+    }
+    LabeledSlider("Cyan", adj.cyan, -100f..100f) { onChange(adj.copy(cyan = it)) }
+    LabeledSlider("Magenta", adj.magenta, -100f..100f) { onChange(adj.copy(magenta = it)) }
+    LabeledSlider("Yellow", adj.yellow, -100f..100f) { onChange(adj.copy(yellow = it)) }
 }

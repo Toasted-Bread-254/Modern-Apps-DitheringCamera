@@ -80,6 +80,12 @@ private val adjustmentFactories: List<Pair<String, () -> LayerAdjustment>> = lis
             )
         )
     },
+    "Vibrance" to { com.vayunmathur.photos.data.VibranceAdj() },
+    "Photo Filter" to { com.vayunmathur.photos.data.PhotoFilterAdj() },
+    "Selective Color" to { com.vayunmathur.photos.data.SelectiveColorAdj() },
+    "Posterize" to { com.vayunmathur.photos.data.PosterizeAdj() },
+    "Threshold" to { com.vayunmathur.photos.data.ThresholdAdj() },
+    "Invert" to { com.vayunmathur.photos.data.InvertAdj() },
 )
 
 @Composable
@@ -99,6 +105,8 @@ fun LayersPanel(
     onAddMaskFromSelection: (Int) -> Unit,
     onDeleteMask: (Int) -> Unit,
     onInvertMask: (Int) -> Unit,
+    onToggleClip: (Int, Boolean) -> Unit,
+    onSetStyle: (Int, com.vayunmathur.photos.data.LayerStyle) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -176,6 +184,21 @@ fun LayersPanel(
                 } else {
                     ActionChip("Invert Mask") { onInvertMask(document.activeLayerIndex) }
                     ActionChip("Delete Mask") { onDeleteMask(document.activeLayerIndex) }
+                }
+                if (document.activeLayerIndex > 0) {
+                    ActionChip(if (active.clipped) "✓ Clip to below" else "Clip to below") {
+                        onToggleClip(document.activeLayerIndex, !active.clipped)
+                    }
+                }
+                val st = active.style
+                ActionChip(if (st.dropShadow) "✓ Shadow" else "Shadow") {
+                    onSetStyle(document.activeLayerIndex, st.copy(dropShadow = !st.dropShadow))
+                }
+                ActionChip(if (st.stroke) "✓ Stroke" else "Stroke") {
+                    onSetStyle(document.activeLayerIndex, st.copy(stroke = !st.stroke))
+                }
+                ActionChip(if (st.outerGlow) "✓ Glow" else "Glow") {
+                    onSetStyle(document.activeLayerIndex, st.copy(outerGlow = !st.outerGlow))
                 }
             }
         }

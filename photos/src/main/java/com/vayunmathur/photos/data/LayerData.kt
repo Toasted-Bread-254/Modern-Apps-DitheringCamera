@@ -42,6 +42,26 @@ class LayerMask(
 }
 
 /**
+ * Non-destructive layer effects (drop shadow, stroke, outer glow) rendered from
+ * the layer's own alpha shape by the compositor, beneath the layer's pixels.
+ */
+data class LayerStyle(
+    val dropShadow: Boolean = false,
+    val shadowColor: Int = 0xAA000000.toInt(),
+    val shadowDx: Float = 0.01f,
+    val shadowDy: Float = 0.01f,
+    val shadowBlur: Float = 0.01f,
+    val stroke: Boolean = false,
+    val strokeColor: Int = 0xFFFFFFFF.toInt(),
+    val strokeWidth: Float = 0.004f,
+    val outerGlow: Boolean = false,
+    val glowColor: Int = 0xFFFFF176.toInt(),
+    val glowRadius: Float = 0.02f,
+) {
+    fun isIdentity(): Boolean = !dropShadow && !stroke && !outerGlow
+}
+
+/**
  * Non-destructive adjustment that can back an [AdjustmentLayer] or be applied
  * directly. Each wrapper delegates to an existing `applyXToBitmap` helper, reusing
  * the established `data class + isIdentity() + applyToBitmap()` pattern.
@@ -125,6 +145,8 @@ sealed class Layer {
     abstract val blendMode: LayerBlendMode
     abstract val mask: LayerMask?
     abstract val locked: Boolean
+    abstract val clipped: Boolean
+    abstract val style: LayerStyle
 
     abstract fun copyBase(
         name: String = this.name,
@@ -133,6 +155,8 @@ sealed class Layer {
         blendMode: LayerBlendMode = this.blendMode,
         mask: LayerMask? = this.mask,
         locked: Boolean = this.locked,
+        clipped: Boolean = this.clipped,
+        style: LayerStyle = this.style,
     ): Layer
 }
 
@@ -145,13 +169,15 @@ data class PixelLayer(
     override val blendMode: LayerBlendMode = LayerBlendMode.Normal,
     override val mask: LayerMask? = null,
     override val locked: Boolean = false,
+    override val clipped: Boolean = false,
+    override val style: LayerStyle = LayerStyle(),
 ) : Layer() {
     override fun copyBase(
         name: String, visible: Boolean, opacity: Float,
-        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean,
+        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean, clipped: Boolean, style: LayerStyle,
     ): Layer = copy(
         name = name, visible = visible, opacity = opacity,
-        blendMode = blendMode, mask = mask, locked = locked,
+        blendMode = blendMode, mask = mask, locked = locked, clipped = clipped, style = style,
     )
 }
 
@@ -164,13 +190,15 @@ data class AdjustmentLayer(
     override val blendMode: LayerBlendMode = LayerBlendMode.Normal,
     override val mask: LayerMask? = null,
     override val locked: Boolean = false,
+    override val clipped: Boolean = false,
+    override val style: LayerStyle = LayerStyle(),
 ) : Layer() {
     override fun copyBase(
         name: String, visible: Boolean, opacity: Float,
-        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean,
+        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean, clipped: Boolean, style: LayerStyle,
     ): Layer = copy(
         name = name, visible = visible, opacity = opacity,
-        blendMode = blendMode, mask = mask, locked = locked,
+        blendMode = blendMode, mask = mask, locked = locked, clipped = clipped, style = style,
     )
 }
 
@@ -183,13 +211,15 @@ data class TextLayer(
     override val blendMode: LayerBlendMode = LayerBlendMode.Normal,
     override val mask: LayerMask? = null,
     override val locked: Boolean = false,
+    override val clipped: Boolean = false,
+    override val style: LayerStyle = LayerStyle(),
 ) : Layer() {
     override fun copyBase(
         name: String, visible: Boolean, opacity: Float,
-        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean,
+        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean, clipped: Boolean, style: LayerStyle,
     ): Layer = copy(
         name = name, visible = visible, opacity = opacity,
-        blendMode = blendMode, mask = mask, locked = locked,
+        blendMode = blendMode, mask = mask, locked = locked, clipped = clipped, style = style,
     )
 }
 
@@ -204,12 +234,14 @@ data class DrawingLayer(
     override val blendMode: LayerBlendMode = LayerBlendMode.Normal,
     override val mask: LayerMask? = null,
     override val locked: Boolean = false,
+    override val clipped: Boolean = false,
+    override val style: LayerStyle = LayerStyle(),
 ) : Layer() {
     override fun copyBase(
         name: String, visible: Boolean, opacity: Float,
-        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean,
+        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean, clipped: Boolean, style: LayerStyle,
     ): Layer = copy(
         name = name, visible = visible, opacity = opacity,
-        blendMode = blendMode, mask = mask, locked = locked,
+        blendMode = blendMode, mask = mask, locked = locked, clipped = clipped, style = style,
     )
 }

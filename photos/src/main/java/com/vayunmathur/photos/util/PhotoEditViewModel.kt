@@ -235,6 +235,68 @@ class PhotoEditViewModel(
     fun setLayerMask(index: Int, mask: LayerMask) =
         updateDocument { it.updateLayer(index) { l -> l.copyBase(mask = mask) } }
 
+    fun setLayerClipped(index: Int, clipped: Boolean) =
+        updateDocument { it.updateLayer(index) { l -> l.copyBase(clipped = clipped) } }
+
+    fun setLayerStyle(index: Int, style: com.vayunmathur.photos.data.LayerStyle) =
+        updateDocument { it.updateLayer(index) { l -> l.copyBase(style = style) } }
+
+    /**
+     * Paint onto the active layer's mask: [points] are normalized brush positions,
+     * [radius] a fraction of the longest side, [paintValue] 1f to reveal or 0f to
+     * hide. Creates a full (opaque) mask first if the layer has none.
+     */
+    fun paintOnActiveMask(points: List<Pair<Float, Float>>, radius: Float, paintValue: Float) {
+        if (points.isEmpty()) return
+        val doc = _document.value
+        val index = doc.activeLayerIndex
+        val layer = doc.layers.getOrNull(index) ?: return
+        viewModelScope.launch(Dispatchers.Default) {
+            val cw = doc.canvasWidth.coerceAtLeast(1)
+            val ch = doc.canvasHeight.coerceAtLeast(1)
+            val maxDim = 1024
+            val scale = minOf(1f, maxDim.toFloat() / maxOf(cw, ch))
+            val mw = (cw * scale).roundToInt().coerceAtLeast(1)
+            val mh = (ch * scale).roundToInt().coerceAtLeast(1)
+            val existing = layer.mask
+            val data = when {
+                existing != null && existing.width == mw && existing.height == mh -> existing.alphaData.copyOf()
+                existing != null -> scaleMaskData(existing, mw, mh)
+                else -> FloatArray(mw * mh) { 1f }
+            }
+            val r = (radius * maxOf(mw, mh)).roundToInt().coerceAtLeast(1)
+            val r2 = r * r
+            for ((nx, ny) in points) {
+                val cx = (nx * mw).roundToInt()
+                val cy = (ny * mh).roundToInt()
+                for (dy in -r..r) {
+                    val y = cy + dy
+                    if (y !in 0 until mh) continue
+                    for (dx in -r..r) {
+                        val x = cx + dx
+                        if (x !in 0 until mw) continue
+                        if (dx * dx + dy * dy <= r2) data[y * mw + x] = paintValue
+                    }
+                }
+            }
+            withContext(Dispatchers.Main) {
+                updateDocument { it.updateLayer(index) { l -> l.copyBase(mask = LayerMask(data, mw, mh)) } }
+            }
+        }
+    }
+
+    private fun scaleMaskData(mask: LayerMask, w: Int, h: Int): FloatArray {
+        val out = FloatArray(w * h)
+        for (y in 0 until h) {
+            val sy = (y * mask.height / h).coerceIn(0, mask.height - 1)
+            for (x in 0 until w) {
+                val sx = (x * mask.width / w).coerceIn(0, mask.width - 1)
+                out[y * w + x] = mask.alphaData[sy * mask.width + sx]
+            }
+        }
+        return out
+    }
+
     // --- adjustment editing ---------------------------------------------------
 
     /** Ensures the active layer is an [AdjustmentLayer] whose adjustment satisfies [match]. */
@@ -335,6 +397,25 @@ class PhotoEditViewModel(
         setLayerMask(index, sel.toLayerMask())
     }
 
+    /** Remove the current selection's contents via content-aware fill (inpaint). */
+    fun contentAwareFillSelection() {
+        val sel = _selection.value ?: return
+        if (sel.isEmpty()) return
+        val doc = _document.value
+        val index = doc.activeLayerIndex
+        val layer = doc.layers.getOrNull(index) as? PixelLayer ?: return
+        viewModelScope.launch(Dispatchers.Default) {
+            val filled = com.vayunmathur.photos.data.inpaintBitmap(
+                layer.bitmapRef.bitmap, sel.mask, sel.width, sel.height,
+            )
+            withContext(Dispatchers.Main) {
+                updateDocument {
+                    it.updateLayer(index) { l -> (l as PixelLayer).copy(bitmapRef = BitmapReference(filled)) }
+                }
+            }
+        }
+    }
+
     // --- transforms -----------------------------------------------------------
 
     fun rotate(delta: Float) = updateDocument { it.copy(rotation = it.rotation + delta) }
@@ -351,6 +432,44 @@ class PhotoEditViewModel(
 
     fun setPerspective(corners: com.vayunmathur.photos.data.PerspectiveCorners) =
         updateDocument { it.copy(perspectiveCorners = corners) }
+
+    /** Flip the active pixel layer horizontally or vertically. */
+    fun flipActiveLayer(horizontal: Boolean) {
+        val doc = _document.value
+        val index = doc.activeLayerIndex
+        val layer = doc.layers.getOrNull(index) as? PixelLayer ?: return
+        viewModelScope.launch(Dispatchers.Default) {
+            val src = layer.bitmapRef.bitmap
+            val m = android.graphics.Matrix().apply {
+                if (horizontal) preScale(-1f, 1f, src.width / 2f, src.height / 2f)
+                else preScale(1f, -1f, src.width / 2f, src.height / 2f)
+            }
+            val flipped = Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
+            withContext(Dispatchers.Main) {
+                updateDocument { it.updateLayer(index) { l -> (l as PixelLayer).copy(bitmapRef = BitmapReference(flipped)) } }
+            }
+        }
+    }
+
+    /**
+     * Free-transform (scale/rotate/skew/distort) the active pixel layer by warping
+     * its content to [corners] within the same canvas bounds.
+     */
+    fun transformActiveLayer(corners: com.vayunmathur.photos.data.PerspectiveCorners) {
+        if (corners.isIdentity()) return
+        val doc = _document.value
+        val index = doc.activeLayerIndex
+        val layer = doc.layers.getOrNull(index) as? PixelLayer ?: return
+        viewModelScope.launch(Dispatchers.Default) {
+            val src = layer.bitmapRef.bitmap
+            val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+            val m = corners.toMatrix(src.width.toFloat(), src.height.toFloat())
+            android.graphics.Canvas(out).drawBitmap(src, m, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+            withContext(Dispatchers.Main) {
+                updateDocument { it.updateLayer(index) { l -> (l as PixelLayer).copy(bitmapRef = BitmapReference(out)) } }
+            }
+        }
+    }
 
     // --- preview --------------------------------------------------------------
 
@@ -383,6 +502,7 @@ class PhotoEditViewModel(
         texts: List<TextElement>,
         viewportWidth: Float,
         viewportHeight: Float,
+        format: ExportFormat = ExportFormat.Jpeg,
         onComplete: () -> Unit,
     ) {
         val ctx: Context = getApplication()
@@ -391,7 +511,7 @@ class PhotoEditViewModel(
             val result = withContext(Dispatchers.Default) {
                 val composite = compositor.composite(doc, Int.MAX_VALUE)
                 bakeOverlays(composite, strokes, texts, viewportWidth, viewportHeight)
-                writeBitmap(ctx, photo, composite, asCopy)
+                writeBitmap(ctx, photo, composite, asCopy, format)
             }
             when (result) {
                 is WriteResult.Success -> onComplete()
@@ -480,34 +600,36 @@ class PhotoEditViewModel(
             photo: Photo,
             bitmap: Bitmap,
             asCopy: Boolean,
+            format: ExportFormat,
         ): WriteResult {
             val resolver = context.contentResolver
             val nowSeconds = System.currentTimeMillis() / 1000
             if (asCopy) {
+                val baseName = photo.name.substringBeforeLast('.')
                 val contentValues = ContentValues().apply {
-                    put(MediaStore.Images.Media.DISPLAY_NAME, "Edited_${photo.name}")
-                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.DISPLAY_NAME, "Edited_$baseName.${format.ext}")
+                    put(MediaStore.Images.Media.MIME_TYPE, format.mime)
                     put(MediaStore.Images.Media.DATE_MODIFIED, nowSeconds)
                     put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES)
                 }
                 val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
                 uri?.let {
                     resolver.openOutputStream(it)?.use { out ->
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                        bitmap.compress(format.compress, format.quality, out)
                     }
                 }
                 return WriteResult.Success
             }
 
             val uri = photo.uri.toUri()
-            val jpegBytes = ByteArrayOutputStream().also {
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it)
+            val bytes = ByteArrayOutputStream().also {
+                bitmap.compress(format.compress, format.quality, it)
             }.toByteArray()
             try {
-                resolver.openOutputStream(uri, "w")?.use { it.write(jpegBytes) }
+                resolver.openOutputStream(uri, "w")?.use { it.write(bytes) }
                 val values = ContentValues().apply {
                     put(MediaStore.Images.Media.DATE_MODIFIED, nowSeconds)
-                    put(MediaStore.Images.Media.SIZE, jpegBytes.size.toLong())
+                    put(MediaStore.Images.Media.SIZE, bytes.size.toLong())
                 }
                 resolver.update(uri, values, null, null)
                 return WriteResult.Success
@@ -516,7 +638,7 @@ class PhotoEditViewModel(
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val pendingIntent = MediaStore.createWriteRequest(resolver, listOf(uri))
-                return WriteResult.NeedsPermission(pendingIntent.intentSender, jpegBytes, uri)
+                return WriteResult.NeedsPermission(pendingIntent.intentSender, bytes, uri)
             }
             return WriteResult.Error(Exception("createWriteRequest requires API 30+"))
         }
@@ -531,3 +653,16 @@ fun PhotoEditViewModelFactory(
     viewModelFactory {
         initializer { PhotoEditViewModel(application, photoDao) }
     }
+
+/** Output formats for saving/exporting an edited photo. */
+enum class ExportFormat(
+    val display: String,
+    val mime: String,
+    val ext: String,
+    val compress: Bitmap.CompressFormat,
+    val quality: Int = 95,
+) {
+    Jpeg("JPEG", "image/jpeg", "jpg", Bitmap.CompressFormat.JPEG, 92),
+    Png("PNG", "image/png", "png", Bitmap.CompressFormat.PNG, 100),
+    Webp("WebP", "image/webp", "webp", Bitmap.CompressFormat.WEBP_LOSSY, 92),
+}

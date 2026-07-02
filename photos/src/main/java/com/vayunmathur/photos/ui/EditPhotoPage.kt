@@ -136,22 +136,30 @@ import com.vayunmathur.photos.data.HslAdj
 import com.vayunmathur.photos.data.HslAdjustments
 import com.vayunmathur.photos.data.HslColorRange
 import com.vayunmathur.photos.data.ImageAdjustments
+import com.vayunmathur.photos.data.InvertAdj
 import com.vayunmathur.photos.data.LayerAdjustment
 import com.vayunmathur.photos.data.LevelsAdj
 import com.vayunmathur.photos.data.Photo
 import com.vayunmathur.photos.data.PhotoDao
 import com.vayunmathur.photos.data.PhotoFilter
+import com.vayunmathur.photos.data.PhotoFilterAdj
 import com.vayunmathur.photos.data.PhotoFilters
 import com.vayunmathur.photos.data.PixelLayer
+import com.vayunmathur.photos.data.PosterizeAdj
 import com.vayunmathur.photos.data.RedEyeSpot
 import com.vayunmathur.photos.data.RedEyeSpots
 import com.vayunmathur.photos.data.Selection
+import com.vayunmathur.photos.data.SelectionCombine
 import com.vayunmathur.photos.data.SelectiveAdj
+import com.vayunmathur.photos.data.SelectiveColorAdj
+import com.vayunmathur.photos.data.SelectiveColorRange
 import com.vayunmathur.photos.data.SelectiveEdits
 import com.vayunmathur.photos.data.SelectiveMask
 import com.vayunmathur.photos.data.SmudgeStroke
 import com.vayunmathur.photos.data.SmudgeStrokes
 import com.vayunmathur.photos.data.TextElement
+import com.vayunmathur.photos.data.ThresholdAdj
+import com.vayunmathur.photos.data.VibranceAdj
 import com.vayunmathur.photos.data.applyToBitmap
 import com.vayunmathur.photos.data.applyHealingToBitmap
 import com.vayunmathur.photos.data.toColorMatrix
@@ -167,29 +175,29 @@ import kotlin.math.sin
 
 private enum class ToolCategory(val label: String) {
     Adjust("Adjust"), Filters("Filters"), Retouch("Retouch"),
-    Select("Select"), Transform("Crop"), Draw("Draw"), Layers("Layers"),
+    Select("Select"), Transform("Crop"), Draw("Draw"), Paint("Paint"), Layers("Layers"),
 }
 
 private enum class EditorMode {
     None,
     Adjust, Filters, Curves, HSL, Levels, ColorBalance, ChannelMixer, BlackWhite, GradientMap,
+    Vibrance, PhotoFilter, SelectiveColor, Posterize, Threshold, Invert,
     LensBlur, Selective, FilterFx, Liquify,
     Healing, RedEye, DodgeBurn, Smudge,
     Selection,
     Crop,
+    FreeTransform,
     Layers,
+    MaskPaint,
+    Fill, GradientTool, ShapeRect, ShapeEllipse, ShapeLine,
 }
 
 private data class ToolEntry(val mode: EditorMode, val label: String)
 
-/** A committed marquee selection described as a shape (for drawing the pattern overlay). */
-private data class SelShape(
-    val isEllipse: Boolean,
-    val rect: Rect,
-    val inverted: Boolean,
-    val featherFracX: Float,
-    val featherFracY: Float,
-)
+/** Selection sub-tools for the Select category. */
+private enum class SelectionTool(val label: String) {
+    Rectangle("Rectangle"), Ellipse("Ellipse"), Lasso("Lasso"), Polygon("Polygon"), Wand("Magic Wand"),
+}
 
 private val categoryTools: Map<ToolCategory, List<ToolEntry>> = mapOf(
     ToolCategory.Adjust to listOf(
@@ -202,6 +210,12 @@ private val categoryTools: Map<ToolCategory, List<ToolEntry>> = mapOf(
         ToolEntry(EditorMode.ChannelMixer, "Mixer"),
         ToolEntry(EditorMode.BlackWhite, "B&W"),
         ToolEntry(EditorMode.GradientMap, "Gradient"),
+        ToolEntry(EditorMode.Vibrance, "Vibrance"),
+        ToolEntry(EditorMode.PhotoFilter, "Photo Filter"),
+        ToolEntry(EditorMode.SelectiveColor, "Selective Color"),
+        ToolEntry(EditorMode.Posterize, "Posterize"),
+        ToolEntry(EditorMode.Threshold, "Threshold"),
+        ToolEntry(EditorMode.Invert, "Invert"),
     ),
     ToolCategory.Filters to listOf(
         ToolEntry(EditorMode.LensBlur, "Lens Blur"),
@@ -220,9 +234,18 @@ private val categoryTools: Map<ToolCategory, List<ToolEntry>> = mapOf(
     ),
     ToolCategory.Transform to listOf(
         ToolEntry(EditorMode.Crop, "Crop & Rotate"),
+        ToolEntry(EditorMode.FreeTransform, "Transform"),
     ),
     ToolCategory.Layers to listOf(
         ToolEntry(EditorMode.Layers, "Layers"),
+        ToolEntry(EditorMode.MaskPaint, "Mask Brush"),
+    ),
+    ToolCategory.Paint to listOf(
+        ToolEntry(EditorMode.Fill, "Fill"),
+        ToolEntry(EditorMode.GradientTool, "Gradient"),
+        ToolEntry(EditorMode.ShapeRect, "Rectangle"),
+        ToolEntry(EditorMode.ShapeEllipse, "Ellipse"),
+        ToolEntry(EditorMode.ShapeLine, "Line"),
     ),
 )
 
@@ -233,6 +256,7 @@ private fun ToolCategory.description(): String = when (this) {
     ToolCategory.Select -> "Pick an area to limit edits."
     ToolCategory.Transform -> "Crop, straighten, and rotate."
     ToolCategory.Draw -> "Draw, highlight, and add text."
+    ToolCategory.Paint -> "Fill, gradients, and shapes."
     ToolCategory.Layers -> "Manage layers and masks."
 }
 
@@ -246,6 +270,12 @@ private fun EditorMode.description(): String = when (this) {
     EditorMode.ChannelMixer -> "Blend the red, green, and blue channels."
     EditorMode.BlackWhite -> "Convert to black & white and control how colors map."
     EditorMode.GradientMap -> "Map dark-to-light tones onto a color gradient."
+    EditorMode.Vibrance -> "Boost muted colors while protecting already-vivid ones and skin tones."
+    EditorMode.PhotoFilter -> "Apply a warming or cooling color wash."
+    EditorMode.SelectiveColor -> "Fine-tune cyan/magenta/yellow within one color range."
+    EditorMode.Posterize -> "Reduce the number of tonal levels for a flat, graphic look."
+    EditorMode.Threshold -> "Convert to pure black and white at a brightness cutoff."
+    EditorMode.Invert -> "Invert all colors (photo negative)."
     EditorMode.LensBlur -> "Blur the background for a depth-of-field look."
     EditorMode.Selective -> "Paint an adjustment onto specific spots."
     EditorMode.FilterFx -> "Apply a baked-in photo filter to the pixels."
@@ -256,7 +286,14 @@ private fun EditorMode.description(): String = when (this) {
     EditorMode.Smudge -> "Drag to smear pixels like wet paint."
     EditorMode.Selection -> "Draw an area; edits then apply only inside it."
     EditorMode.Crop -> "Crop, straighten, and rotate the photo."
+    EditorMode.FreeTransform -> "Scale, rotate, skew, or distort the layer by dragging its corners; flip it."
     EditorMode.Layers -> "Stack, blend, and mask layers."
+    EditorMode.MaskPaint -> "Brush on the active layer's mask: hide or reveal parts of it."
+    EditorMode.Fill -> "Tap to flood-fill an area with the chosen color."
+    EditorMode.GradientTool -> "Drag to draw a color-to-transparent gradient."
+    EditorMode.ShapeRect -> "Drag to draw a filled rectangle."
+    EditorMode.ShapeEllipse -> "Drag to draw a filled ellipse."
+    EditorMode.ShapeLine -> "Drag to draw a line."
     EditorMode.None -> ""
 }
 
@@ -341,11 +378,34 @@ fun EditPhotoPage(
     var liquifyRadius by remember { mutableFloatStateOf(0.15f) }
 
     // Selection tool
-    var selectionIsEllipse by remember { mutableStateOf(false) }
+    var selectionTool by remember { mutableStateOf(SelectionTool.Rectangle) }
+    var selectionCombine by remember { mutableStateOf(SelectionCombine.New) }
     var selectionFeather by remember { mutableFloatStateOf(0f) }
-    var committedSel by remember { mutableStateOf<SelShape?>(null) }
+    var wandTolerance by remember { mutableFloatStateOf(0.15f) }
+    // The committed selection before feathering, so feather can be re-applied live.
+    var selectionBase by remember { mutableStateOf<Selection?>(null) }
     var selDragStart by remember { mutableStateOf<Offset?>(null) }
     var selDragCurrent by remember { mutableStateOf<Offset?>(null) }
+    var lassoPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    var polygonPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
+
+    // Mask brush
+    var maskPaintReveal by remember { mutableStateOf(false) }
+    var maskBrushSize by remember { mutableFloatStateOf(0.06f) }
+    var maskPoints by remember { mutableStateOf<List<Pair<Float, Float>>>(emptyList()) }
+
+    // Paint (fill / gradient / shapes)
+    var paintColor by remember { mutableStateOf(Color.Red) }
+    var fillTolerance by remember { mutableFloatStateOf(0.2f) }
+    var shapeStrokeWidth by remember { mutableFloatStateOf(0.01f) }
+    var paintDragStart by remember { mutableStateOf<Offset?>(null) }
+    var paintDragCurrent by remember { mutableStateOf<Offset?>(null) }
+
+    // Free transform corners (normalized 0..1)
+    var ftTL by remember { mutableStateOf(Offset(0f, 0f)) }
+    var ftTR by remember { mutableStateOf(Offset(1f, 0f)) }
+    var ftBL by remember { mutableStateOf(Offset(0f, 1f)) }
+    var ftBR by remember { mutableStateOf(Offset(1f, 1f)) }
 
     // Drawing
     val inkStrokes = remember { mutableStateListOf<InkStroke>() }
@@ -370,6 +430,8 @@ fun EditPhotoPage(
     var textToEdit by remember { mutableStateOf<TextElement?>(null) }
     var currentViewportWidth by remember { mutableFloatStateOf(1f) }
     var currentViewportHeight by remember { mutableFloatStateOf(1f) }
+    var showOriginal by remember { mutableStateOf(false) }
+    var showHistogram by remember { mutableStateOf(false) }
 
     val isDrawing = activeCategory == ToolCategory.Draw
 
@@ -413,24 +475,49 @@ fun EditPhotoPage(
         }
     }
 
-    fun commitSelection(rect: Rect, isEllipse: Boolean, inverted: Boolean, featherPx: Float) {
+    // Mask resolution for built selections (capped so it stays cheap).
+    fun selMaskSize(): Pair<Int, Int> {
         val cw = document.canvasWidth.coerceAtLeast(1)
         val ch = document.canvasHeight.coerceAtLeast(1)
-        // Build the mask at a capped resolution so it stays cheap on the main thread.
-        val maxDim = 768f
-        val scale = minOf(1f, maxDim / maxOf(cw, ch))
-        val mw = (cw * scale).roundToInt().coerceAtLeast(1)
-        val mh = (ch * scale).roundToInt().coerceAtLeast(1)
-        var sel = if (isEllipse) {
+        val scale = minOf(1f, 768f / maxOf(cw, ch))
+        return (cw * scale).roundToInt().coerceAtLeast(1) to (ch * scale).roundToInt().coerceAtLeast(1)
+    }
+
+    // Combine a freshly built selection with the existing base, apply feather,
+    // and push to the VM. All selection tools funnel through here.
+    fun applySelection(fresh: Selection) {
+        val base = if (selectionCombine == SelectionCombine.New || selectionBase == null) fresh
+        else selectionBase!!.combine(fresh, selectionCombine)
+        selectionBase = base
+        val featherScaled = selectionFeather * (base.width.toFloat() / document.canvasWidth.coerceAtLeast(1))
+        vm.setSelection(if (featherScaled > 0f) base.applyFeather(featherScaled) else base)
+    }
+
+    fun reapplyFeather() {
+        val base = selectionBase ?: return
+        val featherScaled = selectionFeather * (base.width.toFloat() / document.canvasWidth.coerceAtLeast(1))
+        vm.setSelection(if (featherScaled > 0f) base.applyFeather(featherScaled) else base)
+    }
+
+    fun clearSelection() {
+        selectionBase = null; lassoPoints = emptyList(); polygonPoints = emptyList()
+        vm.setSelection(null)
+    }
+
+    fun commitMarquee(rect: Rect, isEllipse: Boolean) {
+        val (mw, mh) = selMaskSize()
+        val fresh = if (isEllipse) {
             Selection.ellipse(mw, mh, (rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f, (rect.right - rect.left) / 2f, (rect.bottom - rect.top) / 2f)
         } else {
             Selection.rectangle(mw, mh, rect.left, rect.top, rect.right, rect.bottom)
         }
-        val featherScaled = featherPx * scale
-        if (featherScaled > 0f) sel = sel.applyFeather(featherScaled)
-        if (inverted) sel = sel.invert()
-        vm.setSelection(sel)
-        committedSel = SelShape(isEllipse, rect, inverted, featherPx / cw, featherPx / ch)
+        applySelection(fresh)
+    }
+
+    fun commitPolygon(pointsNorm: List<Pair<Float, Float>>) {
+        if (pointsNorm.size < 3) return
+        val (mw, mh) = selMaskSize()
+        applySelection(Selection.polygon(mw, mh, pointsNorm))
     }
 
     fun applyCrop() {
@@ -511,11 +598,23 @@ fun EditPhotoPage(
             EditorMode.ColorBalance -> vm.ensureAdjustment({ it is ColorBalanceAdj }, { ColorBalanceAdj() })
             EditorMode.ChannelMixer -> vm.ensureAdjustment({ it is ChannelMixerAdj }, { ChannelMixerAdj() })
             EditorMode.BlackWhite -> vm.ensureAdjustment({ it is BlackAndWhiteAdj }, { BlackAndWhiteAdj() })
+            EditorMode.Vibrance -> vm.ensureAdjustment({ it is VibranceAdj }, { VibranceAdj() })
+            EditorMode.PhotoFilter -> vm.ensureAdjustment({ it is PhotoFilterAdj }, { PhotoFilterAdj() })
+            EditorMode.SelectiveColor -> vm.ensureAdjustment({ it is SelectiveColorAdj }, { SelectiveColorAdj() })
+            EditorMode.Posterize -> vm.ensureAdjustment({ it is PosterizeAdj }, { PosterizeAdj() })
+            EditorMode.Threshold -> vm.ensureAdjustment({ it is ThresholdAdj }, { ThresholdAdj() })
+            EditorMode.Invert -> vm.ensureAdjustment({ it is InvertAdj }, { InvertAdj() })
             EditorMode.LensBlur -> vm.ensureAdjustment({ it is BlurAdj }, { BlurAdj() })
             EditorMode.Selective -> vm.ensureAdjustment({ it is SelectiveAdj }, { SelectiveAdj() })
-            EditorMode.Healing, EditorMode.RedEye, EditorMode.DodgeBurn, EditorMode.Smudge, EditorMode.FilterFx, EditorMode.Liquify -> {
+            EditorMode.Healing, EditorMode.RedEye, EditorMode.DodgeBurn, EditorMode.Smudge, EditorMode.FilterFx, EditorMode.Liquify,
+            EditorMode.Fill, EditorMode.GradientTool, EditorMode.ShapeRect, EditorMode.ShapeEllipse, EditorMode.ShapeLine -> {
                 val idx = document.layers.indexOfLast { it is PixelLayer }
                 if (idx >= 0 && idx != document.activeLayerIndex) vm.setActiveLayer(idx)
+            }
+            EditorMode.FreeTransform -> {
+                val idx = document.layers.indexOfLast { it is PixelLayer }
+                if (idx >= 0 && idx != document.activeLayerIndex) vm.setActiveLayer(idx)
+                ftTL = Offset(0f, 0f); ftTR = Offset(1f, 0f); ftBL = Offset(0f, 1f); ftBR = Offset(1f, 1f)
             }
             else -> {}
         }
@@ -532,11 +631,11 @@ fun EditPhotoPage(
         writePermissionRequest?.let { writePermissionLauncher.launch(IntentSenderRequest.Builder(it).build()) }
     }
 
-    fun doSave(asCopy: Boolean) {
+    fun doSave(asCopy: Boolean, format: com.vayunmathur.photos.util.ExportFormat = com.vayunmathur.photos.util.ExportFormat.Jpeg) {
         photo?.let {
             vm.savePhoto(
                 it, asCopy, inkStrokes.map { s -> s.serialize() }, texts.toList(),
-                currentViewportWidth, currentViewportHeight,
+                currentViewportWidth, currentViewportHeight, format,
             ) { context.finish() }
         }
     }
@@ -551,6 +650,12 @@ fun EditPhotoPage(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showOriginal = !showOriginal }) {
+                        Text(if (showOriginal) "◉" else "◎", fontSize = 18.sp)
+                    }
+                    IconButton(onClick = { showHistogram = !showHistogram }) {
+                        Text("\uD83D\uDCC8", fontSize = 16.sp)
+                    }
                     IconButton(onClick = { vm.undo() }, enabled = canUndo) { IconUndo() }
                     IconButton(onClick = { vm.redo() }, enabled = canRedo) {
                         Text("↻", fontSize = 20.sp)
@@ -564,7 +669,15 @@ fun EditPhotoPage(
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.action_save_as_copy)) },
-                                onClick = { showSaveMenu = false; doSave(true) },
+                                onClick = { showSaveMenu = false; doSave(true, com.vayunmathur.photos.util.ExportFormat.Jpeg) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Export as PNG") },
+                                onClick = { showSaveMenu = false; doSave(true, com.vayunmathur.photos.util.ExportFormat.Png) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Export as WebP") },
+                                onClick = { showSaveMenu = false; doSave(true, com.vayunmathur.photos.util.ExportFormat.Webp) },
                             )
                         }
                     }
@@ -581,7 +694,7 @@ fun EditPhotoPage(
             ) {
                 val maxW = constraints.maxWidth.toFloat()
                 val maxH = constraints.maxHeight.toFloat()
-                val display = preview ?: baseBitmap
+                val display = if (showOriginal) baseBitmap else (preview ?: baseBitmap)
                 if (display != null) {
                     val ratio = display.width.toFloat() / display.height.toFloat()
                     val containerRatio = maxW / maxH
@@ -700,11 +813,9 @@ fun EditPhotoPage(
 
                         // Tool overlays (only when not drawing)
                         if (!isDrawing && !isCropping) {
-                            // Keep the committed selection visible in every mode
-                            // (until cleared) so the user knows edits are scoped.
-                            if (committedSel != null && selDragStart == null) {
-                                SelectionPatternOverlay(committedSel!!)
-                            }
+                            // Keep the live selection visible in every mode (until
+                            // cleared) so the user knows edits are scoped.
+                            selection?.let { if (selDragStart == null) SelectionMaskOverlay(it) }
                             val blurAdj = document.activeAdjustment<BlurAdj>()
                             if (editorMode == EditorMode.LensBlur && blurAdj != null && !blurAdj.blur.isIdentity()) {
                                 BlurOverlay(blurParams = blurAdj.blur, onBlurChanged = { vm.updateActiveAdjustment(BlurAdj(it)) })
@@ -783,24 +894,118 @@ fun EditPhotoPage(
                                 })
                             }
                             if (editorMode == EditorMode.Selection) {
-                                SelectionOverlay(
-                                    isEllipse = selectionIsEllipse,
-                                    dragStart = selDragStart,
-                                    dragCurrent = selDragCurrent,
-                                    onStart = { selDragStart = it; selDragCurrent = it },
-                                    onDrag = { selDragCurrent = it },
+                                when (selectionTool) {
+                                    SelectionTool.Rectangle, SelectionTool.Ellipse -> SelectionOverlay(
+                                        isEllipse = selectionTool == SelectionTool.Ellipse,
+                                        dragStart = selDragStart,
+                                        dragCurrent = selDragCurrent,
+                                        onStart = { selDragStart = it; selDragCurrent = it },
+                                        onDrag = { selDragCurrent = it },
+                                        onEnd = {
+                                            val s = selDragStart; val e = selDragCurrent
+                                            if (s != null && e != null) {
+                                                val l = (minOf(s.x, e.x) / currentViewportWidth).coerceIn(0f, 1f)
+                                                val t = (minOf(s.y, e.y) / currentViewportHeight).coerceIn(0f, 1f)
+                                                val r = (maxOf(s.x, e.x) / currentViewportWidth).coerceIn(0f, 1f)
+                                                val b = (maxOf(s.y, e.y) / currentViewportHeight).coerceIn(0f, 1f)
+                                                if (r - l > 0.01f && b - t > 0.01f) {
+                                                    commitMarquee(Rect(l, t, r, b), selectionTool == SelectionTool.Ellipse)
+                                                }
+                                            }
+                                            selDragStart = null; selDragCurrent = null
+                                        },
+                                    )
+                                    SelectionTool.Lasso -> LassoOverlay(
+                                        points = lassoPoints,
+                                        onStart = { lassoPoints = listOf(it) },
+                                        onDrag = { lassoPoints = lassoPoints + it },
+                                        onEnd = {
+                                            val norm = lassoPoints.map {
+                                                (it.x / currentViewportWidth).coerceIn(0f, 1f) to (it.y / currentViewportHeight).coerceIn(0f, 1f)
+                                            }
+                                            lassoPoints = emptyList()
+                                            commitPolygon(norm)
+                                        },
+                                    )
+                                    SelectionTool.Polygon -> PolygonOverlay(
+                                        points = polygonPoints,
+                                        onTap = { polygonPoints = polygonPoints + it },
+                                    )
+                                    SelectionTool.Wand -> Box(
+                                        modifier = Modifier.fillMaxSize().pointerInput(wandTolerance, selectionCombine) {
+                                            detectTapGestures { o ->
+                                                val nx = (o.x / size.width).coerceIn(0f, 1f)
+                                                val ny = (o.y / size.height).coerceIn(0f, 1f)
+                                                baseBitmap?.let { bmp ->
+                                                    applySelection(Selection.magicWand(bmp, nx, ny, wandTolerance))
+                                                }
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                            if (editorMode == EditorMode.MaskPaint) {
+                                Box(modifier = Modifier.fillMaxSize().pointerInput(maskBrushSize, maskPaintReveal) {
+                                    detectDragGestures(
+                                        onDrag = { change, _ ->
+                                            change.consume()
+                                            val nx = (change.position.x / size.width).coerceIn(0f, 1f)
+                                            val ny = (change.position.y / size.height).coerceIn(0f, 1f)
+                                            maskPoints = maskPoints + (nx to ny)
+                                        },
+                                        onDragEnd = {
+                                            if (maskPoints.isNotEmpty()) {
+                                                vm.paintOnActiveMask(maskPoints, maskBrushSize, if (maskPaintReveal) 1f else 0f)
+                                                maskPoints = emptyList()
+                                            }
+                                        },
+                                    )
+                                })
+                            }
+                            if (editorMode == EditorMode.Fill) {
+                                Box(modifier = Modifier.fillMaxSize().pointerInput(paintColor, fillTolerance) {
+                                    detectTapGestures { o ->
+                                        val nx = (o.x / size.width).coerceIn(0f, 1f)
+                                        val ny = (o.y / size.height).coerceIn(0f, 1f)
+                                        vm.applyToActivePixelLayer { com.vayunmathur.photos.data.floodFillBitmap(it, nx, ny, paintColor.toArgb(), fillTolerance) }
+                                    }
+                                })
+                            }
+                            if (editorMode == EditorMode.GradientTool || editorMode == EditorMode.ShapeRect ||
+                                editorMode == EditorMode.ShapeEllipse || editorMode == EditorMode.ShapeLine
+                            ) {
+                                PaintDragOverlay(
+                                    mode = editorMode,
+                                    color = paintColor,
+                                    start = paintDragStart,
+                                    current = paintDragCurrent,
+                                    onStart = { paintDragStart = it; paintDragCurrent = it },
+                                    onDrag = { paintDragCurrent = it },
                                     onEnd = {
-                                        val s = selDragStart; val e = selDragCurrent
+                                        val s = paintDragStart; val e = paintDragCurrent
                                         if (s != null && e != null) {
-                                            val l = (minOf(s.x, e.x) / currentViewportWidth).coerceIn(0f, 1f)
-                                            val t = (minOf(s.y, e.y) / currentViewportHeight).coerceIn(0f, 1f)
-                                            val r = (maxOf(s.x, e.x) / currentViewportWidth).coerceIn(0f, 1f)
-                                            val b = (maxOf(s.y, e.y) / currentViewportHeight).coerceIn(0f, 1f)
-                                            if (r - l > 0.01f && b - t > 0.01f) {
-                                                commitSelection(Rect(l, t, r, b), selectionIsEllipse, false, selectionFeather)
+                                            val x0 = (s.x / currentViewportWidth).coerceIn(0f, 1f)
+                                            val y0 = (s.y / currentViewportHeight).coerceIn(0f, 1f)
+                                            val x1 = (e.x / currentViewportWidth).coerceIn(0f, 1f)
+                                            val y1 = (e.y / currentViewportHeight).coerceIn(0f, 1f)
+                                            val argb = paintColor.toArgb()
+                                            when (editorMode) {
+                                                EditorMode.GradientTool -> vm.applyToActivePixelLayer {
+                                                    com.vayunmathur.photos.data.drawGradientBitmap(it, x0, y0, x1, y1, argb)
+                                                }
+                                                EditorMode.ShapeRect -> vm.applyToActivePixelLayer {
+                                                    com.vayunmathur.photos.data.drawShapeBitmap(it, com.vayunmathur.photos.data.PaintShape.Rectangle, minOf(x0, x1), minOf(y0, y1), maxOf(x0, x1), maxOf(y0, y1), argb, shapeStrokeWidth)
+                                                }
+                                                EditorMode.ShapeEllipse -> vm.applyToActivePixelLayer {
+                                                    com.vayunmathur.photos.data.drawShapeBitmap(it, com.vayunmathur.photos.data.PaintShape.Ellipse, minOf(x0, x1), minOf(y0, y1), maxOf(x0, x1), maxOf(y0, y1), argb, shapeStrokeWidth)
+                                                }
+                                                EditorMode.ShapeLine -> vm.applyToActivePixelLayer {
+                                                    com.vayunmathur.photos.data.drawShapeBitmap(it, com.vayunmathur.photos.data.PaintShape.Line, x0, y0, x1, y1, argb, shapeStrokeWidth)
+                                                }
+                                                else -> {}
                                             }
                                         }
-                                        selDragStart = null; selDragCurrent = null
+                                        paintDragStart = null; paintDragCurrent = null
                                     },
                                 )
                             }
@@ -815,6 +1020,26 @@ fun EditPhotoPage(
                                 onAngle = { cropAngle = it },
                             )
                         }
+                        if (editorMode == EditorMode.FreeTransform) {
+                            val vpW = currentViewportWidth
+                            val vpH = currentViewportHeight
+                            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                                val pts = listOf(ftTL, ftTR, ftBR, ftBL).map { Offset(it.x * vpW, it.y * vpH) }
+                                val path = Path().apply {
+                                    moveTo(pts[0].x, pts[0].y)
+                                    pts.drop(1).forEach { lineTo(it.x, it.y) }
+                                    close()
+                                }
+                                drawPath(path, Color.White, style = Stroke(width = 2f))
+                            }
+                            Handle(Offset(ftTL.x * vpW, ftTL.y * vpH)) { d -> ftTL += Offset(d.x / vpW, d.y / vpH) }
+                            Handle(Offset(ftTR.x * vpW, ftTR.y * vpH)) { d -> ftTR += Offset(d.x / vpW, d.y / vpH) }
+                            Handle(Offset(ftBL.x * vpW, ftBL.y * vpH)) { d -> ftBL += Offset(d.x / vpW, d.y / vpH) }
+                            Handle(Offset(ftBR.x * vpW, ftBR.y * vpH)) { d -> ftBR += Offset(d.x / vpW, d.y / vpH) }
+                        }
+                    }
+                    if (showHistogram) {
+                        HistogramOverlay(display, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp))
                     }
                 }
             }
@@ -943,6 +1168,24 @@ fun EditPhotoPage(
                             onApply = { applyCrop() },
                             onCancel = { goHome() },
                         )
+                    } else if (editorMode == EditorMode.FreeTransform) {
+                        FreeTransformPanel(
+                            onApply = {
+                                vm.transformActiveLayer(
+                                    com.vayunmathur.photos.data.PerspectiveCorners(
+                                        topLeft = ftTL.x to ftTL.y,
+                                        topRight = ftTR.x to ftTR.y,
+                                        bottomLeft = ftBL.x to ftBL.y,
+                                        bottomRight = ftBR.x to ftBR.y,
+                                    )
+                                )
+                                ftTL = Offset(0f, 0f); ftTR = Offset(1f, 0f); ftBL = Offset(0f, 1f); ftBR = Offset(1f, 1f)
+                            },
+                            onReset = { ftTL = Offset(0f, 0f); ftTR = Offset(1f, 0f); ftBL = Offset(0f, 1f); ftBR = Offset(1f, 1f) },
+                            onFlipH = { vm.flipActiveLayer(true) },
+                            onFlipV = { vm.flipActiveLayer(false) },
+                            onDone = { goHome() },
+                        )
                     } else {
                     ActivePanel(
                         editorMode = editorMode,
@@ -968,17 +1211,22 @@ fun EditPhotoPage(
                         onDodgeBurnMode = { dodgeBurnMode = it },
                         brushSize = brushSize,
                         onBrushSize = { brushSize = it },
-                        selectionIsEllipse = selectionIsEllipse,
-                        onSelectionShape = { selectionIsEllipse = it },
+                        selectionTool = selectionTool,
+                        onSelectionTool = { selectionTool = it },
+                        selectionCombine = selectionCombine,
+                        onSelectionCombine = { selectionCombine = it },
                         selectionFeather = selectionFeather,
-                        onSelectionFeather = {
-                            selectionFeather = it
-                            committedSel?.let { s ->
-                                committedSel = s.copy(
-                                    featherFracX = it / document.canvasWidth.coerceAtLeast(1),
-                                    featherFracY = it / document.canvasHeight.coerceAtLeast(1),
-                                )
+                        onSelectionFeather = { selectionFeather = it },
+                        onSelectionFeatherCommit = { reapplyFeather() },
+                        wandTolerance = wandTolerance,
+                        onWandTolerance = { wandTolerance = it },
+                        polygonPointCount = polygonPoints.size,
+                        onClosePolygon = {
+                            val norm = polygonPoints.map {
+                                (it.x / currentViewportWidth).coerceIn(0f, 1f) to (it.y / currentViewportHeight).coerceIn(0f, 1f)
                             }
+                            polygonPoints = emptyList()
+                            commitPolygon(norm)
                         },
                         liquifyTool = liquifyTool,
                         onLiquifyTool = { liquifyTool = it },
@@ -986,14 +1234,26 @@ fun EditPhotoPage(
                         onLiquifyStrength = { liquifyStrength = it },
                         liquifyRadius = liquifyRadius,
                         onLiquifyRadius = { liquifyRadius = it },
-                        onSelectionInvert = { committedSel?.let { s -> commitSelection(s.rect, s.isEllipse, !s.inverted, selectionFeather) } },
-                        onSelectionClear = { committedSel = null; vm.setSelection(null) },
+                        onSelectionInvert = {
+                            selectionBase = selectionBase?.invert()
+                            reapplyFeather()
+                        },
+                        onSelectionClear = { clearSelection() },
                         onSelectionDelete = {
                             vm.applyToActivePixelLayer { src ->
                                 android.graphics.Bitmap.createBitmap(src.width, src.height, android.graphics.Bitmap.Config.ARGB_8888)
                             }
                         },
-                        onSelectionFeatherCommit = { committedSel?.let { s -> commitSelection(s.rect, s.isEllipse, s.inverted, selectionFeather) } },
+                        maskPaintReveal = maskPaintReveal,
+                        onMaskPaintReveal = { maskPaintReveal = it },
+                        maskBrushSize = maskBrushSize,
+                        onMaskBrushSize = { maskBrushSize = it },
+                        paintColor = paintColor,
+                        onPaintColor = { paintColor = it },
+                        fillTolerance = fillTolerance,
+                        onFillTolerance = { fillTolerance = it },
+                        shapeStrokeWidth = shapeStrokeWidth,
+                        onShapeStrokeWidth = { shapeStrokeWidth = it },
                     )
                     }
                 }
@@ -1005,19 +1265,41 @@ fun EditPhotoPage(
     textToEdit?.let { textElement ->
         Dialog(onDismissRequest = { textToEdit = null }) {
             Surface(shape = RoundedCornerShape(8.dp)) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(16.dp).widthIn(max = 340.dp)) {
+                    fun updateText(transform: (TextElement) -> TextElement) {
+                        val index = texts.indexOfFirst { it.id == textElement.id }
+                        if (index != -1) texts[index] = transform(texts[index])
+                    }
                     var localText by remember { mutableStateOf(textElement.text) }
+                    val current = texts.firstOrNull { it.id == textElement.id } ?: textElement
                     TextField(
                         value = localText,
                         onValueChange = { newText ->
                             localText = newText
-                            val index = texts.indexOfFirst { it.id == textElement.id }
-                            if (index != -1) texts[index] = texts[index].copy(text = newText)
+                            updateText { it.copy(text = newText) }
                         },
                         textStyle = TextStyle(fontSize = 18.sp),
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Edit Text") },
                     )
+                    Spacer(Modifier.height(8.dp))
+                    Text("Font", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        com.vayunmathur.photos.data.textFontFamilies.forEach { fam ->
+                            SelectableChip(fam, current.fontFamily == fam, { updateText { it.copy(fontFamily = fam) } })
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        SelectableChip("Bold", current.bold, { updateText { it.copy(bold = !it.bold) } })
+                        SelectableChip("Italic", current.italic, { updateText { it.copy(italic = !it.italic) } })
+                        SelectableChip("Left", current.align == 0, { updateText { it.copy(align = 0) } })
+                        SelectableChip("Center", current.align == 1, { updateText { it.copy(align = 1) } })
+                        SelectableChip("Right", current.align == 2, { updateText { it.copy(align = 2) } })
+                    }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         IconButton(onClick = { textToEdit = null }) { IconCheck() }
                     }
@@ -1055,6 +1337,7 @@ private fun CategoryIcon(category: ToolCategory) {
         ToolCategory.Select -> Icon(Icons.Outlined.HighlightAlt, contentDescription = null)
         ToolCategory.Transform -> IconCrop()
         ToolCategory.Draw -> IconDraw()
+        ToolCategory.Paint -> IconEdit()
         ToolCategory.Layers -> IconCopy()
     }
 }
@@ -1255,10 +1538,17 @@ private fun ActivePanel(
     onDodgeBurnMode: (DodgeBurnMode) -> Unit,
     brushSize: Float,
     onBrushSize: (Float) -> Unit,
-    selectionIsEllipse: Boolean,
-    onSelectionShape: (Boolean) -> Unit,
+    selectionTool: SelectionTool,
+    onSelectionTool: (SelectionTool) -> Unit,
+    selectionCombine: SelectionCombine,
+    onSelectionCombine: (SelectionCombine) -> Unit,
     selectionFeather: Float,
     onSelectionFeather: (Float) -> Unit,
+    onSelectionFeatherCommit: () -> Unit,
+    wandTolerance: Float,
+    onWandTolerance: (Float) -> Unit,
+    polygonPointCount: Int,
+    onClosePolygon: () -> Unit,
     liquifyTool: com.vayunmathur.photos.data.LiquifyTool,
     onLiquifyTool: (com.vayunmathur.photos.data.LiquifyTool) -> Unit,
     liquifyStrength: Float,
@@ -1268,7 +1558,16 @@ private fun ActivePanel(
     onSelectionInvert: () -> Unit,
     onSelectionClear: () -> Unit,
     onSelectionDelete: () -> Unit,
-    onSelectionFeatherCommit: () -> Unit,
+    maskPaintReveal: Boolean,
+    onMaskPaintReveal: (Boolean) -> Unit,
+    maskBrushSize: Float,
+    onMaskBrushSize: (Float) -> Unit,
+    paintColor: Color,
+    onPaintColor: (Color) -> Unit,
+    fillTolerance: Float,
+    onFillTolerance: (Float) -> Unit,
+    shapeStrokeWidth: Float,
+    onShapeStrokeWidth: (Float) -> Unit,
 ) {
     when (editorMode) {
         EditorMode.Adjust -> {
@@ -1316,6 +1615,27 @@ private fun ActivePanel(
         EditorMode.GradientMap -> {
             GradientMapPanel { stops -> vm.updateActiveAdjustment(GradientMapAdj(com.vayunmathur.photos.data.GradientMapAdjustment(stops))) }
         }
+        EditorMode.Vibrance -> {
+            val v = document.activeAdjustment<VibranceAdj>()?.amount ?: 0f
+            VibrancePanel(v) { vm.updateActiveAdjustment(VibranceAdj(it)) }
+        }
+        EditorMode.PhotoFilter -> {
+            val pf = document.activeAdjustment<PhotoFilterAdj>() ?: PhotoFilterAdj()
+            PhotoFilterPanel(pf) { vm.updateActiveAdjustment(it) }
+        }
+        EditorMode.SelectiveColor -> {
+            val sc = document.activeAdjustment<SelectiveColorAdj>() ?: SelectiveColorAdj()
+            SelectiveColorPanel(sc) { vm.updateActiveAdjustment(it) }
+        }
+        EditorMode.Posterize -> {
+            val p = document.activeAdjustment<PosterizeAdj>()?.levels ?: 4
+            PosterizePanel(p) { vm.updateActiveAdjustment(PosterizeAdj(it)) }
+        }
+        EditorMode.Threshold -> {
+            val t = document.activeAdjustment<ThresholdAdj>()?.level ?: 128
+            ThresholdPanel(t) { vm.updateActiveAdjustment(ThresholdAdj(it)) }
+        }
+        EditorMode.Invert -> InvertPanel()
         EditorMode.LensBlur -> {
             val blur = document.activeAdjustment<BlurAdj>()?.blur ?: BlurParams()
             BlurPanel(blur) { vm.updateActiveAdjustment(BlurAdj(it)) }
@@ -1340,13 +1660,17 @@ private fun ActivePanel(
         EditorMode.DodgeBurn -> DodgeBurnPanel(dodgeBurnMode, onDodgeBurnMode, brushSize, onBrushSize)
         EditorMode.Smudge -> SimpleBrushPanel("Drag to smudge. Brush", brushSize, onBrushSize)
         EditorMode.Selection -> SelectionPanel(
-            isEllipse = selectionIsEllipse, onShape = onSelectionShape,
+            tool = selectionTool, onTool = onSelectionTool,
+            combine = selectionCombine, onCombine = onSelectionCombine,
             feather = selectionFeather, onFeather = onSelectionFeather,
             onFeatherCommit = onSelectionFeatherCommit,
+            wandTolerance = wandTolerance, onWandTolerance = onWandTolerance,
+            polygonPointCount = polygonPointCount, onClosePolygon = onClosePolygon,
             hasSelection = selection != null,
             onInvert = onSelectionInvert,
             onClear = onSelectionClear,
             onDelete = onSelectionDelete,
+            onContentAwareFill = { vm.contentAwareFillSelection() },
         )
         EditorMode.Layers -> LayersPanel(
             document = document,
@@ -1364,8 +1688,22 @@ private fun ActivePanel(
             onAddMaskFromSelection = { vm.selectionToActiveMask() },
             onDeleteMask = { vm.deleteLayerMask(it) },
             onInvertMask = { vm.invertLayerMask(it) },
+            onToggleClip = { i, c -> vm.setLayerClipped(i, c) },
+            onSetStyle = { i, s -> vm.setLayerStyle(i, s) },
+        )
+        EditorMode.MaskPaint -> MaskPaintPanel(
+            reveal = maskPaintReveal, onReveal = onMaskPaintReveal,
+            brushSize = maskBrushSize, onBrushSize = onMaskBrushSize,
+        )
+        EditorMode.Fill, EditorMode.GradientTool, EditorMode.ShapeRect,
+        EditorMode.ShapeEllipse, EditorMode.ShapeLine -> PaintPanel(
+            mode = editorMode,
+            color = paintColor, onColor = onPaintColor,
+            fillTolerance = fillTolerance, onFillTolerance = onFillTolerance,
+            strokeWidth = shapeStrokeWidth, onStrokeWidth = onShapeStrokeWidth,
         )
         EditorMode.Crop -> {}
+        EditorMode.FreeTransform -> {}
         EditorMode.None -> {}
     }
 }
@@ -1391,6 +1729,137 @@ private fun LiquifyPanel(
 }
 
 @Composable
+private fun PaintPanel(
+    mode: EditorMode,
+    color: Color,
+    onColor: (Color) -> Unit,
+    fillTolerance: Float,
+    onFillTolerance: (Float) -> Unit,
+    strokeWidth: Float,
+    onStrokeWidth: (Float) -> Unit,
+) {
+    val swatches = listOf(
+        Color.Red, Color(0xFFFF9500), Color.Yellow, Color(0xFF34C759),
+        Color(0xFF00B4EC), Color.Blue, Color(0xFF7B2FBE), Color.Magenta,
+        Color.White, Color.Black,
+    )
+    PanelContainer(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            swatches.forEach { sw ->
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .background(sw, CircleShape)
+                        .border(if (sw == color) 3.dp else 1.dp, if (sw == color) MaterialTheme.colorScheme.primary else Color.Gray, CircleShape)
+                        .clickable { onColor(sw) },
+                )
+            }
+        }
+        if (mode == EditorMode.Fill) {
+            LabeledSlider("Tolerance", fillTolerance * 100f, 1f..80f) { onFillTolerance(it / 100f) }
+        }
+        if (mode == EditorMode.ShapeLine) {
+            LabeledSlider("Thickness", strokeWidth * 100f, 0.2f..5f) { onStrokeWidth(it / 100f) }
+        }
+    }
+}
+
+@Composable
+private fun PaintDragOverlay(
+    mode: EditorMode,
+    color: Color,
+    start: Offset?,
+    current: Offset?,
+    onStart: (Offset) -> Unit,
+    onDrag: (Offset) -> Unit,
+    onEnd: () -> Unit,
+) {
+    androidx.compose.foundation.Canvas(
+        modifier = Modifier.fillMaxSize().pointerInput(mode) {
+            detectDragGestures(
+                onDragStart = { onStart(it) },
+                onDrag = { change, _ -> change.consume(); onDrag(change.position) },
+                onDragEnd = { onEnd() },
+            )
+        },
+    ) {
+        val s = start; val c = current
+        if (s != null && c != null) {
+            when (mode) {
+                EditorMode.ShapeLine, EditorMode.GradientTool ->
+                    drawLine(color, s, c, strokeWidth = 3f)
+                EditorMode.ShapeRect -> drawRect(
+                    color,
+                    Offset(minOf(s.x, c.x), minOf(s.y, c.y)),
+                    Size(kotlin.math.abs(c.x - s.x), kotlin.math.abs(c.y - s.y)),
+                    style = Stroke(width = 2f),
+                )
+                EditorMode.ShapeEllipse -> drawOval(
+                    color,
+                    Offset(minOf(s.x, c.x), minOf(s.y, c.y)),
+                    Size(kotlin.math.abs(c.x - s.x), kotlin.math.abs(c.y - s.y)),
+                    style = Stroke(width = 2f),
+                )
+                else -> {}
+            }
+        }
+    }
+}
+
+@Composable
+private fun FreeTransformPanel(
+    onApply: () -> Unit,
+    onReset: () -> Unit,
+    onFlipH: () -> Unit,
+    onFlipV: () -> Unit,
+    onDone: () -> Unit,
+) {
+    PanelContainer(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Drag corners to distort.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            InfoHint("Drag the four corner handles to scale, rotate, skew, or distort the active layer. Apply bakes it in.")
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SmallButton("Flip H", true, onFlipH)
+            SmallButton("Flip V", true, onFlipV)
+            SmallButton("Reset", true, onReset)
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            Surface(
+                modifier = Modifier.clickable { onDone() },
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surface,
+            ) { Text("Done", fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+            Surface(
+                modifier = Modifier.clickable { onApply() },
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+            ) { Text("Apply", fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun MaskPaintPanel(
+    reveal: Boolean,
+    onReveal: (Boolean) -> Unit,
+    brushSize: Float,
+    onBrushSize: (Float) -> Unit,
+) {
+    PanelContainer(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SelectableChip("Hide", !reveal, { onReveal(false) })
+            SelectableChip("Reveal", reveal, { onReveal(true) })
+            InfoHint("Paint on the active layer's mask. Hide erases (black), Reveal restores (white). Adds a full mask if the layer has none.")
+        }
+        LabeledSlider("Brush", brushSize * 100f, 1f..30f) { onBrushSize(it / 100f) }
+    }
+}
+
+@Composable
 private fun SimpleBrushPanel(label: String, brushSize: Float, onBrushSize: (Float) -> Unit) {
     PanelContainer {
         LabeledSlider(label, brushSize * 100f, 1f..20f) { onBrushSize(it / 100f) }
@@ -1411,34 +1880,66 @@ private fun DodgeBurnPanel(mode: DodgeBurnMode, onMode: (DodgeBurnMode) -> Unit,
 
 @Composable
 private fun SelectionPanel(
-    isEllipse: Boolean,
-    onShape: (Boolean) -> Unit,
+    tool: SelectionTool,
+    onTool: (SelectionTool) -> Unit,
+    combine: SelectionCombine,
+    onCombine: (SelectionCombine) -> Unit,
     feather: Float,
     onFeather: (Float) -> Unit,
     onFeatherCommit: () -> Unit,
+    wandTolerance: Float,
+    onWandTolerance: (Float) -> Unit,
+    polygonPointCount: Int,
+    onClosePolygon: () -> Unit,
     hasSelection: Boolean,
     onInvert: () -> Unit,
     onClear: () -> Unit,
     onDelete: () -> Unit,
+    onContentAwareFill: () -> Unit,
 ) {
     PanelContainer(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(false to "Rectangle", true to "Ellipse").forEach { (ell, label) ->
-                SelectableChip(label, isEllipse == ell, { onShape(ell) })
+        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SelectionTool.entries.forEach { t ->
+                SelectableChip(t.label, tool == t, { onTool(t) })
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Combine", fontSize = 12.sp, modifier = Modifier.width(72.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            InfoHint("New replaces the selection. Add/Subtract/Intersect combine the next shape with the current selection.")
+            Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SelectionCombine.entries.forEach { c ->
+                    SelectableChip(c.name, combine == c, { onCombine(c) })
+                }
+            }
+        }
+        if (tool == SelectionTool.Wand) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Tolerance", fontSize = 12.sp, modifier = Modifier.width(92.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                InfoHint("How close in color a pixel must be to the tapped spot to be selected. Higher = selects more.")
+                androidx.compose.material3.Slider(value = wandTolerance, onValueChange = onWandTolerance, valueRange = 0.01f..0.6f, modifier = Modifier.weight(1f))
+                Text("${(wandTolerance * 100).roundToInt()}", fontSize = 12.sp, modifier = Modifier.width(36.dp), textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (tool == SelectionTool.Polygon) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Tap to add points ($polygonPointCount)", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SmallButton("Close path", polygonPointCount >= 3, onClosePolygon)
             }
         }
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Edge softness", fontSize = 12.sp, modifier = Modifier.width(92.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            InfoHint("Blurs the selection's edge so edits fade in gradually. 0 = a hard, crisp edge (this is normal, not \"nothing selected\").")
+            InfoHint("Blurs the selection's edge so edits fade in gradually. 0 = a hard, crisp edge.")
             androidx.compose.material3.Slider(value = feather, onValueChange = onFeather, onValueChangeFinished = onFeatherCommit, valueRange = 0f..50f, modifier = Modifier.weight(1f))
             Text("${feather.roundToInt()}", fontSize = 12.sp, modifier = Modifier.width(36.dp), textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             SmallButton("Invert", hasSelection, onInvert)
-            InfoHint("Swaps inside and outside, so your edits apply everywhere except the selected area.")
-            SmallButton("Delete selected area", hasSelection, onDelete)
-            InfoHint("Erases the pixels inside the selection on the current layer, leaving transparency.")
-            SmallButton("Clear selection", hasSelection, onClear)
+            SmallButton("Delete area", hasSelection, onDelete)
+            SmallButton("Clear", hasSelection, onClear)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            SmallButton("Remove (content-aware)", hasSelection, onContentAwareFill)
+            InfoHint("Fills the selected area from surrounding pixels to remove an object. Works best on simple backgrounds.")
         }
     }
 }
@@ -1481,45 +1982,127 @@ private fun SelectionOverlay(
     }
 }
 
+/**
+ * Small live RGB histogram computed from the displayed bitmap (sampled for
+ * speed), drawn as three overlaid channel curves.
+ */
 @Composable
-private fun SelectionPatternOverlay(shape: SelShape) {
-    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-        val w = size.width
-        val h = size.height
-        val fx = shape.featherFracX * w
-        val fy = shape.featherFracY * h
-        val r = shape.rect
-        val outer = Rect(r.left * w - fx, r.top * h - fy, r.right * w + fx, r.bottom * h + fy)
-        val inner = Rect(r.left * w + fx, r.top * h + fy, r.right * w - fx, r.bottom * h - fy)
-        fun shapePath(rect: Rect): Path = Path().apply {
-            if (rect.width <= 0f || rect.height <= 0f) return@apply
-            if (shape.isEllipse) addOval(rect) else addRect(rect)
+private fun HistogramOverlay(bitmap: android.graphics.Bitmap?, modifier: Modifier = Modifier) {
+    if (bitmap == null) return
+    val bins = remember(bitmap) {
+        val w = bitmap.width
+        val h = bitmap.height
+        val px = IntArray(w * h)
+        bitmap.getPixels(px, 0, w, 0, 0, w, h)
+        val r = IntArray(256); val g = IntArray(256); val b = IntArray(256)
+        val step = (px.size / 60000).coerceAtLeast(1)
+        var i = 0
+        while (i < px.size) {
+            val c = px[i]
+            r[(c ushr 16) and 0xFF]++
+            g[(c ushr 8) and 0xFF]++
+            b[c and 0xFF]++
+            i += step
         }
-        val outerPath = shapePath(outer)
-        val innerPath = shapePath(inner)
-        val bandPath = Path().apply {
-            addPath(outerPath); addPath(innerPath); fillType = PathFillType.EvenOdd
-        }
-        val fullEffectPath = if (shape.inverted) {
-            Path().apply { addRect(Rect(0f, 0f, w, h)); addPath(outerPath); fillType = PathFillType.EvenOdd }
-        } else {
-            innerPath
-        }
-        clipPath(fullEffectPath) { drawDiagonalHatch(w, h, 24f, Color.White.copy(alpha = 0.55f)) }
-        clipPath(bandPath) { drawDiagonalHatch(w, h, 9f, Color.White.copy(alpha = 0.75f)) }
-        drawPath(innerPath, Color.White, style = Stroke(width = 2f))
-        if (shape.featherFracX > 0f || shape.featherFracY > 0f) {
-            drawPath(outerPath, Color.White, style = Stroke(width = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f))))
+        Triple(r, g, b)
+    }
+    Surface(
+        modifier = modifier.size(140.dp, 84.dp),
+        color = Color.Black.copy(alpha = 0.6f),
+        shape = RoundedCornerShape(6.dp),
+    ) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
+            val (r, g, b) = bins
+            val maxV = maxOf(r.max(), g.max(), b.max()).coerceAtLeast(1)
+            fun drawChannel(data: IntArray, color: Color) {
+                val path = Path()
+                for (x in 0 until 256) {
+                    val px = x / 255f * size.width
+                    val py = size.height - (data[x].toFloat() / maxV) * size.height
+                    if (x == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                }
+                drawPath(path, color, style = Stroke(width = 1.5f))
+            }
+            drawChannel(r, Color.Red.copy(alpha = 0.8f))
+            drawChannel(g, Color.Green.copy(alpha = 0.8f))
+            drawChannel(b, Color(0xFF4488FF).copy(alpha = 0.8f))
         }
     }
 }
 
-private fun DrawScope.drawDiagonalHatch(w: Float, h: Float, spacing: Float, color: Color) {
-    var x = -h
-    while (x < w) {
-        drawLine(color, Offset(x, 0f), Offset(x + h, h), strokeWidth = 1.5f)
-        x += spacing
+@Composable
+private fun LassoOverlay(
+    points: List<Offset>,
+    onStart: (Offset) -> Unit,
+    onDrag: (Offset) -> Unit,
+    onEnd: () -> Unit,
+) {
+    androidx.compose.foundation.Canvas(
+        modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+            detectDragGestures(
+                onDragStart = { onStart(it) },
+                onDrag = { change, _ -> change.consume(); onDrag(change.position) },
+                onDragEnd = { onEnd() },
+            )
+        },
+    ) {
+        if (points.size > 1) {
+            val path = Path().apply {
+                moveTo(points.first().x, points.first().y)
+                points.drop(1).forEach { lineTo(it.x, it.y) }
+            }
+            drawPath(path, Color.White, style = Stroke(width = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))))
+        }
     }
+}
+
+@Composable
+private fun PolygonOverlay(
+    points: List<Offset>,
+    onTap: (Offset) -> Unit,
+) {
+    androidx.compose.foundation.Canvas(
+        modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+            detectTapGestures { onTap(it) }
+        },
+    ) {
+        if (points.isNotEmpty()) {
+            val path = Path().apply {
+                moveTo(points.first().x, points.first().y)
+                points.drop(1).forEach { lineTo(it.x, it.y) }
+            }
+            drawPath(path, Color.White, style = Stroke(width = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))))
+            points.forEach { drawCircle(Color.White, radius = 5f, center = it) }
+        }
+    }
+}
+
+/**
+ * Persistent overlay showing the current selection as a translucent tint (built
+ * once from the mask). Works for every selection shape, including feathered and
+ * non-rectangular ones.
+ */
+@Composable
+private fun SelectionMaskOverlay(selection: Selection) {
+    val image = remember(selection) {
+        val w = selection.width
+        val h = selection.height
+        val px = IntArray(w * h)
+        for (i in px.indices) {
+            val a = (selection.mask[i] * 100f).toInt().coerceIn(0, 255)
+            // Translucent cyan tint where selected.
+            px[i] = (a shl 24) or 0x33B5E5
+        }
+        val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        bmp.setPixels(px, 0, w, 0, 0, w, h)
+        bmp.asImageBitmap()
+    }
+    Image(
+        bitmap = image,
+        contentDescription = null,
+        modifier = Modifier.fillMaxSize(),
+        contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
+    )
 }
 
 @Composable

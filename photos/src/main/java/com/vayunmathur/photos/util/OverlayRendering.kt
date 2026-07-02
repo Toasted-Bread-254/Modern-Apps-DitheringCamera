@@ -25,9 +25,20 @@ fun Canvas.drawTextElement(
     val paint = Paint().apply {
         isAntiAlias = true
         style = Paint.Style.FILL
-        textAlign = Paint.Align.LEFT
+        textAlign = when (text.align) {
+            1 -> Paint.Align.CENTER
+            2 -> Paint.Align.RIGHT
+            else -> Paint.Align.LEFT
+        }
         color = text.color
         textSize = text.fontSize * (canvasWidth / referenceWidth)
+        val style = when {
+            text.bold && text.italic -> android.graphics.Typeface.BOLD_ITALIC
+            text.bold -> android.graphics.Typeface.BOLD
+            text.italic -> android.graphics.Typeface.ITALIC
+            else -> android.graphics.Typeface.NORMAL
+        }
+        typeface = android.graphics.Typeface.create(text.fontFamily, style)
     }
     val fm = paint.fontMetrics
     save()

@@ -32,7 +32,17 @@ data class TextElement(
     val y: Float,
     val rotation: Float,
     val color: Int,
-    val fontSize: Float
+    val fontSize: Float,
+    val fontFamily: String = "sans-serif",
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    /** 0 = left, 1 = center, 2 = right. */
+    val align: Int = 0,
+)
+
+/** Font families offered by the text tool. */
+val textFontFamilies: List<String> = listOf(
+    "sans-serif", "serif", "monospace", "sans-serif-condensed", "sans-serif-light", "cursive",
 )
 
 @Serializable

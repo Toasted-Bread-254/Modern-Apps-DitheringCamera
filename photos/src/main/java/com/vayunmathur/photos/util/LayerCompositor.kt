@@ -9,6 +9,8 @@ import com.vayunmathur.photos.data.DrawingLayer
 import com.vayunmathur.photos.data.EditDocument
 import com.vayunmathur.photos.data.Layer
 import com.vayunmathur.photos.data.LayerMask
+import com.vayunmathur.photos.data.LayerBlendMode
+import com.vayunmathur.photos.data.LayerStyle
 import com.vayunmathur.photos.data.PixelLayer
 import com.vayunmathur.photos.data.TextLayer
 import com.vayunmathur.photos.data.BitmapReference
@@ -110,18 +112,118 @@ class LayerCompositor {
         w: Int,
         h: Int,
     ) {
-        for (layer in layers) {
+        for (idx in layers.indices) {
+            val layer = layers[idx]
             if (!layer.visible || layer.opacity <= 0f) continue
             val src = layerSourcePixels(layer, backdrop, document, w, h) ?: continue
             val mask = layer.mask?.let { scaleMask(it, w, h) }
+            // Clipping mask: limit this layer to the alpha shape of the base layer below.
+            val clip = if (layer.clipped) clipBaseAlpha(layers, idx, document, w, h) else null
+            if (!layer.style.isIdentity() && layer !is AdjustmentLayer) {
+                renderLayerStyle(backdrop, src, layer.style, mask, layer.opacity, w, h)
+            }
             val mode = layer.blendMode
             val opacity = layer.opacity
             for (i in backdrop.indices) {
-                val extra = opacity * (mask?.get(i) ?: 1f)
+                var extra = opacity * (mask?.get(i) ?: 1f)
+                if (clip != null) extra *= clip[i]
                 if (extra <= 0f) continue
                 backdrop[i] = mode.blendPixel(backdrop[i], src[i], extra)
             }
         }
+    }
+
+    /** Alpha coverage of the clip base (nearest non-clipped layer below [idx]). */
+    private fun clipBaseAlpha(
+        layers: List<Layer>,
+        idx: Int,
+        document: EditDocument,
+        w: Int,
+        h: Int,
+    ): FloatArray? {
+        var j = idx - 1
+        while (j >= 0 && layers[j].clipped) j--
+        if (j < 0) return null
+        val base = layers[j]
+        val px = when (base) {
+            is PixelLayer -> pixelsOf(base.bitmapRef.bitmap, w, h)
+            is TextLayer -> renderTextPixels(base, document, w, h)
+            is DrawingLayer -> renderStrokePixels(base, w, h)
+            is AdjustmentLayer -> return null
+        }
+        val baseMask = base.mask?.let { scaleMask(it, w, h) }
+        return FloatArray(w * h) { i -> ((px[i] ushr 24) and 0xFF) / 255f * (baseMask?.get(i) ?: 1f) }
+    }
+
+    /** Renders drop-shadow / outer-glow / stroke from [src]'s alpha into [backdrop], beneath the layer. */
+    private fun renderLayerStyle(
+        backdrop: IntArray,
+        src: IntArray,
+        style: LayerStyle,
+        mask: FloatArray?,
+        opacity: Float,
+        w: Int,
+        h: Int,
+    ) {
+        val n = w * h
+        val alpha = FloatArray(n) { ((src[it] ushr 24) and 0xFF) / 255f }
+        val maxDim = maxOf(w, h)
+        fun composite(coverage: FloatArray, color: Int) {
+            val cr = color and 0x00FFFFFF or (0xFF shl 24)
+            for (i in 0 until n) {
+                val a = coverage[i] * opacity * (mask?.get(i) ?: 1f)
+                if (a <= 0.001f) continue
+                backdrop[i] = LayerBlendMode.Normal.blendPixel(backdrop[i], cr, a * ((color ushr 24) and 0xFF) / 255f)
+            }
+        }
+        if (style.dropShadow) {
+            val dx = (style.shadowDx * w).toInt()
+            val dy = (style.shadowDy * h).toInt()
+            val shifted = FloatArray(n)
+            for (y in 0 until h) {
+                val sy = y - dy
+                if (sy !in 0 until h) continue
+                for (x in 0 until w) {
+                    val sx = x - dx
+                    if (sx in 0 until w) shifted[y * w + x] = alpha[sy * w + sx]
+                }
+            }
+            composite(boxBlur(shifted, w, h, (style.shadowBlur * maxDim).toInt()), style.shadowColor)
+        }
+        if (style.outerGlow) {
+            val blurred = boxBlur(alpha, w, h, (style.glowRadius * maxDim).toInt())
+            val glow = FloatArray(n) { (blurred[it] * (1f - alpha[it])).coerceIn(0f, 1f) }
+            composite(glow, style.glowColor)
+        }
+        if (style.stroke) {
+            val dil = boxBlur(alpha, w, h, (style.strokeWidth * maxDim).toInt().coerceAtLeast(1))
+            val edge = FloatArray(n) { ((dil[it] * 2f).coerceAtMost(1f) - alpha[it]).coerceIn(0f, 1f) }
+            composite(edge, style.strokeColor)
+        }
+    }
+
+    /** Separable box blur on a normalized alpha buffer. */
+    private fun boxBlur(data: FloatArray, w: Int, h: Int, radius: Int): FloatArray {
+        if (radius <= 0) return data
+        val tmp = FloatArray(w * h)
+        val out = FloatArray(w * h)
+        val win = (2 * radius + 1).toFloat()
+        for (y in 0 until h) {
+            val row = y * w
+            for (x in 0 until w) {
+                var sum = 0f
+                for (k in -radius..radius) sum += data[row + (x + k).coerceIn(0, w - 1)]
+                tmp[row + x] = sum / win
+            }
+        }
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                var sum = 0f
+                for (k in -radius..radius) sum += tmp[(y + k).coerceIn(0, h - 1) * w + x]
+                out[y * w + x] = sum / win
+            }
+        }
+        return out
     }
 
     /** Returns the layer's own pixels at target size, or null if it contributes nothing. */
