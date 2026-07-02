@@ -96,6 +96,29 @@ object WhatsAppClient {
     // Cached media upload connection (host, auth, expiryEpochMs) from the w:m media_conn IQ.
     private var mediaConnCache: Triple<String, String, Long>? = null
 
+    // Recently sent 1:1 messages (id -> padded plaintext + own-device DSM), kept so we can
+    // re-encrypt and resend to a specific device when the peer asks for a retry
+    // (<receipt type="retry">). Without this, a message the recipient can't decrypt is acked
+    // locally (send "succeeds") but is never actually delivered.
+    private data class SentDM(
+        val to: String,
+        val type: String,
+        val msgPlaintextPadded: ByteArray,
+        val dsmPlaintextPadded: ByteArray?,
+    )
+    private val recentSentDMs: MutableMap<String, SentDM> = Collections.synchronizedMap(
+        object : LinkedHashMap<String, SentDM>(64, 0.75f, false) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, SentDM>?): Boolean = size > 200
+        }
+    )
+    // Per-(messageId|deviceJid) resend cap so a stuck peer can't loop us forever.
+    private val retryResendCounts = ConcurrentHashMap<String, Int>()
+
+    // Whether this account has read receipts enabled (privacy setting). Default true (WhatsApp
+    // default); refreshed from the server after <success>. When false we must not send read
+    // receipts (the user turned them off).
+    @Volatile private var readReceiptsEnabled = true
+
     private const val MAX_RECONNECT_ATTEMPTS = 10
     private const val INITIAL_RECONNECT_DELAY_MS = 1000L
     private const val MAX_RECONNECT_DELAY_MS = 60_000L
@@ -778,6 +801,16 @@ object WhatsAppClient {
                 val node = WhatsAppProtocol.decodeNode(data)
                 WhatsAppDiag.log(TAG, "← login stanza ${nodeSummary(node)}")
 
+                // Server ack for an outbound stanza. An ack with an `error` attr means the server
+                // REJECTED the message (it will never be delivered) — surface it prominently so a
+                // "sent but not delivered" report can be diagnosed from logs.
+                if (node.tag == "ack") {
+                    val ackErr = node.attrs["error"]
+                    if (ackErr != null) {
+                        WhatsAppDiag.log(TAG, "← ack REJECTED class=${node.attrs["class"]} id=${node.attrs["id"]} error=$ackErr")
+                    }
+                }
+
                 // Ack messages, notifications, and receipts (whatsmeow/receipt.go)
                 if (node.tag == "message" || node.tag == "notification" || node.tag == "receipt") {
                     val ack = WhatsAppProtocol.buildAck(
@@ -889,7 +922,11 @@ object WhatsAppClient {
                 // Check for undecryptable messages (Go handleWAUndecryptableMessage)
                 val encNode = node.getChildByTag("enc")
                 if (encNode?.data == null && node.attrs["type"] == "text") {
+                    // No ciphertext at all (a decrypt-fail placeholder). Track it AND ask the
+                    // sender to re-encrypt, otherwise this first-of-session message is lost for
+                    // good. sendRetryReceipt is self-capped at 5 attempts.
                     trackUndecryptable(node)
+                    sendRetryReceipt(node)
                     return@launch
                 }
 
@@ -1156,6 +1193,13 @@ object WhatsAppClient {
      */
     private suspend fun handleReceipt(node: WhatsAppProtocol.Node) {
         val receiptType = node.attrs["type"]
+        // The peer couldn't decrypt a message we sent and wants it re-encrypted. This is the
+        // outbound counterpart of sendRetryReceipt and is required for delivery to actually
+        // happen when a session is desynced.
+        if (receiptType == "retry") {
+            handleRetryReceipt(node)
+            return
+        }
         val isRead = receiptType == "read" || receiptType == "read-self"
         val isDelivered = receiptType == null || receiptType.isEmpty()
         if (!isRead && !isDelivered) return
@@ -1597,6 +1641,79 @@ object WhatsAppClient {
     }
 
     /**
+     * Handle an inbound <receipt type="retry">: the peer failed to decrypt a message we sent and
+     * is asking us to re-encrypt and resend it. Rebuild the session from the fresh keys included
+     * in the receipt (present from the 2nd retry), then re-encrypt the cached plaintext for just
+     * the requesting device and resend with the same message id. Ref whatsmeow retry.go
+     * handleRetryReceipt. 1:1 only — group skmsg resends are not cached.
+     */
+    private suspend fun handleRetryReceipt(node: WhatsAppProtocol.Node) {
+        val auth = authData ?: return
+        val crypto = ensureE2E(auth) ?: return
+        val ws = webSocket ?: return
+        val msgId = node.attrs["id"] ?: return
+        val from = node.attrs["from"] ?: return
+        // The specific device that couldn't decrypt: participant if present, else the chat peer.
+        val deviceJid = node.attrs["participant"] ?: from
+        if (deviceJid.contains("@g.us")) {
+            WhatsAppDiag.log(TAG, "retry: ignoring group retry for $msgId (not cached)")
+            return
+        }
+        val cached = recentSentDMs[msgId] ?: run {
+            WhatsAppDiag.log(TAG, "retry: no cached message for $msgId; cannot resend")
+            return
+        }
+        val resendKey = "$msgId|$deviceJid"
+        val resendCount = retryResendCounts.merge(resendKey, 1) { a, b -> a + b } ?: 1
+        if (resendCount > 5) {
+            WhatsAppDiag.log(TAG, "retry: giving up on $msgId for $deviceJid after $resendCount attempts")
+            return
+        }
+
+        // Rebuild the session from the keys the peer attached (identity + prekeys), if any.
+        val deviceNum = deviceJid.substringBefore("@").substringAfter(":", "0").toIntOrNull() ?: 0
+        if (node.getChildByTag("keys") != null) {
+            try {
+                // parsePreKeyBundleNode reads <registration> + <keys> from the node it is given.
+                val bundle = crypto.parsePreKeyBundleNode(deviceNum, node)
+                if (bundle != null) {
+                    crypto.deleteSession(deviceJid)
+                    crypto.processPreKeyBundle(deviceJid, bundle)
+                    WhatsAppDiag.log(TAG, "retry: rebuilt session for $deviceJid from receipt keys")
+                }
+            } catch (e: Exception) {
+                WhatsAppDiag.log(TAG, "retry: failed to process receipt keys for $deviceJid: ${e.message}")
+            }
+        }
+        if (!ensureSession(deviceJid)) {
+            WhatsAppDiag.log(TAG, "retry: no session for $deviceJid; cannot resend $msgId")
+            return
+        }
+
+        val ownUser = auth.wid.substringBefore("@").substringBefore(":").substringBefore(".")
+        val devUser = deviceJid.substringBefore("@").substringBefore(":").substringBefore(".")
+        val plaintext = if (devUser == ownUser && cached.dsmPlaintextPadded != null)
+            cached.dsmPlaintextPadded else cached.msgPlaintextPadded
+        val enc = try {
+            crypto.encryptDM(deviceJid, plaintext)
+        } catch (e: Exception) {
+            WhatsAppDiag.log(TAG, "retry: re-encrypt failed for $deviceJid: ${e.message}")
+            return
+        }
+        val includeIdentity = enc.type == "pkmsg"
+        val resend = WhatsAppProtocol.buildFanOutMessageNode(
+            to = cached.to,
+            id = msgId,
+            type = cached.type,
+            participantEncs = listOf(WhatsAppProtocol.ParticipantEnc(deviceJid, enc.type, enc.data)),
+            includeDeviceIdentity = includeIdentity,
+            deviceIdentity = if (includeIdentity) accountDeviceIdentity() else null,
+        )
+        val sent = ws.send(WhatsAppProtocol.encodeNode(resend))
+        WhatsAppDiag.log(TAG, "retry: resent $msgId to $deviceJid (attempt $resendCount type=${enc.type}) sent=$sent")
+    }
+
+    /**
      * Track undecryptable messages.
      * From Go handleWAUndecryptableMessage / trackUndecryptable.
      */
@@ -1928,11 +2045,16 @@ object WhatsAppClient {
         val msgPlaintext = WhatsAppProtocol.padMessage(msg.toByteArray())
         val dsmPlaintext = WhatsAppProtocol.padMessage(WhatsAppProtocol.deviceSentPlaintext(to, msg))
         val ownUser = auth.wid.substringBefore("@").substringBefore(":").substringBefore(".")
+        // Cache so we can re-encrypt+resend to a single device on a retry receipt.
+        recentSentDMs[id] = SentDM(to, type, msgPlaintext, dsmPlaintext)
 
         val recipientDevices = getUserDevices(listOf(to)).ifEmpty { listOf(to) }
         val ownDevices = getUserDevices(listOf("$ownUser@s.whatsapp.net"))
         val allDevices = (recipientDevices + ownDevices).distinct()
-        WhatsAppDiag.log(TAG, "send: fanout to ${allDevices.size} device(s)")
+        // Log the actual device JIDs so device tests reveal whether the recipient is addressed by
+        // phone (…@s.whatsapp.net) or LID (…@lid). A phone-addressed <message to=..> carrying LID
+        // participant <to jid=…@lid> without addressing_mode="lid" can be dropped by the server.
+        WhatsAppDiag.log(TAG, "send: fanout to ${allDevices.size} device(s) [${allDevices.joinToString()}] (msg to=$to)")
 
         val (encs, includeIdentity) = encryptForDevices(
             crypto, allDevices, ownUser, auth.wid, msgPlaintext, dsmPlaintext,
@@ -2156,6 +2278,65 @@ object WhatsAppClient {
         }
     }
 
+    /**
+     * Send a WhatsApp read receipt (<receipt type="read">) up to [lastMessageId] when the user
+     * marks a thread read. No-op (returns true) when the account has read receipts disabled in
+     * privacy settings — so we honor the user's choice rather than leaking read state. Integrator
+     * broadcast contract. [lastTimestamp] is epoch ms (GMEvent convention) or s; both accepted.
+     */
+    suspend fun sendReadReceipt(
+        conversationId: String,
+        lastMessageId: String?,
+        lastTimestamp: Long,
+    ): Boolean {
+        if (_state.value !is State.Connected) return false
+        val ws = webSocket ?: return false
+        val to = extractJid(conversationId) ?: return false
+        if (lastMessageId.isNullOrEmpty()) return false
+        if (!readReceiptsEnabled) {
+            WhatsAppDiag.log(TAG, "read receipt suppressed (privacy off) for $to")
+            return true
+        }
+        val tSec = when {
+            lastTimestamp <= 0 -> System.currentTimeMillis() / 1000
+            lastTimestamp > 100_000_000_000L -> lastTimestamp / 1000 // ms → s
+            else -> lastTimestamp
+        }
+        val node = WhatsAppProtocol.buildReadReceipt(
+            chatJid = to,
+            messageIds = listOf(lastMessageId),
+            timestamp = tSec,
+        )
+        val sent = ws.send(WhatsAppProtocol.encodeNode(node))
+        WhatsAppDiag.log(TAG, "read receipt to=$to id=$lastMessageId sent=$sent")
+        return sent
+    }
+
+    /**
+     * Query the account privacy settings and cache whether read receipts are enabled. WhatsApp
+     * returns <privacy><category name="readreceipts" value="all|none"/>…</privacy>; "none" means
+     * the user turned read receipts off (and then cannot see others' either). Ref whatsmeow
+     * privacysettings.go GetPrivacySettings. Failures leave the default (enabled) in place.
+     */
+    private suspend fun refreshPrivacySettings() {
+        val iq = WhatsAppProtocol.Node(
+            tag = "iq",
+            attrs = mapOf(
+                "id" to generateMessageId(),
+                "type" to "get",
+                "xmlns" to "privacy",
+                "to" to "s.whatsapp.net",
+            ),
+            content = listOf(WhatsAppProtocol.Node(tag = "privacy")),
+        )
+        val resp = sendIqAndWait(iq, timeoutMs = 10_000) ?: return
+        val privacy = resp.getChildByTag("privacy") ?: return
+        privacy.getChildren()
+            .firstOrNull { it.tag == "category" && it.attrs["name"] == "readreceipts" }
+            ?.let { readReceiptsEnabled = it.attrs["value"] != "none" }
+        WhatsAppDiag.log(TAG, "privacy: readReceipts=${if (readReceiptsEnabled) "on" else "off"}")
+    }
+
     suspend fun sendReaction(conversationId: String, messageId: String, emoji: String) {
         if (_state.value !is State.Connected) return
         val ws = webSocket ?: return
@@ -2243,6 +2424,7 @@ object WhatsAppClient {
             WhatsAppAuthData.save(appContext, updated)
         }
         scope.launch { maybeUploadPreKeys() }
+        scope.launch { refreshPrivacySettings() }
         val pas = setPassiveActive()
         WhatsAppDiag.log(TAG, "post-success: SetPassive(active) ${if (pas) "OK" else "FAILED"}")
         sendUnavailablePresence()

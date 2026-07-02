@@ -488,6 +488,27 @@ object GMessagesClient {
     }
 
     /**
+     * Integrator read-receipt contract: send a read receipt for [lastMessageId].
+     * Read receipts only exist on RCS — for SMS threads this is a no-op that
+     * returns false (the phone honors its own per-account RCS read-receipt
+     * setting; there is no separate web-protocol toggle). Returns true when a
+     * receipt was sent.
+     */
+    suspend fun sendReadReceipt(
+        conversationId: String,
+        lastMessageId: String?,
+        lastTimestamp: Long,
+    ): Boolean {
+        if (_state.value !is State.Connected) return false
+        val webId = conversationId.substringAfter(':', conversationId)
+        if (conversationTypes[webId] != ConversationType.RCS) {
+            // SMS threads have no read receipts.
+            return false
+        }
+        return markRead(conversationId, lastMessageId)
+    }
+
+    /**
      * Delete [conversationId] on the phone via UPDATE_CONVERSATION
      * with [ConversationActionStatus.DELETE]. The phone is part of the
      * proto because the relay routes the delete to the correct SIM /

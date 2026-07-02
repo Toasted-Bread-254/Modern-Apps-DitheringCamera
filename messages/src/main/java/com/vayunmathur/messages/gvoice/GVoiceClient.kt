@@ -276,6 +276,21 @@ object GVoiceClient {
      * `thread/updateattributes`. Mirrors `Client.UpdateThreadAttributes`
      * in `pkg/libgv/client.go` with `Read=true`.
      */
+    /**
+     * Integrator read-receipt contract: Google Voice threads are SMS/voicemail
+     * and have no read-receipt concept, so this is always a no-op returning
+     * false. (markRead still updates the server-side "read" thread attribute; it
+     * does not notify the sender.)
+     */
+    @Suppress("UNUSED_PARAMETER")
+    suspend fun sendReadReceipt(
+        conversationId: String,
+        lastMessageId: String?,
+        lastTimestamp: Long,
+    ): Boolean {
+        return false
+    }
+
     suspend fun markRead(conversationId: String): Boolean {
         if (_state.value !is State.Connected) return false
         val client = rpc ?: return false

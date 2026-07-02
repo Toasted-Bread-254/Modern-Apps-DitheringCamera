@@ -197,7 +197,7 @@ class MessagesViewModel(application: Application) : AndroidViewModel(application
 
     fun markRead(conversationId: String) {
         viewModelScope.launch {
-            MessagesSessionManager.markRead(conversationId)
+            MessagesSessionManager.markConversationRead(conversationId)
         }
     }
 

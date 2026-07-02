@@ -487,6 +487,29 @@ object InstagramClient {
         client.makeLSRequest(payload, 3)
     }
 
+    // Read receipts follow the Instagram web client: marking a thread read (ThreadMarkReadTask,
+    // task 21) is what notifies the other side. There is no separate messagix privacy query for
+    // this, so the toggle is an internal flag (default on) — when off we suppress the network send
+    // but still report success, per the integrator read-receipt contract.
+    @Volatile
+    var readReceiptsEnabled: Boolean = true
+
+    suspend fun sendReadReceipt(
+        conversationId: String,
+        lastMessageId: String?,
+        lastTimestamp: Long,
+    ): Boolean {
+        if (_state.value !is State.Connected) return false
+        val threadId = extractThreadId(conversationId)?.toLongOrNull() ?: return false
+        val client = mqttClient ?: return false
+        if (!readReceiptsEnabled) return true
+        val watermark = (lastMessageId?.let { MetaProtocol.parseMessageId(it) })
+            ?: lastTimestamp.takeIf { it > 0 }
+            ?: System.currentTimeMillis()
+        val payload = MetaProtocol.buildMarkReadPayload(threadId, client.versionId, watermark)
+        return client.makeLSRequest(payload, MetaProtocol.LS_REQUEST_TYPE_TASK) != null
+    }
+
     suspend fun sendReaction(conversationId: String, messageId: String, emoji: String) {
         val threadId = extractThreadId(conversationId)?.toLongOrNull() ?: return
         val client = mqttClient ?: return
@@ -558,7 +581,7 @@ object InstagramClient {
     suspend fun fetchMessages(conversationId: String, referenceTimestampMs: Long, referenceMessageId: String) {
         val threadId = extractThreadId(conversationId)?.toLongOrNull() ?: return
         val client = mqttClient ?: return
-        val payload = MetaProtocol.buildFetchMessagesPayload(threadId, referenceTimestampMs, referenceMessageId, client.versionId)
+        val payload = MetaProtocol.buildFetchMessagesPayload(threadId, referenceTimestampMs, referenceMessageId, client.versionId, client.mailboxCursor())
         client.makeLSRequest(payload, MetaProtocol.LS_REQUEST_TYPE_TASK)
             ?.let { client.emitForProcessing(it) }
     }

@@ -167,6 +167,7 @@ object MessagesSessionManager {
                 senderName = null,
             )
         )
+        touchConversationOutgoing(conversationId, body, now)
         val ok = when (source) {
             MessageSource.MESSAGES_WEB -> GMessagesClient.sendMessage(conversationId, body)
             MessageSource.VOICE -> GVoiceClient.sendMessage(conversationId, body)
@@ -211,6 +212,7 @@ object MessagesSessionManager {
                 senderName = null,
             )
         )
+        touchConversationOutgoing(conversationId, previewBody, now)
         val ok = when (source) {
             MessageSource.MESSAGES_WEB -> GMessagesClient.sendMedia(
                 conversationId = conversationId,
@@ -290,6 +292,7 @@ object MessagesSessionManager {
                 senderName = null,
             )
         )
+        touchConversationOutgoing(conversationId, "📊 $question", System.currentTimeMillis())
         val ok = when (source) {
             MessageSource.MESSAGES_WEB -> GMessagesClient.sendPoll(conversationId, question, options, allowMultiple)
             MessageSource.VOICE -> GVoiceClient.sendPoll(conversationId, question, options, allowMultiple)
@@ -314,41 +317,39 @@ object MessagesSessionManager {
         return sendMessage(conversationId, text)
     }
 
-    suspend fun markRead(conversationId: String) {
-        // Always update the local row immediately so the unread badge clears.
+    /**
+     * Mark [conversationId] read. Clears the local unread badge immediately
+     * (so the UI updates even offline), then routes to the platform client's
+     * [sendReadReceipt]. The receipt is ONLY actually sent when read receipts
+     * are enabled for that platform — there is no app-level toggle, so each
+     * platform gates internally on its own read-receipt/privacy setting and
+     * returns false when suppressed. The newest local message row supplies
+     * the "up to" id + timestamp. Server-side failures are non-fatal; the
+     * local state already reflects "user has seen this".
+     */
+    suspend fun markConversationRead(conversationId: String) {
         db.conversationDao().markRead(conversationId)
-        // Then propagate to the server. Failures are non-fatal — the
-        // local state already reflects "user has seen this".
         val source = sourceFor(conversationId) ?: return
+        val latest = db.messageDao().observeForConversation(conversationId)
+            .firstOrNull()
+            ?.maxByOrNull { it.timestamp }
+        val lastMessageId = latest?.id
+        val lastTimestamp = latest?.timestamp ?: 0L
         when (source) {
-            MessageSource.MESSAGES_WEB -> {
-                // gmessages MarkRead is per-message; pick the newest
-                // message in the thread (same convention Messages-for-
-                // Web uses when the user opens a chat).
-                val latest = db.messageDao().observeForConversation(conversationId)
-                    .firstOrNull()
-                    ?.maxByOrNull { it.timestamp }
-                val webMsgId = latest?.id?.substringAfter(':', latest.id)
-                GMessagesClient.markRead(conversationId, webMsgId)
-            }
-            MessageSource.VOICE -> {
-                GVoiceClient.markRead(conversationId)
-            }
-            MessageSource.TELEGRAM -> {
-                TelegramClient.markRead(conversationId)
-            }
-            MessageSource.SIGNAL -> {
-                SignalClient.markRead(conversationId)
-            }
-            MessageSource.WHATSAPP -> {
-                com.vayunmathur.messages.whatsapp.WhatsAppClient.markRead(conversationId)
-            }
-            MessageSource.MESSENGER -> {
-                com.vayunmathur.messages.meta.MetaClient.markRead(conversationId)
-            }
-            MessageSource.INSTAGRAM -> {
-                com.vayunmathur.messages.meta.InstagramClient.markRead(conversationId)
-            }
+            MessageSource.MESSAGES_WEB ->
+                GMessagesClient.sendReadReceipt(conversationId, lastMessageId, lastTimestamp)
+            MessageSource.VOICE ->
+                GVoiceClient.sendReadReceipt(conversationId, lastMessageId, lastTimestamp)
+            MessageSource.TELEGRAM ->
+                TelegramClient.sendReadReceipt(conversationId, lastMessageId, lastTimestamp)
+            MessageSource.SIGNAL ->
+                SignalClient.sendReadReceipt(conversationId, lastMessageId, lastTimestamp)
+            MessageSource.WHATSAPP ->
+                WhatsAppClient.sendReadReceipt(conversationId, lastMessageId, lastTimestamp)
+            MessageSource.MESSENGER ->
+                MetaClient.sendReadReceipt(conversationId, lastMessageId, lastTimestamp)
+            MessageSource.INSTAGRAM ->
+                InstagramClient.sendReadReceipt(conversationId, lastMessageId, lastTimestamp)
         }
     }
 
@@ -834,7 +835,7 @@ object MessagesSessionManager {
                     peerPhoneE164 = event.peerPhone ?: existing?.peerPhoneE164,
                     avatarUrl = event.avatarUrl ?: existing?.avatarUrl,
                     lastMessagePreview = event.lastPreview ?: existing?.lastMessagePreview,
-                    lastMessageTimestamp = maxOf(event.lastTimestamp, priorTs),
+                    lastMessageTimestamp = maxOf(toEpochMillis(event.lastTimestamp), priorTs),
                     unreadCount = event.unreadCount,
                     isGroup = event.isGroup,
                     participantCount = event.participantCount,
@@ -855,7 +856,7 @@ object MessagesSessionManager {
                         body = event.body,
                         direction = if (event.outgoing) MessageDirection.OUTGOING else MessageDirection.INCOMING,
                         state = if (event.outgoing) MessageState.SENT else MessageState.DELIVERED,
-                        timestamp = event.timestamp,
+                        timestamp = toEpochMillis(event.timestamp),
                         senderName = event.senderName,
                         senderId = event.senderId,
                         reactionsJson = event.reactionsJson,
@@ -885,7 +886,7 @@ object MessagesSessionManager {
                         peerPhoneE164 = event.peerPhone ?: existing?.peerPhoneE164,
                         avatarUrl = existing?.avatarUrl,
                         lastMessagePreview = event.body,
-                        lastMessageTimestamp = maxOf(event.timestamp, existing?.lastMessageTimestamp ?: 0L),
+                        lastMessageTimestamp = maxOf(toEpochMillis(event.timestamp), existing?.lastMessageTimestamp ?: 0L),
                         unreadCount = (existing?.unreadCount ?: 0) + 1,
                         isGroup = existing?.isGroup ?: false,
                         participantCount = existing?.participantCount ?: 0,
@@ -901,7 +902,7 @@ object MessagesSessionManager {
                         body = event.body,
                         direction = MessageDirection.INCOMING,
                         state = MessageState.DELIVERED,
-                        timestamp = event.timestamp,
+                        timestamp = toEpochMillis(event.timestamp),
                         // Per-message sender (shown in group bubbles). Never fall
                         // back to the conversation/group name here — an unknown
                         // sender leaves this null rather than mislabeling the
@@ -955,6 +956,40 @@ object MessagesSessionManager {
      *  is almost certainly a stale microsecond value from before the
      *  gmessages timestamp fix; treat it as missing. */
     private const val STALE_MICROSECOND_THRESHOLD_MS = 100_000_000_000_000L
+
+    /**
+     * Coerce any platform timestamp to epoch-MILLISECONDS. The inbox is
+     * sorted purely by `last_ts DESC`, so every persisted timestamp must
+     * share one scale or the ordering interleaves and stops being
+     * newest-first. Platforms currently normalize at emission (Telegram/
+     * WhatsApp `*1000`, gmessages `µs/1000`, Signal/Meta/GVoice native
+     * ms), but this is the single choke point that guarantees it — and
+     * protects against a future source that forgets. Scales down from
+     * µs/ns (≥1e15) and up from seconds (<1e12); leaves 0/ms untouched.
+     */
+    private fun toEpochMillis(raw: Long): Long {
+        if (raw <= 0L) return 0L
+        var ts = raw
+        while (ts >= 1_000_000_000_000_000L) ts /= 1000L // µs / ns → ms
+        if (ts < 1_000_000_000_000L) ts *= 1000L         // seconds → ms
+        return ts
+    }
+
+    /**
+     * Bump a conversation's last-message time + preview when the LOCAL
+     * user sends. Outgoing sends otherwise only insert a message row and
+     * never touch `last_ts`, so a thread you just replied in wouldn't
+     * re-sort to the top of the inbox. Forward-only via maxOf.
+     */
+    private suspend fun touchConversationOutgoing(conversationId: String, preview: String, nowMs: Long) {
+        val existing = db.conversationDao().get(conversationId) ?: return
+        db.conversationDao().upsert(
+            existing.copy(
+                lastMessagePreview = preview,
+                lastMessageTimestamp = maxOf(existing.lastMessageTimestamp, nowMs),
+            )
+        )
+    }
 }
 
 /** Action passed to [MessagesSessionManager.sendReaction]. Mirrors the

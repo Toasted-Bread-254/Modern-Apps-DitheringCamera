@@ -616,10 +616,20 @@ class MessageSender(
     }
 
     private fun deriveAccessKey(profileKey: ByteArray): ByteArray {
-        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
-        mac.init(javax.crypto.spec.SecretKeySpec(profileKey, "HmacSHA256"))
-        val full = mac.doFinal(ByteArray(32))
-        return full.copyOfRange(0, 16)
+        // Signal's unidentified-access-key derivation: AES-GCM-encrypt 16 zero
+        // bytes under the profile key with a 12-byte zero nonce, then take the
+        // first 16 bytes of the ciphertext. Must match
+        // UnidentifiedAccess.deriveAccessKeyFrom — an HMAC here yields a key the
+        // server rejects (401), so every sealed-sender send needlessly falls back
+        // to an authed retry (and sealed sender never actually works).
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(
+            javax.crypto.Cipher.ENCRYPT_MODE,
+            javax.crypto.spec.SecretKeySpec(profileKey, "AES"),
+            javax.crypto.spec.GCMParameterSpec(128, ByteArray(12)),
+        )
+        val ciphertext = cipher.doFinal(ByteArray(16))
+        return ciphertext.copyOfRange(0, 16)
     }
 
     suspend fun sendDeliveryReceipt(recipientAci: String, timestamps: List<Long>) {

@@ -539,6 +539,9 @@ class MetaMqttClient(
     suspend fun backfillRecentMessages(snapshotPayload: String, sp: List<String>, cursor: String = "", maxThreads: Int = 20) {
         val events = LightspeedDecoder.decodePublishResponse(snapshotPayload, sp)
         val incoming = MetaProtocol.parseAllEvents(events)
+        // FetchMessages (direction=older) needs the sync-group-1 cursor or the server returns zero
+        // older messages. Prefer the live SyncManager cursor, then the caller/page cursor.
+        val effectiveCursor = mailboxCursor().ifEmpty { cursor }
         // The reference for FetchMessages (direction=older) must be a SINGLE real message's
         // matched (timestamp, id) pair — the server returns nothing if the timestamp and id
         // don't correspond. Pick the newest snapshot message per thread and use ITS timestamp
@@ -557,11 +560,19 @@ class MetaMqttClient(
             // Skip threads with no anchor message — FetchMessages needs a real (ts,id) pair.
             val refMsg = lastMsgByThread[t.threadId] ?: continue
             val payload = MetaProtocol.buildFetchMessagesPayload(
-                threadKey, refMsg.timestamp, refMsg.messageId, versionId, cursor,
+                threadKey, refMsg.timestamp, refMsg.messageId, versionId, effectiveCursor,
             )
             makeLSRequest(payload, MetaProtocol.LS_REQUEST_TYPE_TASK)?.let { emitForProcessing(it) }
         }
     }
+
+    /**
+     * Best-available sync-group-1 (mailbox / database 1) cursor for FetchMessages history. The Go
+     * bridge passes GetCursor(1) on every FetchMessagesTask (backfill.go requestMoreHistory) and
+     * the SG1 FetchThreadsTask; an empty cursor makes the server return zero older messages. Prefer
+     * the live cursor the SyncManager has advanced to, falling back to the page-scraped cursor.
+     */
+    fun mailboxCursor(): String = syncManager.getCursor(1).ifEmpty { config.mailboxCursor }
 
     suspend fun sendPublishPacket(
         topic: String,
@@ -623,7 +634,6 @@ class MetaMqttClient(
             requestId = packetId,
             type = type,
         )
-
         val responseDeferred = CompletableDeferred<MetaProtocol.MqttMessage>()
         requestChannels[packetId] = responseDeferred
 

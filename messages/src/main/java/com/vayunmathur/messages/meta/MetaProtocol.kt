@@ -107,6 +107,11 @@ object MetaProtocol {
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
+    // Task-body serializer that mirrors Go's `omitempty`: encodeDefaults keeps the always-present
+    // zero fields (skip_url_preview_gen, text_has_links, multitab_env) while explicitNulls=false
+    // drops nullable fields, so the SendMessageTask wire body matches messagix exactly.
+    private val bodyJson = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
+
     private val nextTaskId = AtomicLong(-1)
 
     fun getTaskId(): Long = nextTaskId.incrementAndGet()
@@ -242,21 +247,26 @@ object MetaProtocol {
         @SerialName("otid") val otid: String,
         val source: Int = 65537,
         @SerialName("send_type") val sendType: Int = 1,
+        // Nullable + serialized with explicitNulls=false so these mirror Go's `omitempty` and are
+        // OMITTED (not sent as null/0) for a plain text send. The IG server treats a text send with
+        // extraneous attachment_fbids/reply_metadata/mention_data as malformed and no-ops it (the
+        // task envelope is still acked with taskExists/removeTask but no message is created) — this
+        // was the "send pretends to work but doesn't deliver" root cause. Ref socket/threads.go.
         @SerialName("attachment_fbids") val attachmentFbIds: List<Long>? = null,
         @SerialName("sync_group") val syncGroup: Long = 1,
         @SerialName("reply_metadata") val replyMetadata: ReplyMetaData? = null,
         @SerialName("mention_data") val mentionData: MentionData? = null,
         val text: String = "",
-        @SerialName("hot_emoji_size") val hotEmojiSize: Int = 0,
-        @SerialName("sticker_id") val stickerId: Long = 0,
+        @SerialName("hot_emoji_size") val hotEmojiSize: Int? = null,
+        @SerialName("sticker_id") val stickerId: Long? = null,
         @SerialName("initiating_source") val initiatingSource: Int = 1,
         @SerialName("skip_url_preview_gen") val skipUrlPreviewGen: Int = 0,
         @SerialName("text_has_links") val textHasLinks: Int = 0,
-        @SerialName("strip_forwarded_msg_caption") val stripForwardedMsgCaption: Int = 0,
-        @SerialName("forwarded_msg_id") val forwardedMsgId: String = "",
+        @SerialName("strip_forwarded_msg_caption") val stripForwardedMsgCaption: Int? = null,
+        @SerialName("forwarded_msg_id") val forwardedMsgId: String? = null,
         @SerialName("multitab_env") val multitabEnv: Int = 0,
-        val url: String = "",
-        @SerialName("attribution_app_id") val attributionAppId: Long = 0,
+        val url: String? = null,
+        @SerialName("attribution_app_id") val attributionAppId: Long? = null,
     )
 
     @Serializable
@@ -489,7 +499,7 @@ object MetaProtocol {
             otid = otid,
             text = text,
         )
-        val taskJson = json.encodeToString(task)
+        val taskJson = bodyJson.encodeToString(task)
         return buildTaskPayload(
             label = TASK_LABELS["SendMessageTask"] ?: "46",
             taskPayloadJson = taskJson,
@@ -498,10 +508,10 @@ object MetaProtocol {
         )
     }
 
-    fun buildMarkReadPayload(threadId: Long, versionId: Long): String {
+    fun buildMarkReadPayload(threadId: Long, versionId: Long, watermarkTs: Long = System.currentTimeMillis()): String {
         val task = ThreadMarkReadTask(
             threadId = threadId,
-            lastReadWatermarkTs = System.currentTimeMillis(),
+            lastReadWatermarkTs = watermarkTs,
         )
         val taskJson = json.encodeToString(task)
         return buildTaskPayload(

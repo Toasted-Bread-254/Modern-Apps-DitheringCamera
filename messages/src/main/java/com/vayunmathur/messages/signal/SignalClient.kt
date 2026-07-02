@@ -63,6 +63,8 @@ object SignalClient {
 
     private const val TAG = "SignalClient"
     private const val MESSAGE_DELETE_MAX_AGE_MS = 24L * 60 * 60 * 1000 // 24 hours
+    private val UUID_REGEX =
+        Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
     sealed interface State {
         data object Idle : State
@@ -279,11 +281,16 @@ object SignalClient {
 
         val groupId = extractGroupIdFromConversation(conversationId)
         if (groupId != null) {
-            val group = groupManager?.getCachedGroup(groupId)
+            val group = resolveGroupInfo(groupId)
             if (group != null) {
                 val results = sender.sendGroupMessage(groupId, group.memberAcis, content, timestamp)
                 return results.any { it.success }
             }
+            // Known group thread but members couldn't be resolved — fail rather
+            // than misrouting to the DM path (which would target the group id as
+            // an ACI and 404).
+            Log.w(TAG, "sendMessage: could not resolve group $groupId")
+            return false
         }
 
         val recipientAci = resolveRecipient(extractAci(conversationId) ?: return false) ?: return false
@@ -383,6 +390,74 @@ object SignalClient {
             Log.w(TAG, "markRead failed: ${t.message}")
             false
         }
+    }
+
+    /**
+     * Integrator read-receipt contract: propagate a READ receipt to the
+     * sender(s) of incoming messages in [conversationId] up to [lastTimestamp],
+     * gated on the account's read-receipts setting. Also syncs read state to our
+     * own linked devices (that sync is NOT gated — it only tells our other
+     * devices what we've seen). Returns true if a receipt was sent, false if the
+     * setting is off, nothing is unread, or on error.
+     */
+    suspend fun sendReadReceipt(
+        conversationId: String,
+        lastMessageId: String?,
+        lastTimestamp: Long,
+    ): Boolean {
+        if (_state.value !is State.Connected) return false
+        val sender = messageSender ?: return false
+        // Gate on the Signal read-receipts setting. Only skip when we positively
+        // know it is disabled (mirrors MessageSender's final gate, which sends
+        // when the account record is unknown).
+        val acct = parseAccountRecord()
+        if (acct != null && !acct.readReceipts) {
+            Log.d(TAG, "sendReadReceipt: read receipts disabled, skipping")
+            return false
+        }
+        return try {
+            val messagesDb = buildMessagesDatabase(appContext)
+            val messages = messagesDb.messageDao().observeForConversation(conversationId).first()
+            val peerAci = extractAci(conversationId)
+            val incoming = messages.filter {
+                it.direction == com.vayunmathur.messages.data.MessageDirection.INCOMING &&
+                    it.timestamp <= lastTimestamp
+            }
+            if (incoming.isEmpty()) return false
+            // A READ receipt is addressed to the author of the messages being
+            // read. For a group thread that is each distinct sender; for a DM it
+            // is the peer. Fall back to the thread peer when a row has no sender.
+            val bySender = incoming.groupBy { it.senderId ?: peerAci }
+            var anySent = false
+            for ((senderAci, senderMsgs) in bySender) {
+                val aci = senderAci ?: continue
+                val resolved = resolveRecipient(aci) ?: continue
+                val timestamps = senderMsgs.map { it.timestamp }
+                val content = ContentBuilders.readReceipt(timestamps)
+                if (sender.sendMessage(resolved, content, System.currentTimeMillis()).success) {
+                    anySent = true
+                }
+                // Sync read state to our own other devices.
+                try {
+                    val syncContent = ContentBuilders.syncReadMessage(aci, timestamps)
+                    sender.sendSelfSyncMessage(syncContent, System.currentTimeMillis())
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Failed to sync read state for $aci: ${t.message}")
+                }
+            }
+            anySent
+        } catch (t: Throwable) {
+            Log.w(TAG, "sendReadReceipt failed: ${t.message}")
+            false
+        }
+    }
+
+    private fun parseAccountRecord(): com.vayunmathur.messages.signal.proto.AccountRecord? = try {
+        authData?.accountRecord?.let {
+            com.vayunmathur.messages.signal.proto.AccountRecord.parseFrom(it)
+        }
+    } catch (_: Exception) {
+        null
     }
 
     // Fix #2: deleteThread — add SyncMessage DeleteForMe sync to Signal (supports DM and group)
@@ -1702,11 +1777,16 @@ object SignalClient {
     }
 
     private fun extractGroupIdFromConversation(conversationId: String): String? {
-        // Group conversation IDs are prefixed with "group:"
-        if (conversationId.startsWith("group:")) {
-            return conversationId.substringAfter("group:")
-        }
-        return null
+        // The id after the "sig:" source prefix is either a recipient ACI (a
+        // canonical UUID) for a 1:1 thread, or a base64 group identifier for a
+        // group thread (see emitGroupMessage / ContentDispatcher.extractGroupId).
+        // Group threads were never routed correctly because nothing ever emits a
+        // "group:" prefix; classify by shape instead — anything that is not a UUID
+        // is a group id. (A legacy "group:" prefix is still honored.)
+        val id = conversationId.substringAfter(':', conversationId)
+        if (id.isBlank()) return null
+        if (id.startsWith("group:")) return id.substringAfter("group:")
+        return if (UUID_REGEX.matches(id)) null else id
     }
 
     private suspend fun resolveRecipient(identifier: String): String? {

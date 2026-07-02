@@ -593,6 +593,23 @@ object TelegramClient {
         }
     }
 
+    /**
+     * Integrator read-receipt contract: mark the peer's history read up to
+     * [lastMessageId] via messages.readHistory (channels.readHistory for
+     * channels). Telegram propagates read state for regular chats, so there is
+     * no per-client setting to gate on. Returns true on success.
+     */
+    suspend fun sendReadReceipt(
+        conversationId: String,
+        lastMessageId: String?,
+        lastTimestamp: Long,
+    ): Boolean {
+        val maxId = lastMessageId?.substringAfterLast('_')?.toIntOrNull()
+            ?: lastMessageId?.toIntOrNull()
+            ?: Int.MAX_VALUE
+        return markRead(conversationId, maxId)
+    }
+
     suspend fun deleteThread(conversationId: String, revoke: Boolean = false): Boolean {
         if (_state.value !is State.Connected) return false
         val client = apiClient ?: return false

@@ -69,6 +69,12 @@ class WhatsAppE2E(
 
     fun hasSession(jid: String): Boolean = sessionStore.containsSession(signalAddress(jid))
 
+    /**
+     * Delete the Signal session for a device so it can be rebuilt from fresh keys. Used when a
+     * peer asks us to retry a message it couldn't decrypt (the old session is desynced).
+     */
+    fun deleteSession(jid: String) = sessionStore.deleteSession(signalAddress(jid))
+
     // -- 1:1 (Signal session) encryption / decryption --
 
     data class EncResult(val type: String, val data: ByteArray)
