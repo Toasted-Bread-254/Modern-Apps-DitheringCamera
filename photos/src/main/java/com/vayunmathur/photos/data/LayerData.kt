@@ -62,6 +62,20 @@ data class LayerStyle(
 }
 
 /**
+ * A layer group (folder). Members are the contiguous run of layers sharing this
+ * group's id. The group is composited as a unit, then blended into the stack
+ * with [opacity]/[blendMode]/[visible].
+ */
+data class GroupInfo(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String = "Group",
+    val opacity: Float = 1f,
+    val blendMode: LayerBlendMode = LayerBlendMode.Normal,
+    val visible: Boolean = true,
+    val collapsed: Boolean = false,
+)
+
+/**
  * Non-destructive adjustment that can back an [AdjustmentLayer] or be applied
  * directly. Each wrapper delegates to an existing `applyXToBitmap` helper, reusing
  * the established `data class + isIdentity() + applyToBitmap()` pattern.
@@ -147,6 +161,7 @@ sealed class Layer {
     abstract val locked: Boolean
     abstract val clipped: Boolean
     abstract val style: LayerStyle
+    abstract val groupId: String?
 
     abstract fun copyBase(
         name: String = this.name,
@@ -157,6 +172,7 @@ sealed class Layer {
         locked: Boolean = this.locked,
         clipped: Boolean = this.clipped,
         style: LayerStyle = this.style,
+        groupId: String? = this.groupId,
     ): Layer
 }
 
@@ -171,13 +187,14 @@ data class PixelLayer(
     override val locked: Boolean = false,
     override val clipped: Boolean = false,
     override val style: LayerStyle = LayerStyle(),
+    override val groupId: String? = null,
 ) : Layer() {
     override fun copyBase(
         name: String, visible: Boolean, opacity: Float,
-        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean, clipped: Boolean, style: LayerStyle,
+        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean, clipped: Boolean, style: LayerStyle, groupId: String?,
     ): Layer = copy(
         name = name, visible = visible, opacity = opacity,
-        blendMode = blendMode, mask = mask, locked = locked, clipped = clipped, style = style,
+        blendMode = blendMode, mask = mask, locked = locked, clipped = clipped, style = style, groupId = groupId,
     )
 }
 
@@ -192,13 +209,14 @@ data class AdjustmentLayer(
     override val locked: Boolean = false,
     override val clipped: Boolean = false,
     override val style: LayerStyle = LayerStyle(),
+    override val groupId: String? = null,
 ) : Layer() {
     override fun copyBase(
         name: String, visible: Boolean, opacity: Float,
-        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean, clipped: Boolean, style: LayerStyle,
+        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean, clipped: Boolean, style: LayerStyle, groupId: String?,
     ): Layer = copy(
         name = name, visible = visible, opacity = opacity,
-        blendMode = blendMode, mask = mask, locked = locked, clipped = clipped, style = style,
+        blendMode = blendMode, mask = mask, locked = locked, clipped = clipped, style = style, groupId = groupId,
     )
 }
 
@@ -213,13 +231,14 @@ data class TextLayer(
     override val locked: Boolean = false,
     override val clipped: Boolean = false,
     override val style: LayerStyle = LayerStyle(),
+    override val groupId: String? = null,
 ) : Layer() {
     override fun copyBase(
         name: String, visible: Boolean, opacity: Float,
-        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean, clipped: Boolean, style: LayerStyle,
+        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean, clipped: Boolean, style: LayerStyle, groupId: String?,
     ): Layer = copy(
         name = name, visible = visible, opacity = opacity,
-        blendMode = blendMode, mask = mask, locked = locked, clipped = clipped, style = style,
+        blendMode = blendMode, mask = mask, locked = locked, clipped = clipped, style = style, groupId = groupId,
     )
 }
 
@@ -236,12 +255,13 @@ data class DrawingLayer(
     override val locked: Boolean = false,
     override val clipped: Boolean = false,
     override val style: LayerStyle = LayerStyle(),
+    override val groupId: String? = null,
 ) : Layer() {
     override fun copyBase(
         name: String, visible: Boolean, opacity: Float,
-        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean, clipped: Boolean, style: LayerStyle,
+        blendMode: LayerBlendMode, mask: LayerMask?, locked: Boolean, clipped: Boolean, style: LayerStyle, groupId: String?,
     ): Layer = copy(
         name = name, visible = visible, opacity = opacity,
-        blendMode = blendMode, mask = mask, locked = locked, clipped = clipped, style = style,
+        blendMode = blendMode, mask = mask, locked = locked, clipped = clipped, style = style, groupId = groupId,
     )
 }

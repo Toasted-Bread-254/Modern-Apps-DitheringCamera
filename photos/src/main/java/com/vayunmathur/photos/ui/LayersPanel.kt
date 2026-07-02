@@ -57,6 +57,7 @@ import com.vayunmathur.photos.data.HslAdj
 import com.vayunmathur.photos.data.Layer
 import com.vayunmathur.photos.data.LayerAdjustment
 import com.vayunmathur.photos.data.LayerBlendMode
+import com.vayunmathur.photos.data.GroupInfo
 import com.vayunmathur.photos.data.LevelsAdj
 import com.vayunmathur.photos.data.PixelLayer
 import com.vayunmathur.photos.data.TextLayer
@@ -107,6 +108,9 @@ fun LayersPanel(
     onInvertMask: (Int) -> Unit,
     onToggleClip: (Int, Boolean) -> Unit,
     onSetStyle: (Int, com.vayunmathur.photos.data.LayerStyle) -> Unit,
+    onGroupActive: () -> Unit,
+    onUngroup: () -> Unit,
+    onUpdateGroup: (GroupInfo) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -135,6 +139,8 @@ fun LayersPanel(
             ActionChip("+ Layer") { onAddPixelLayer() }
             ActionChip("Duplicate") { onDuplicate(document.activeLayerIndex) }
             ActionChip("Merge ↓") { onMergeDown(document.activeLayerIndex) }
+            ActionChip("Group ↓") { onGroupActive() }
+            if (document.activeLayer?.groupId != null) ActionChip("Ungroup") { onUngroup() }
             ActionChip("Flatten") { onFlatten() }
             ActionChip("Delete") { onDelete(document.activeLayerIndex) }
         }
@@ -213,13 +219,38 @@ fun LayersPanel(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            for (i in document.layers.indices.reversed()) {
-                LayerRow(
-                    layer = document.layers[i],
-                    isActive = i == document.activeLayerIndex,
-                    onSelect = { onSelectLayer(i) },
-                    onToggleVisibility = { onToggleVisibility(i, it) },
-                )
+            var i = document.layers.size - 1
+            while (i >= 0) {
+                val gid = document.layers[i].groupId
+                if (gid != null) {
+                    val group = document.groupInfo(gid)
+                    if (group != null) GroupHeader(group, onUpdateGroup)
+                    var j = i
+                    while (j >= 0 && document.layers[j].groupId == gid) {
+                        val idx = j
+                        if (group == null || !group.collapsed) {
+                            Row(modifier = Modifier.padding(start = 16.dp)) {
+                                LayerRow(
+                                    layer = document.layers[idx],
+                                    isActive = idx == document.activeLayerIndex,
+                                    onSelect = { onSelectLayer(idx) },
+                                    onToggleVisibility = { onToggleVisibility(idx, it) },
+                                )
+                            }
+                        }
+                        j--
+                    }
+                    i = j
+                } else {
+                    val idx = i
+                    LayerRow(
+                        layer = document.layers[idx],
+                        isActive = idx == document.activeLayerIndex,
+                        onSelect = { onSelectLayer(idx) },
+                        onToggleVisibility = { onToggleVisibility(idx, it) },
+                    )
+                    i--
+                }
             }
         }
     }
@@ -312,5 +343,49 @@ private fun ActionChip(label: String, enabled: Boolean = true, onClick: () -> Un
             color = if (enabled) MaterialTheme.colorScheme.onSecondaryContainer
             else MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun GroupHeader(group: GroupInfo, onUpdate: (GroupInfo) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (group.collapsed) "\u25B8" else "\u25BE",
+                fontSize = 14.sp,
+                modifier = Modifier.clickable { onUpdate(group.copy(collapsed = !group.collapsed)) }.padding(4.dp),
+            )
+            Text("\uD83D\uDCC1 ${group.name}", fontSize = 12.sp, modifier = Modifier.weight(1f))
+            var showBlend by remember { mutableStateOf(false) }
+            Box {
+                ActionChip(group.blendMode.label) { showBlend = true }
+                DropdownMenu(expanded = showBlend, onDismissRequest = { showBlend = false }) {
+                    LayerBlendMode.entries.forEach { mode ->
+                        DropdownMenuItem(text = { Text(mode.label) }, onClick = {
+                            showBlend = false; onUpdate(group.copy(blendMode = mode))
+                        })
+                    }
+                }
+            }
+            Text(
+                if (group.visible) "\uD83D\uDC41" else "\u2298",
+                fontSize = 14.sp,
+                modifier = Modifier.clickable { onUpdate(group.copy(visible = !group.visible)) }.padding(4.dp),
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Opacity", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Slider(
+                value = group.opacity,
+                onValueChange = { onUpdate(group.copy(opacity = it)) },
+                valueRange = 0f..1f,
+                modifier = Modifier.weight(1f).padding(horizontal = 6.dp),
+            )
+        }
     }
 }

@@ -51,6 +51,15 @@ class LayerCompositor {
     fun compositePreview(document: EditDocument, maxDimension: Int): Bitmap {
         val (w, h) = targetSize(document, maxDimension)
         val layers = document.layers
+
+        // Groups composite as contiguous runs, so the below/rest split (which can
+        // fall inside a run) would be wrong — render the whole stack instead.
+        if (document.groups.isNotEmpty()) {
+            val backdrop = IntArray(w * h)
+            renderLayersInto(backdrop, layers, document, w, h)
+            return applyDocumentTransforms(bitmapFromInts(backdrop, w, h), document)
+        }
+
         val active = document.activeLayerIndex.coerceIn(0, layers.size)
 
         val below = if (active > 0) layers.subList(0, active) else emptyList()
@@ -112,24 +121,66 @@ class LayerCompositor {
         w: Int,
         h: Int,
     ) {
-        for (idx in layers.indices) {
-            val layer = layers[idx]
-            if (!layer.visible || layer.opacity <= 0f) continue
-            val src = layerSourcePixels(layer, backdrop, document, w, h) ?: continue
-            val mask = layer.mask?.let { scaleMask(it, w, h) }
-            // Clipping mask: limit this layer to the alpha shape of the base layer below.
-            val clip = if (layer.clipped) clipBaseAlpha(layers, idx, document, w, h) else null
-            if (!layer.style.isIdentity() && layer !is AdjustmentLayer) {
-                renderLayerStyle(backdrop, src, layer.style, mask, layer.opacity, w, h)
+        var i = 0
+        while (i < layers.size) {
+            val gid = layers[i].groupId
+            if (gid != null) {
+                var j = i
+                while (j < layers.size && layers[j].groupId == gid) j++
+                val group = document.groupInfo(gid)
+                if (group == null || group.visible) {
+                    // Composite the group's contiguous run into a transparent
+                    // sub-backdrop, then blend it in as a unit.
+                    val sub = IntArray(w * h)
+                    renderLayersPlain(sub, layers.subList(i, j), document, w, h)
+                    val op = group?.opacity ?: 1f
+                    val mode = group?.blendMode ?: LayerBlendMode.Normal
+                    if (op > 0f) {
+                        for (k in backdrop.indices) backdrop[k] = mode.blendPixel(backdrop[k], sub[k], op)
+                    }
+                }
+                i = j
+            } else {
+                renderOneLayer(backdrop, layers, i, document, w, h)
+                i++
             }
-            val mode = layer.blendMode
-            val opacity = layer.opacity
-            for (i in backdrop.indices) {
-                var extra = opacity * (mask?.get(i) ?: 1f)
-                if (clip != null) extra *= clip[i]
-                if (extra <= 0f) continue
-                backdrop[i] = mode.blendPixel(backdrop[i], src[i], extra)
-            }
+        }
+    }
+
+    private fun renderLayersPlain(
+        backdrop: IntArray,
+        layers: List<Layer>,
+        document: EditDocument,
+        w: Int,
+        h: Int,
+    ) {
+        for (idx in layers.indices) renderOneLayer(backdrop, layers, idx, document, w, h)
+    }
+
+    private fun renderOneLayer(
+        backdrop: IntArray,
+        layers: List<Layer>,
+        idx: Int,
+        document: EditDocument,
+        w: Int,
+        h: Int,
+    ) {
+        val layer = layers[idx]
+        if (!layer.visible || layer.opacity <= 0f) return
+        val src = layerSourcePixels(layer, backdrop, document, w, h) ?: return
+        val mask = layer.mask?.let { scaleMask(it, w, h) }
+        // Clipping mask: limit this layer to the alpha shape of the base layer below.
+        val clip = if (layer.clipped) clipBaseAlpha(layers, idx, document, w, h) else null
+        if (!layer.style.isIdentity() && layer !is AdjustmentLayer) {
+            renderLayerStyle(backdrop, src, layer.style, mask, layer.opacity, w, h)
+        }
+        val mode = layer.blendMode
+        val opacity = layer.opacity
+        for (i in backdrop.indices) {
+            var extra = opacity * (mask?.get(i) ?: 1f)
+            if (clip != null) extra *= clip[i]
+            if (extra <= 0f) continue
+            backdrop[i] = mode.blendPixel(backdrop[i], src[i], extra)
         }
     }
 

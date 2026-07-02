@@ -19,6 +19,7 @@ data class EditDocument(
     val perspectiveCorners: PerspectiveCorners = PerspectiveCorners(),
     val canvasWidth: Int = 0,
     val canvasHeight: Int = 0,
+    val groups: List<GroupInfo> = emptyList(),
 ) {
     val activeLayer: Layer?
         get() = layers.getOrNull(activeLayerIndex)
@@ -71,6 +72,42 @@ data class EditDocument(
 
     fun setActiveLayer(index: Int): EditDocument =
         copy(activeLayerIndex = clampIndex(index))
+
+    // --- groups ---------------------------------------------------------------
+
+    fun groupInfo(id: String?): GroupInfo? = id?.let { gid -> groups.find { it.id == gid } }
+
+    /**
+     * Group the active layer with the layer directly below it. If the layer below
+     * is already in a group, the active layer joins it; otherwise a new group is
+     * formed from both. Keeps group members contiguous.
+     */
+    fun groupActiveWithBelow(): EditDocument {
+        val a = activeLayerIndex
+        if (a < 1 || a >= layers.size) return this
+        if (layers[a].groupId != null) return this
+        val below = layers[a - 1]
+        val newLayers = layers.toMutableList()
+        return if (below.groupId != null) {
+            newLayers[a] = layers[a].copyBase(groupId = below.groupId)
+            copy(layers = newLayers)
+        } else {
+            val g = GroupInfo()
+            newLayers[a - 1] = below.copyBase(groupId = g.id)
+            newLayers[a] = layers[a].copyBase(groupId = g.id)
+            copy(layers = newLayers, groups = groups + g)
+        }
+    }
+
+    /** Dissolve the group the active layer belongs to. */
+    fun ungroupActive(): EditDocument {
+        val gid = activeLayer?.groupId ?: return this
+        val newLayers = layers.map { if (it.groupId == gid) it.copyBase(groupId = null) else it }
+        return copy(layers = newLayers, groups = groups.filterNot { it.id == gid })
+    }
+
+    fun updateGroup(info: GroupInfo): EditDocument =
+        copy(groups = groups.map { if (it.id == info.id) info else it })
 
     /** Duplicates the layer at [index] directly above it and selects the copy. */
     fun duplicateLayer(index: Int): EditDocument {

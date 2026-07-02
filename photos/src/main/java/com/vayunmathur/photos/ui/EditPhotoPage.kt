@@ -430,8 +430,6 @@ fun EditPhotoPage(
     var textToEdit by remember { mutableStateOf<TextElement?>(null) }
     var currentViewportWidth by remember { mutableFloatStateOf(1f) }
     var currentViewportHeight by remember { mutableFloatStateOf(1f) }
-    var showOriginal by remember { mutableStateOf(false) }
-    var showHistogram by remember { mutableStateOf(false) }
 
     val isDrawing = activeCategory == ToolCategory.Draw
 
@@ -456,7 +454,19 @@ fun EditPhotoPage(
         }
     }
 
+    fun commitOverlays() {
+        if (inkStrokes.isNotEmpty() || texts.isNotEmpty()) {
+            vm.commitOverlaysToLayers(
+                inkStrokes.map { it.serialize() }, texts.toList(),
+                currentViewportWidth, currentViewportHeight,
+            )
+            inkStrokes.clear(); texts.clear()
+            selectedStrokeIndex = null; selectedTextIndex = null; selectedTextId = null
+        }
+    }
+
     fun goHome() {
+        commitOverlays()
         if (isCropping) exitCropPreview()
         activeCategory = null
         editorMode = EditorMode.None
@@ -467,6 +477,7 @@ fun EditPhotoPage(
     }
 
     fun openCategory(cat: ToolCategory) {
+        if (activeCategory == ToolCategory.Draw && cat != ToolCategory.Draw) commitOverlays()
         activeCategory = cat
         if (cat == ToolCategory.Draw) {
             activeTool = DrawingTool.Pointer
@@ -632,9 +643,12 @@ fun EditPhotoPage(
     }
 
     fun doSave(asCopy: Boolean, format: com.vayunmathur.photos.util.ExportFormat = com.vayunmathur.photos.util.ExportFormat.Jpeg) {
+        // Fold any in-progress strokes/text into layers so they're part of the
+        // composite; save with no separate overlay baking.
+        commitOverlays()
         photo?.let {
             vm.savePhoto(
-                it, asCopy, inkStrokes.map { s -> s.serialize() }, texts.toList(),
+                it, asCopy, emptyList(), emptyList(),
                 currentViewportWidth, currentViewportHeight, format,
             ) { context.finish() }
         }
@@ -650,12 +664,6 @@ fun EditPhotoPage(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showOriginal = !showOriginal }) {
-                        Text(if (showOriginal) "◉" else "◎", fontSize = 18.sp)
-                    }
-                    IconButton(onClick = { showHistogram = !showHistogram }) {
-                        Text("\uD83D\uDCC8", fontSize = 16.sp)
-                    }
                     IconButton(onClick = { vm.undo() }, enabled = canUndo) { IconUndo() }
                     IconButton(onClick = { vm.redo() }, enabled = canRedo) {
                         Text("↻", fontSize = 20.sp)
@@ -685,16 +693,16 @@ fun EditPhotoPage(
             )
         },
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier.fillMaxSize().padding(paddingValues).background(Color.Black),
         ) {
             BoxWithConstraints(
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(8.dp),
+                modifier = Modifier.fillMaxSize().padding(8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 val maxW = constraints.maxWidth.toFloat()
                 val maxH = constraints.maxHeight.toFloat()
-                val display = if (showOriginal) baseBitmap else (preview ?: baseBitmap)
+                val display = preview ?: baseBitmap
                 if (display != null) {
                     val ratio = display.width.toFloat() / display.height.toFloat()
                     val containerRatio = maxW / maxH
@@ -1038,9 +1046,6 @@ fun EditPhotoPage(
                             Handle(Offset(ftBR.x * vpW, ftBR.y * vpH)) { d -> ftBR += Offset(d.x / vpW, d.y / vpH) }
                         }
                     }
-                    if (showHistogram) {
-                        HistogramOverlay(display, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp))
-                    }
                 }
             }
 
@@ -1079,9 +1084,13 @@ fun EditPhotoPage(
                 }
             }
 
-            // Bottom controls: Home (category bar) or a tool screen
+            // Bottom controls: Home (category bar) or a tool screen. Overlaid at
+            // the bottom so opening a panel doesn't resize/reflow the image.
             val cat = activeCategory
-            Surface(color = MaterialTheme.colorScheme.surface) {
+            Surface(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface,
+            ) {
                 when (cat) {
                 null -> CategoryBar(onSelect = { openCategory(it) })
                 ToolCategory.Draw -> {
@@ -1690,6 +1699,9 @@ private fun ActivePanel(
             onInvertMask = { vm.invertLayerMask(it) },
             onToggleClip = { i, c -> vm.setLayerClipped(i, c) },
             onSetStyle = { i, s -> vm.setLayerStyle(i, s) },
+            onGroupActive = { vm.groupActiveWithBelow() },
+            onUngroup = { vm.ungroupActive() },
+            onUpdateGroup = { vm.updateGroup(it) },
         )
         EditorMode.MaskPaint -> MaskPaintPanel(
             reveal = maskPaintReveal, onReveal = onMaskPaintReveal,
@@ -1978,54 +1990,6 @@ private fun SelectionOverlay(
             val effect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))
             if (isEllipse) drawOval(Color.White, topLeft, sz, style = Stroke(width = 2f, pathEffect = effect))
             else drawRect(Color.White, topLeft, sz, style = Stroke(width = 2f, pathEffect = effect))
-        }
-    }
-}
-
-/**
- * Small live RGB histogram computed from the displayed bitmap (sampled for
- * speed), drawn as three overlaid channel curves.
- */
-@Composable
-private fun HistogramOverlay(bitmap: android.graphics.Bitmap?, modifier: Modifier = Modifier) {
-    if (bitmap == null) return
-    val bins = remember(bitmap) {
-        val w = bitmap.width
-        val h = bitmap.height
-        val px = IntArray(w * h)
-        bitmap.getPixels(px, 0, w, 0, 0, w, h)
-        val r = IntArray(256); val g = IntArray(256); val b = IntArray(256)
-        val step = (px.size / 60000).coerceAtLeast(1)
-        var i = 0
-        while (i < px.size) {
-            val c = px[i]
-            r[(c ushr 16) and 0xFF]++
-            g[(c ushr 8) and 0xFF]++
-            b[c and 0xFF]++
-            i += step
-        }
-        Triple(r, g, b)
-    }
-    Surface(
-        modifier = modifier.size(140.dp, 84.dp),
-        color = Color.Black.copy(alpha = 0.6f),
-        shape = RoundedCornerShape(6.dp),
-    ) {
-        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
-            val (r, g, b) = bins
-            val maxV = maxOf(r.max(), g.max(), b.max()).coerceAtLeast(1)
-            fun drawChannel(data: IntArray, color: Color) {
-                val path = Path()
-                for (x in 0 until 256) {
-                    val px = x / 255f * size.width
-                    val py = size.height - (data[x].toFloat() / maxV) * size.height
-                    if (x == 0) path.moveTo(px, py) else path.lineTo(px, py)
-                }
-                drawPath(path, color, style = Stroke(width = 1.5f))
-            }
-            drawChannel(r, Color.Red.copy(alpha = 0.8f))
-            drawChannel(g, Color.Green.copy(alpha = 0.8f))
-            drawChannel(b, Color(0xFF4488FF).copy(alpha = 0.8f))
         }
     }
 }

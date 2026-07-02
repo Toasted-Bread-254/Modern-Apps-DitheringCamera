@@ -26,6 +26,8 @@ import com.vayunmathur.photos.data.LayerAdjustment
 import com.vayunmathur.photos.data.LayerBlendMode
 import com.vayunmathur.photos.data.LayerMask
 import com.vayunmathur.photos.data.PixelLayer
+import com.vayunmathur.photos.data.DrawingLayer
+import com.vayunmathur.photos.data.TextLayer
 import com.vayunmathur.photos.data.Photo
 import com.vayunmathur.photos.data.PhotoDao
 import com.vayunmathur.photos.data.Selection
@@ -167,7 +169,7 @@ class PhotoEditViewModel(
         }
         compositor.invalidateCache()
         _document.value = next
-        requestPreviewUpdate()
+        requestPreviewUpdate(immediate = true)
     }
 
     fun undo() {
@@ -177,7 +179,7 @@ class PhotoEditViewModel(
         _canRedo.value = history.canRedo
         compositor.invalidateCache()
         _document.value = prev
-        requestPreviewUpdate()
+        requestPreviewUpdate(immediate = true)
     }
 
     fun redo() {
@@ -214,6 +216,27 @@ class PhotoEditViewModel(
     fun addAdjustmentLayer(adjustment: LayerAdjustment) =
         updateDocument { it.addLayer(withActiveSelectionMask(AdjustmentLayer(adjustment))) }
 
+    /** Commit in-progress ink strokes and text overlays into the document as real,
+     *  undoable DrawingLayer/TextLayers (one undo step). */
+    fun commitOverlaysToLayers(
+        strokes: List<SerializedStroke>,
+        texts: List<TextElement>,
+        sourceWidth: Float,
+        sourceHeight: Float,
+    ) {
+        if (strokes.isEmpty() && texts.isEmpty()) return
+        updateDocument { doc ->
+            var d = doc
+            if (strokes.isNotEmpty()) {
+                d = d.addLayer(DrawingLayer(strokes = strokes, sourceWidth = sourceWidth, sourceHeight = sourceHeight, name = "Drawing"))
+            }
+            texts.forEach { t ->
+                d = d.addLayer(TextLayer(textElement = t, name = t.text.take(16).ifBlank { "Text" }))
+            }
+            d
+        }
+    }
+
     fun addEmptyPixelLayer() {
         val doc = _document.value
         val w = doc.canvasWidth.coerceAtLeast(1)
@@ -240,6 +263,13 @@ class PhotoEditViewModel(
 
     fun setLayerStyle(index: Int, style: com.vayunmathur.photos.data.LayerStyle) =
         updateDocument { it.updateLayer(index) { l -> l.copyBase(style = style) } }
+
+    // --- groups ---------------------------------------------------------------
+
+    fun groupActiveWithBelow() = updateDocument { it.groupActiveWithBelow() }
+    fun ungroupActive() = updateDocument { it.ungroupActive() }
+    fun updateGroup(info: com.vayunmathur.photos.data.GroupInfo) =
+        updateDocument(pushUndo = false) { it.updateGroup(info) }
 
     /**
      * Paint onto the active layer's mask: [points] are normalized brush positions,
