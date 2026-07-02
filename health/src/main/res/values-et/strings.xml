@@ -111,4 +111,6 @@
     <string name="label_workouts">Treeningud</string>
     <string name="section_workouts">Treeningud</string>
     <string name="no_workouts">Ühtegi treeningut pole kirjas</string>
+    <string name="label_total_exercise">Treeninguaeg kokku</string>
+    <string name="label_exercise">Treening</string>
 </resources>
