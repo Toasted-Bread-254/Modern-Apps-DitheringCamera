@@ -5,11 +5,14 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +20,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -54,17 +58,21 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.R
 import com.vayunmathur.library.ui.IconClose
+import com.vayunmathur.library.ui.IconHome
 import com.vayunmathur.library.ui.IconSettings
+import com.vayunmathur.library.ui.IconWork
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.util.readLines
 import com.vayunmathur.maps.Route
 import com.vayunmathur.maps.data.AmenityDatabase
+import com.vayunmathur.maps.data.SavedPlace
 import com.vayunmathur.maps.data.SpecificFeature
 import com.vayunmathur.maps.data.parse
 import com.vayunmathur.maps.ensurePmtilesReady
 import com.vayunmathur.maps.util.MapsZonesViewModel
 import com.vayunmathur.maps.util.OfflineRouter
 import com.vayunmathur.maps.util.RouteService
+import com.vayunmathur.maps.util.SavedPlacesViewModel
 import com.vayunmathur.maps.util.SelectedFeatureViewModel
 import com.vayunmathur.maps.util.ZoneDownloadManager
 import kotlinx.coroutines.Dispatchers
@@ -97,10 +105,13 @@ import com.vayunmathur.maps.R as MapsR
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MapPage(backStack: NavBackStack<Route>, viewModel: SelectedFeatureViewModel, zonesViewModel: MapsZonesViewModel, db: AmenityDatabase) {
+fun MapPage(backStack: NavBackStack<Route>, viewModel: SelectedFeatureViewModel, zonesViewModel: MapsZonesViewModel, savedPlacesViewModel: SavedPlacesViewModel, db: AmenityDatabase) {
     val selectedFeature by viewModel.selectedFeature.collectAsState()
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+
+    val savedHome by savedPlacesViewModel.home.collectAsState()
+    val savedWork by savedPlacesViewModel.work.collectAsState()
 
     // --- ZONE DOWNLOAD STATE ---
     val camera = rememberCameraState(CameraPosition(target = Position(-118.243683,34.052235), zoom = 5.0))
@@ -207,6 +218,36 @@ fun MapPage(backStack: NavBackStack<Route>, viewModel: SelectedFeatureViewModel,
         allowProgrammaticHide = false
     }
 
+    fun openSearch() {
+        // Style may not have finished loading — fall back to a world-spanning
+        // bbox so the search query still works.
+        val bbox = camera.projection?.queryVisibleBoundingBox()
+        backStack.add(
+            Route.SearchPage(
+                null,
+                bbox?.east ?: 180.0,
+                bbox?.west ?: -180.0,
+                bbox?.north ?: 85.0,
+                bbox?.south ?: -85.0,
+            )
+        )
+    }
+
+    // Tapping a saved Home/Work chip recenters onto the place and opens its
+    // bottom sheet, from which the user can start Directions or remove the slot.
+    fun showSavedPlace(place: SavedPlace) {
+        coroutineScope.launch {
+            camera.animateTo(
+                camera.position.copy(
+                    target = Position(place.lon, place.lat),
+                    zoom = maxOf(camera.position.zoom, 14.0),
+                )
+            )
+        }
+        viewModel.set(place.toFeature())
+        coroutineScope.launch { scaffoldState.bottomSheetState.expand() }
+    }
+
     BackHandler(selectedFeature != null) {
         coroutineScope.launch {
             viewModel.set(null)
@@ -260,7 +301,7 @@ fun MapPage(backStack: NavBackStack<Route>, viewModel: SelectedFeatureViewModel,
 
     BottomSheetScaffold({
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 48.dp, top = 8.dp)) {
-            BottomSheetContent(viewModel, selectedFeature, { viewModel.set(it) }, route, selectedRouteType, { selectedRouteType = it }, inactiveNavigation, navState)
+            BottomSheetContent(viewModel, selectedFeature, { viewModel.set(it) }, route, selectedRouteType, { selectedRouteType = it }, inactiveNavigation, savedPlacesViewModel, navState)
         }
     }, Modifier, scaffoldState, 170.dp) { paddingValues ->
         Scaffold(Modifier.padding(top = paddingValues.calculateTopPadding()), topBar = {
@@ -385,17 +426,31 @@ fun MapPage(backStack: NavBackStack<Route>, viewModel: SelectedFeatureViewModel,
                     } else {
                         stringResource(MapsR.string.search_placeholder)
                     }
-                    Card(Modifier.padding(16.dp), shape = RoundedCornerShape(12.dp)) {
-                        ListItem({
-                            Text(name)
-                        }, colors = ListItemDefaults.colors(Color.Transparent), modifier = Modifier.clickable {
-                            val bbox = camera.projection?.queryVisibleBoundingBox()
-                            backStack.add(Route.SearchPage(null,
-                                bbox?.east ?: 180.0,
-                                bbox?.west ?: -180.0,
-                                bbox?.north ?: 85.0,
-                                bbox?.south ?: -85.0))
-                        })
+                    Column(Modifier.padding(16.dp).fillMaxWidth()) {
+                        Card(shape = RoundedCornerShape(12.dp)) {
+                            ListItem({
+                                Text(name)
+                            }, colors = ListItemDefaults.colors(Color.Transparent), modifier = Modifier.clickable {
+                                openSearch()
+                            })
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AssistChip(
+                                onClick = { savedHome?.let { showSavedPlace(it) } ?: openSearch() },
+                                label = {
+                                    Text(stringResource(if (savedHome != null) MapsR.string.saved_place_home else MapsR.string.set_home))
+                                },
+                                leadingIcon = { IconHome(Modifier.size(18.dp)) },
+                            )
+                            AssistChip(
+                                onClick = { savedWork?.let { showSavedPlace(it) } ?: openSearch() },
+                                label = {
+                                    Text(stringResource(if (savedWork != null) MapsR.string.saved_place_work else MapsR.string.set_work))
+                                },
+                                leadingIcon = { IconWork(Modifier.size(18.dp)) },
+                            )
+                        }
                     }
                 }
 

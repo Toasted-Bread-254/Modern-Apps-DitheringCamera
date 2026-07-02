@@ -32,6 +32,7 @@ import com.vayunmathur.library.util.round
 import com.vayunmathur.maps.Route
 import com.vayunmathur.maps.data.SpecificFeature
 import com.vayunmathur.maps.util.MapsSearchViewModel
+import com.vayunmathur.maps.util.SearchResult
 import com.vayunmathur.maps.util.SelectedFeatureViewModel
 import com.vayunmathur.maps.data.AmenityDatabase
 
@@ -97,14 +98,17 @@ fun SearchPage(
                 )
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(results, key = { it.id }) { amenity ->
+                    items(results, key = { it.key }) { result ->
                         ListItem(
-                            headlineContent = { Text(amenity.name.ifBlank { stringResource(R.string.unnamed_amenity) }) },
+                            headlineContent = { Text(result.title.ifBlank { stringResource(R.string.unnamed_amenity) }) },
                             supportingContent = {
-                                Text(stringResource(R.string.coordinates, amenity.lat.round(4), amenity.lon.round(4)))
+                                Text(stringResource(R.string.coordinates, result.lat.round(4), result.lon.round(4)))
                             },
                             modifier = Modifier.clickable {
-                                searchViewModel.resolveAmenity(amenity, db) { feature ->
+                                // Shared selection path: replace a route waypoint
+                                // when picking a stop (idx != null), otherwise set
+                                // the selected feature. Then leave the search page.
+                                val apply: (SpecificFeature.RoutableFeature) -> Unit = { feature ->
                                     if (idx != null) {
                                         // The selection could have changed (e.g. user
                                         // navigated away and back) between launching the
@@ -122,6 +126,12 @@ fun SearchPage(
                                         viewModel.set(feature)
                                     }
                                     backStack.pop()
+                                }
+                                when (result) {
+                                    is SearchResult.Amenity ->
+                                        searchViewModel.resolveAmenity(result.entity, db) { apply(it) }
+                                    is SearchResult.Address ->
+                                        apply(searchViewModel.addressFeature(result.result))
                                 }
                             }
                         )

@@ -29,4 +29,10 @@ data class Photo(
     // True once this photo has been scanned for faces (mirrors [exifSet]); keeps
     // the face indexer from re-processing the same photo on every sync.
     val faceScanned: Boolean = false,
+    // Text recognised from the image by on-device OCR (null until scanned). The
+    // search bar matches against this. Videos and un-scanned photos stay null.
+    val ocrText: String? = null,
+    // True once this photo has been through OCR (mirrors [faceScanned]); keeps
+    // the OCR worker from re-processing the same photo on every sync.
+    val ocrScanned: Boolean = false,
 ) : DatabaseItem

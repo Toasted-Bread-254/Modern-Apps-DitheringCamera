@@ -1,0 +1,34 @@
+package com.vayunmathur.maps.data
+
+import org.maplibre.spatialk.geojson.Position
+import kotlinx.serialization.Serializable
+
+/**
+ * A place the user pinned to a quick-access slot (Home or Work). Only the name
+ * and coordinates are kept — that's all we need to recenter the map or start a
+ * route to it.
+ */
+@Serializable
+data class SavedPlace(val name: String, val lat: Double, val lon: Double) {
+
+    /** Turns this saved place back into something the router can use as a destination. */
+    fun toFeature(): SpecificFeature.GenericPlace =
+        SpecificFeature.GenericPlace(
+            name = name,
+            phone = null,
+            website = null,
+            openingHours = null,
+            position = Position(lon, lat),
+        )
+
+    /** True if [feature] is the same place that is stored in this slot. */
+    fun matches(feature: SpecificFeature.RoutableFeature): Boolean =
+        name == feature.name &&
+            lat == feature.position.latitude &&
+            lon == feature.position.longitude
+
+    companion object {
+        fun from(feature: SpecificFeature.RoutableFeature): SavedPlace =
+            SavedPlace(feature.name, feature.position.latitude, feature.position.longitude)
+    }
+}

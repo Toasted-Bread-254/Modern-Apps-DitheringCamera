@@ -37,4 +37,5 @@ dependencies {
 
     implementation(project(":library:widgets"))
     implementation(project(":library:biometric"))
+    implementation(project(":library:ocr"))
 }

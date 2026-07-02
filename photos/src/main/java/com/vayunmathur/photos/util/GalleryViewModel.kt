@@ -8,7 +8,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import com.vayunmathur.library.util.DataStoreUtils
 import com.vayunmathur.library.util.buildDatabase
 import com.vayunmathur.photos.data.FaceDao
 import com.vayunmathur.photos.data.Photo
@@ -25,7 +24,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -50,8 +48,6 @@ class GalleryViewModel(
     val faceDao: FaceDao,
 ) : AndroidViewModel(application) {
 
-    private val dataStore: DataStoreUtils = DataStoreUtils.getInstance(application)
-
     val photos: StateFlow<List<Photo>> = photoDao.getAllFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -74,14 +70,6 @@ class GalleryViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val ocrTargetCount: StateFlow<Int> = photoDao.getOCRTargetCountFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
-
-    val isFeatureEnabled: StateFlow<Boolean> = dataStore.booleanFlow("image_understanding_enabled")
-        .onStart { emit(dataStore.getBoolean("image_understanding_enabled", false)) }
-        .stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            false,
-        )
 
     /** True while the face-grouping worker is actively indexing. */
     val faceIndexing: StateFlow<Boolean> = WorkManager.getInstance(application)
@@ -144,7 +132,7 @@ class GalleryViewModel(
                     }
                     val results = withContext(Dispatchers.IO) {
                         try {
-                            photoDao.searchPhotos("$query*")
+                            photoDao.searchPhotos(query)
                         } catch (e: Exception) {
                             Log.e(TAG, "searchPhotos failed", e)
                             emptyList()
@@ -166,12 +154,6 @@ class GalleryViewModel(
 
     fun clearSelection() {
         _selectedIds.value = emptySet()
-    }
-
-    fun setFeatureEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            dataStore.setBoolean("image_understanding_enabled", enabled)
-        }
     }
 
     fun deletePhoto(photo: Photo) {

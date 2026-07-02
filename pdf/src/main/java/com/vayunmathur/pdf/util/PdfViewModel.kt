@@ -3,12 +3,14 @@ package com.vayunmathur.pdf.util
 import android.app.Application
 import android.net.Uri
 import android.util.Log
+import android.util.Size
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.pdf.EditablePdfDocument
 import androidx.pdf.PdfDocument
 import androidx.pdf.PdfPasswordException
 import androidx.pdf.SandboxedPdfLoader
+import com.vayunmathur.library.ocr.OcrEngine
 import com.vayunmathur.pdf.R
 import com.vayunmathur.pdf.model.CapturedImage
 import com.vayunmathur.pdf.model.Quadrilateral
@@ -21,6 +23,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.max
 
 data class OutlineEntry(val label: String, val pageNum: Int)
 
@@ -201,7 +204,64 @@ class PdfViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- On-device OCR (shared :library:ocr module) -------------------------
+
+    private val ocrEngine by lazy { OcrEngine(getApplication()) }
+
+    /** Recognised text to show in a dialog, or null when no dialog is open. */
+    private val _ocrText = MutableStateFlow<String?>(null)
+    val ocrText: StateFlow<String?> = _ocrText.asStateFlow()
+
+    /** True while a page is being rendered + OCR'd. */
+    private val _ocrRunning = MutableStateFlow(false)
+    val ocrRunning: StateFlow<Boolean> = _ocrRunning.asStateFlow()
+
+    /**
+     * Render [pageNum] of [document] to a bitmap and run on-device OCR on it,
+     * exposing the result via [ocrText]. Works on scanned/image pages that have
+     * no embedded text layer.
+     */
+    fun extractTextFromPage(document: PdfDocument, pageNum: Int) {
+        if (_ocrRunning.value) return
+        viewModelScope.launch {
+            _ocrRunning.value = true
+            val text = withContext(Dispatchers.IO) {
+                try {
+                    val info = document.getPageInfo(pageNum)
+                    // Render above native size so small pages still OCR well.
+                    val scale = (OCR_RENDER_LONG_SIDE.toFloat() / max(info.width, info.height))
+                        .coerceIn(1f, 3f)
+                    val w = (info.width * scale).toInt().coerceAtLeast(1)
+                    val h = (info.height * scale).toInt().coerceAtLeast(1)
+                    val bitmap = document.getPageBitmapSource(pageNum).use {
+                        it.getBitmap(Size(w, h))
+                    }
+                    try {
+                        ocrEngine.recognize(bitmap)
+                    } finally {
+                        bitmap.recycle()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "OCR failed for page $pageNum", e)
+                    ""
+                }
+            }
+            _ocrRunning.value = false
+            _ocrText.value = text
+        }
+    }
+
+    fun dismissOcr() {
+        _ocrText.value = null
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        ocrEngine.close()
+    }
+
     companion object {
         private const val TAG = "PdfViewModel"
+        private const val OCR_RENDER_LONG_SIDE = 1600
     }
 }

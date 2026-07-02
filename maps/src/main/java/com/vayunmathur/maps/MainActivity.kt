@@ -29,6 +29,7 @@ import com.vayunmathur.maps.ui.MapPage
 import com.vayunmathur.maps.ui.SearchPage
 import com.vayunmathur.maps.util.MapsSearchViewModel
 import com.vayunmathur.maps.util.MapsZonesViewModel
+import com.vayunmathur.maps.util.SavedPlacesViewModel
 import com.vayunmathur.maps.util.SelectedFeatureViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -136,11 +137,12 @@ fun Navigation(
     viewModel: SelectedFeatureViewModel = viewModel(),
     searchViewModel: MapsSearchViewModel = viewModel(),
     zonesViewModel: MapsZonesViewModel = viewModel(),
+    savedPlacesViewModel: SavedPlacesViewModel = viewModel(),
 ) {
     val backStack = rememberNavBackStack<Route>(Route.MapPage)
     MainNavigation(backStack) {
         entry<Route.MapPage> {
-            MapPage(backStack, viewModel, zonesViewModel, db)
+            MapPage(backStack, viewModel, zonesViewModel, savedPlacesViewModel, db)
         }
         entry<Route.DownloadedMapsPage> {
             DownloadedMapsPage(backStack, zonesViewModel)

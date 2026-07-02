@@ -15,7 +15,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.database.getLongOrNull
 import androidx.core.net.toUri
 import androidx.exifinterface.media.ExifInterface
-import androidx.sqlite.db.SimpleSQLiteQuery
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
@@ -26,11 +25,11 @@ import androidx.work.WorkerParameters
 import androidx.work.ListenableWorker.Result as WorkResult
 import com.vayunmathur.library.util.DataStoreUtils
 import com.vayunmathur.library.util.buildDatabase
+import com.vayunmathur.library.ocr.OcrEngine
 import com.vayunmathur.photos.data.Person
 import com.vayunmathur.photos.data.Photo
 import com.vayunmathur.photos.data.PhotoFace
 import com.vayunmathur.photos.data.FaceDao
-import com.vayunmathur.photos.data.PhotoOCR
 import com.vayunmathur.photos.data.PhotoDatabase
 import com.vayunmathur.photos.data.VideoData
 import android.graphics.Bitmap
@@ -65,12 +64,9 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val photos = database.photoDao().getAll()
         setExifData(photos, database, applicationContext)
         
-        if (dataStore.getBoolean("image_understanding_enabled", false)) {
-            OCRWorker.enqueue(applicationContext)
-        }
-
-        // Face grouping is always on (no opt-in). The worker is inert if the
-        // model asset is missing.
+        // OCR and face grouping are both always on (no opt-in). Each worker is
+        // inert if its data/model assets are missing.
+        OCRWorker.enqueue(applicationContext)
         FaceWorker.enqueue(applicationContext)
         
         dataStore.setLong("last_photos_generation", currentGeneration)
@@ -125,16 +121,10 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 class OCRWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): WorkResult = withContext(Dispatchers.IO) {
-        val dataStore = DataStoreUtils.getInstance(applicationContext)
-        if (!dataStore.getBoolean("image_understanding_enabled", false)) {
-            return@withContext WorkResult.success()
-        }
         ocrMutex.withLock {
             setForeground(createForegroundInfo())
-            val database =
-                applicationContext.buildDatabase<PhotoDatabase>()
-            val photos = database.photoDao().getAll()
-            runOCR(photos, database, applicationContext)
+            val database = applicationContext.buildDatabase<PhotoDatabase>()
+            runOCR(database, applicationContext)
             WorkResult.success()
         }
     }
@@ -144,7 +134,7 @@ class OCRWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
         channelId = "ocr_worker",
         channelName = "Photo Indexing",
         title = "Analyzing Photos",
-        text = "Extracting scene information...",
+        text = "Reading text in your photos...",
     )
 
     companion object {
@@ -249,7 +239,7 @@ suspend fun syncPhotos(context: Context, database: PhotoDatabase, uris: List<Uri
 
                 val existing = existingPhotos[id]
                 if (existing == null || existing.date != date || existing.uri != contentUri || existing.videoData != videoData || existing.width != width || existing.height != height || existing.dateModified != dateModified || existing.isTrashed != isTrashed) {
-                    newOrUpdatedPhotos += Photo(id, name, contentUri, date, width, height, dateModified, existing?.exifSet ?: false, existing?.lat, existing?.long, videoData, isTrashed, faceScanned = existing?.faceScanned ?: false)
+                    newOrUpdatedPhotos += Photo(id, name, contentUri, date, width, height, dateModified, existing?.exifSet ?: false, existing?.lat, existing?.long, videoData, isTrashed, faceScanned = existing?.faceScanned ?: false, ocrText = existing?.ocrText, ocrScanned = existing?.ocrScanned ?: false)
                 }
             } catch (e: Exception) {
                 Log.e("SyncWorker", "Error processing photo/video from cursor", e)
@@ -338,56 +328,82 @@ suspend fun setExifData(photos: List<Photo>, database: PhotoDatabase, context: C
     }
 }
 
-suspend fun runOCR(photos: List<Photo>, database: PhotoDatabase, context: Context) = coroutineScope {
+suspend fun runOCR(database: PhotoDatabase, context: Context) = coroutineScope {
     val photoDao = database.photoDao()
-    val dataStore = DataStoreUtils.getInstance(context)
-    // Find photos that don't have OCR yet
-    // Since it's FTS4, we might want to optimize this, but for now we'll just check existence
-    // Actually, we can get all photoIds from PhotoOCR and filter
-    val ocrIds = database.query(SimpleSQLiteQuery("SELECT rowid FROM PhotoOCR"), null).use { cursor ->
-        val ids = mutableSetOf<Long>()
-        while (cursor.moveToNext()) {
-            ids.add(cursor.getLong(0))
-        }
-        ids
-    }
+    val photos = photoDao.getUnscannedForOCR().sortedByDescending { it.date }
+    if (photos.isEmpty()) return@coroutineScope
 
-    val ps = photos.filter { it.id !in ocrIds && it.videoData == null }.sortedByDescending { it.date }
-    if (ps.isEmpty()) return@coroutineScope
-
-    val ocrManager = OCRManager(context)
-
-    // Check if model is available before processing
-    if (!ocrManager.isAvailable()) {
-        Log.w("SyncWorker", "OpenAssistant not installed, skipping OCR processing")
+    val ocrEngine = OcrEngine(context)
+    // Inert (but no crash) if the OCR model assets can't be loaded.
+    if (!ocrEngine.isAvailable()) {
+        Log.w("OCRWorker", "OCR models unavailable; skipping OCR")
         return@coroutineScope
     }
 
-    ps.forEach { photo ->
-        ensureActive()
-        if (!dataStore.getBoolean("image_understanding_enabled", false)) {
-            return@coroutineScope
-        }
+    try {
+        for (photo in photos) {
+            ensureActive()
 
-        try {
-            val result = ocrManager.runOCR(photo.uri.toUri())
-            if (result != null) {
-                val (ocrText, description) = result
-                photoDao.upsertOCR(PhotoOCR(photo.id, ocrText, description))
-                Log.i("SyncWorker", "OCR for ${photo.id} produced text: ${ocrText.take(50)}, description: ${description.take(50)}")
-            } else {
-                Log.w("SyncWorker", "OCR for ${photo.id} returned null, will retry later")
+            // Skip tiny images (icons/thumbnails); mark scanned so we don't retry.
+            val largestDim = maxOf(photo.width, photo.height)
+            if (largestDim in 1 until MIN_OCR_DIM) {
+                photoDao.upsertAll(listOf(photo.copy(ocrScanned = true)))
+                continue
             }
-        } catch (e: Exception) {
-            Log.e("SyncWorker", "Error running OCR for photo ${photo.id}, will retry later", e)
-        }
 
-        // Throttle calls to the (shared, single-threaded) inference service.
-        delay(OCR_INTER_ITEM_DELAY_MS)
+            val text = try {
+                val bitmap = decodeForOcr(context, photo.uri.toUri())
+                if (bitmap != null) {
+                    try {
+                        ocrEngine.recognize(bitmap)
+                    } finally {
+                        bitmap.recycle()
+                    }
+                } else {
+                    null
+                }
+            } catch (e: Exception) {
+                Log.e("OCRWorker", "Error running OCR for photo ${photo.id}", e)
+                null
+            }
+
+            // Store result and mark scanned regardless of outcome (mirrors faces).
+            photoDao.upsertAll(listOf(photo.copy(ocrText = text, ocrScanned = true)))
+            Log.i("OCRWorker", "OCR for ${photo.id}: ${text?.take(50)?.replace("\n", " ")}")
+
+            // Short pause between images keeps sustained CPU/battery use low.
+            delay(OCR_INTER_ITEM_DELAY_MS)
+        }
+    } finally {
+        ocrEngine.close()
     }
 }
 
-private const val OCR_INTER_ITEM_DELAY_MS = 30_000L
+/** Decode a downscaled software bitmap for OCR (long side capped at [OCR_DECODE_MAX]). */
+private fun decodeForOcr(context: Context, uri: Uri): Bitmap? {
+    return try {
+        val source = ImageDecoder.createSource(context.contentResolver, uri)
+        ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            decoder.isMutableRequired = false
+            val maxDim = maxOf(info.size.width, info.size.height)
+            if (maxDim > OCR_DECODE_MAX) {
+                val scale = OCR_DECODE_MAX.toFloat() / maxDim
+                decoder.setTargetSize(
+                    (info.size.width * scale).toInt().coerceAtLeast(1),
+                    (info.size.height * scale).toInt().coerceAtLeast(1),
+                )
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("OCRWorker", "Failed to decode $uri for OCR", e)
+        null
+    }
+}
+
+private const val OCR_INTER_ITEM_DELAY_MS = 250L
+private const val MIN_OCR_DIM = 64
+private const val OCR_DECODE_MAX = 1280
 
 class FaceWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 

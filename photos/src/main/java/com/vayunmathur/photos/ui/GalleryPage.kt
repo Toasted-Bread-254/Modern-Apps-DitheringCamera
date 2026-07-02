@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -97,7 +96,6 @@ fun GalleryPage(
     var columnCount by LocalColumnCount.current
 
     val selectedIds by galleryViewModel.selectedIds.collectAsState()
-    val isFeatureEnabled by galleryViewModel.isFeatureEnabled.collectAsState()
     val isRefreshing by galleryViewModel.isRefreshing.collectAsState()
     val isSelectionMode = selectedIds.isNotEmpty()
 
@@ -233,21 +231,7 @@ fun GalleryPage(
                         }
                     ) {
                         // Search bar expanded content
-                        if (!isFeatureEnabled) {
-                            // Show OCR enable prompt
-                            ListItem(
-                                headlineContent = { Text(stringResource(R.string.enable_ai_search_title)) },
-                                supportingContent = { Text(stringResource(R.string.enable_ai_search_description)) },
-                                trailingContent = {
-                                    Button(onClick = {
-                                        galleryViewModel.setFeatureEnabled(true)
-                                        searchActive = false
-                                    }) {
-                                        Text(stringResource(R.string.enable_ai_search_button))
-                                    }
-                                }
-                            )
-                        } else if (searchQuery.isNotEmpty()) {
+                        if (searchQuery.isNotEmpty()) {
                             // Show search results as a photo grid
                             LazyVerticalGrid(
                                 GridCells.Fixed(3),

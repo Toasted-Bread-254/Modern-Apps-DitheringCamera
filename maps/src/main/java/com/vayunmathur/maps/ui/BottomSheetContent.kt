@@ -3,15 +3,18 @@ import android.content.Intent
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -19,17 +22,22 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.vayunmathur.library.ui.IconHome
+import com.vayunmathur.library.ui.IconWork
 import com.vayunmathur.library.util.round
 import com.vayunmathur.maps.R
 import com.vayunmathur.maps.data.SpecificFeature
 import com.vayunmathur.maps.util.NavigationService
 import com.vayunmathur.maps.util.NavigationSessionManager
 import com.vayunmathur.maps.util.RouteService
+import com.vayunmathur.maps.util.SavedPlacesViewModel
 import com.vayunmathur.maps.util.SelectedFeatureViewModel
 
 @Composable
@@ -41,6 +49,7 @@ fun BottomSheetContent(
     selectedRouteType: RouteService.TravelMode,
     setSelectedRouteType: (RouteService.TravelMode) -> Unit,
     inactiveNavigation: SpecificFeature.Route?,
+    savedPlacesViewModel: SavedPlacesViewModel,
     navState: NavigationSessionManager.NavState = NavigationSessionManager.NavState.Idle,
 ) {
     when (selectedFeature) {
@@ -57,42 +66,51 @@ fun BottomSheetContent(
             }
         }
         is SpecificFeature.Restaurant -> {
-            RestaurantBottomSheet(viewModel, inactiveNavigation, selectedFeature) {
-                if(inactiveNavigation == null) {
-                    setSelectedFeature(SpecificFeature.Route(listOf(null, selectedFeature)))
-                } else {
-                    setSelectedFeature(SpecificFeature.Route(inactiveNavigation.waypoints + listOf(selectedFeature)))
+            Column {
+                RestaurantBottomSheet(viewModel, inactiveNavigation, selectedFeature) {
+                    if(inactiveNavigation == null) {
+                        setSelectedFeature(SpecificFeature.Route(listOf(null, selectedFeature)))
+                    } else {
+                        setSelectedFeature(SpecificFeature.Route(inactiveNavigation.waypoints + listOf(selectedFeature)))
+                    }
                 }
+                SavedPlaceActions(selectedFeature, savedPlacesViewModel)
             }
         }
         is SpecificFeature.GenericPlace -> {
-            RestaurantBottomSheet(viewModel, inactiveNavigation, selectedFeature) {
-                if (inactiveNavigation == null) {
-                    setSelectedFeature(SpecificFeature.Route(listOf(null, selectedFeature)))
-                } else {
-                    setSelectedFeature(
-                        SpecificFeature.Route(
-                            inactiveNavigation.waypoints + listOf(
-                                selectedFeature
+            Column {
+                RestaurantBottomSheet(viewModel, inactiveNavigation, selectedFeature) {
+                    if (inactiveNavigation == null) {
+                        setSelectedFeature(SpecificFeature.Route(listOf(null, selectedFeature)))
+                    } else {
+                        setSelectedFeature(
+                            SpecificFeature.Route(
+                                inactiveNavigation.waypoints + listOf(
+                                    selectedFeature
+                                )
                             )
                         )
-                    )
+                    }
                 }
+                SavedPlaceActions(selectedFeature, savedPlacesViewModel)
             }
         }
         is SpecificFeature.TransitStop -> {
-            TransitStopBottomSheet(inactiveNavigation, selectedFeature) {
-                if (inactiveNavigation == null) {
-                    setSelectedFeature(SpecificFeature.Route(listOf(null, selectedFeature)))
-                } else {
-                    setSelectedFeature(
-                        SpecificFeature.Route(
-                            inactiveNavigation.waypoints + listOf(
-                                selectedFeature
+            Column {
+                TransitStopBottomSheet(inactiveNavigation, selectedFeature) {
+                    if (inactiveNavigation == null) {
+                        setSelectedFeature(SpecificFeature.Route(listOf(null, selectedFeature)))
+                    } else {
+                        setSelectedFeature(
+                            SpecificFeature.Route(
+                                inactiveNavigation.waypoints + listOf(
+                                    selectedFeature
+                                )
                             )
                         )
-                    )
+                    }
                 }
+                SavedPlaceActions(selectedFeature, savedPlacesViewModel)
             }
         }
         is SpecificFeature.Route -> {
@@ -208,5 +226,44 @@ fun BottomSheetContent(
             }
         }
         else -> Unit
+    }
+}
+
+/**
+ * Two chips under a place's details letting the user pin it to Home or Work.
+ * If the place is already saved in a slot, the chip is selected and tapping it
+ * again removes it, so the same control handles setting, replacing and clearing.
+ */
+@Composable
+fun SavedPlaceActions(
+    feature: SpecificFeature.RoutableFeature,
+    savedPlacesViewModel: SavedPlacesViewModel,
+) {
+    val home by savedPlacesViewModel.home.collectAsState()
+    val work by savedPlacesViewModel.work.collectAsState()
+
+    val isHome = home?.matches(feature) == true
+    val isWork = work?.matches(feature) == true
+
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        FilterChip(
+            selected = isHome,
+            onClick = { if (isHome) savedPlacesViewModel.clearHome() else savedPlacesViewModel.setHome(feature) },
+            label = {
+                Text(stringResource(if (isHome) R.string.remove_from_home else R.string.save_as_home))
+            },
+            leadingIcon = { IconHome(Modifier.size(18.dp)) },
+        )
+        FilterChip(
+            selected = isWork,
+            onClick = { if (isWork) savedPlacesViewModel.clearWork() else savedPlacesViewModel.setWork(feature) },
+            label = {
+                Text(stringResource(if (isWork) R.string.remove_from_work else R.string.save_as_work))
+            },
+            leadingIcon = { IconWork(Modifier.size(18.dp)) },
+        )
     }
 }

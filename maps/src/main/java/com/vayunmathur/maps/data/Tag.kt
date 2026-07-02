@@ -60,10 +60,43 @@ interface AmenityDao {
     suspend fun getInBBox(query: String, latMin: Double, lonMin: Double, latMax: Double, lonMax: Double): List<AmenityEntity>
 }
 
+/**
+ * A fuzzy address-search hit. Not a Room @Entity: the `Addresses` /
+ * `Addresses_fts` tables are built server-side (like `Amenities_fts`) and live
+ * in the downloaded amenities.db, so they are queried with
+ * @SkipQueryVerification and mapped into this plain result class.
+ */
+data class AddressResult(
+    val id: Long,
+    val address: String,
+    val lat: Double,
+    val lon: Double
+)
+
+@Dao
+interface AddressDao {
+    /**
+     * Closest-match address search. [query] is an FTS5 expression built from the
+     * user's text (prefix tokens joined with OR); bm25() orders rows so the best
+     * matches come first.
+     */
+    @SkipQueryVerification
+    @Query("""
+        SELECT a.id AS id, a.address AS address, a.lat AS lat, a.lon AS lon
+        FROM Addresses a
+        JOIN Addresses_fts f ON a.id = f.rowid
+        WHERE Addresses_fts MATCH :query
+        ORDER BY bm25(Addresses_fts)
+        LIMIT :limit
+    """)
+    suspend fun search(query: String, limit: Int = 50): List<AddressResult>
+}
+
 @Database(entities = [AmenityTag::class, AmenityEntity::class], version = 1)
 abstract class AmenityDatabase : RoomDatabase() {
     abstract fun tagDao(): TagDao
     abstract fun amenityDao(): AmenityDao
+    abstract fun addressDao(): AddressDao
 }
 
 fun buildAmenityDatabase(context: Context): AmenityDatabase {

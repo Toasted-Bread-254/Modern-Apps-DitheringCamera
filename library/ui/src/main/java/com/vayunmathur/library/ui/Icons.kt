@@ -211,3 +211,11 @@ fun IconBack(modifier: Modifier = Modifier, tint: Color = LocalContentColor.curr
 @Composable
 fun IconRefresh(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
     AppIcon(R.drawable.refresh_24px, "Refresh", modifier, tint)
+
+@Composable
+fun IconHome(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(R.drawable.home_24px, "Home", modifier, tint)
+
+@Composable
+fun IconWork(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(R.drawable.work_24px, "Work", modifier, tint)

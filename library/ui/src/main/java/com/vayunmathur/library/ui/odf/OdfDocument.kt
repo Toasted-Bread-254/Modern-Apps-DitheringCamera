@@ -288,6 +288,8 @@ data class OdfTableCell(
     val rowSpan: Int = 1,
     val backgroundColor: Long? = null,
     val borderColor: Long? = null,
+    // Per-edge styled borders (raw fo:border values), if any. Preserved on round-trip. (OOXML import)
+    val borders: OdfBorders? = null,
     val isCovered: Boolean = false,
     // OpenFormula source for a text-document table cell, preserved for round-trip. (Round 2 R5)
     val formula: String? = null,
@@ -309,7 +311,11 @@ data class OdfSheet(
     val hiddenRows: Set<Int> = emptySet(),
     val hiddenCols: Set<Int> = emptySet(),
     // Print range address(es), e.g. "Sheet1.A1:Sheet1.D20" (table:print-ranges). (Round 3)
-    val printRanges: String? = null
+    val printRanges: String? = null,
+    // Sheet hidden from the tab bar (xlsx sheet state="hidden"/"veryHidden"). (OOXML import)
+    val hidden: Boolean = false,
+    // Sheet tab color as 0xAARRGGBB, if any (xlsx sheetPr/tabColor). (OOXML import)
+    val tabColor: Long? = null
 )
 
 /** A workbook-level named range / expression (table:named-range). (Round 2 R6) */
@@ -362,7 +368,13 @@ data class OdfCell(
     // Name of a content-validation rule applied to this cell (Round 3).
     val validationName: String? = null,
     // Conditional formatting rules (from style:map), evaluated at render time (Round 3).
-    val condFormats: List<OdfCondFormat> = emptyList()
+    val condFormats: List<OdfCondFormat> = emptyList(),
+    // Hyperlink target (xlsx cell hyperlink), if any. (OOXML import)
+    val hyperlink: String? = null,
+    // Text rotation in degrees counter-clockwise (xlsx alignment textRotation). (OOXML import)
+    val textRotation: Int = 0,
+    // Vertical alignment within the cell: "top"/"middle"/"bottom" (xlsx alignment vertical). (OOXML import)
+    val verticalAlign: String? = null
 )
 
 /** A conditional-format rule: when [condition] is true, apply the given colors. (Round 3) */

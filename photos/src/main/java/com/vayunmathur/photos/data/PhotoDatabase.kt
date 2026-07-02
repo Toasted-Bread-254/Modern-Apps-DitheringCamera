@@ -32,20 +32,20 @@ interface PhotoDao {
     @Query("DELETE FROM Photo WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 
-    @Query("SELECT Photo.* FROM Photo JOIN PhotoOCR ON Photo.id = PhotoOCR.rowid WHERE PhotoOCR MATCH :query AND Photo.isTrashed = 0")
+    @Query("SELECT * FROM Photo WHERE isTrashed = 0 AND (ocrText LIKE '%' || :query || '%' OR name LIKE '%' || :query || '%') ORDER BY date DESC")
     suspend fun searchPhotos(query: String): List<Photo>
 
-    @Upsert
-    suspend fun upsertOCR(ocr: PhotoOCR)
-
-    @Query("DELETE FROM PhotoOCR WHERE rowid IN (:ids)")
-    suspend fun deleteOCRByIds(ids: List<Long>)
-
-    @Query("SELECT count(*) FROM PhotoOCR")
+    /** Photos already scanned by OCR (numerator of the search-index progress bar). */
+    @Query("SELECT count(*) FROM Photo WHERE ocrScanned = 1 AND isTrashed = 0 AND duration IS NULL")
     fun getOCRCountFlow(): Flow<Int>
 
+    /** Photos that count toward OCR indexing (denominator of the progress bar). */
     @Query("SELECT count(*) FROM Photo WHERE isTrashed = 0 AND duration IS NULL")
     fun getOCRTargetCountFlow(): Flow<Int>
+
+    /** Not-yet-OCR'd images (skips videos and trashed items). */
+    @Query("SELECT * FROM Photo WHERE ocrScanned = 0 AND isTrashed = 0 AND duration IS NULL")
+    suspend fun getUnscannedForOCR(): List<Photo>
 
     @Query("SELECT * FROM Photo WHERE faceScanned = 0 AND isTrashed = 0 AND duration IS NULL")
     suspend fun getUnscannedForFaces(): List<Photo>
@@ -62,13 +62,13 @@ interface PhotoDao {
     suspend fun resetFaceScanned()
 }
 
-@Database(entities = [Photo::class, PhotoOCR::class, Person::class, PhotoFace::class], version = 8, exportSchema = false)
+@Database(entities = [Photo::class, Person::class, PhotoFace::class], version = 9, exportSchema = false)
 abstract class PhotoDatabase : RoomDatabase() {
     abstract fun photoDao(): PhotoDao
     abstract fun faceDao(): FaceDao
 
     companion object : com.vayunmathur.library.util.DatabaseMigrations {
-        override val migrations: List<Migration> = listOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+        override val migrations: List<Migration> = listOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
     }
 }
 
@@ -119,4 +119,14 @@ val MIGRATION_7_8 = Migration(7, 8) {
     it.execSQL("CREATE INDEX IF NOT EXISTS `index_PhotoFace_photoId` ON `PhotoFace` (`photoId`)")
     it.execSQL("CREATE INDEX IF NOT EXISTS `index_PhotoFace_clusterId` ON `PhotoFace` (`clusterId`)")
     it.execSQL("UPDATE Photo SET faceScanned = 0")
+}
+
+val MIGRATION_8_9 = Migration(8, 9) {
+    // Move OCR text off the FTS side-table and onto the Photo row so search is a
+    // plain case-insensitive LIKE (no external inference service). ocrScanned
+    // mirrors faceScanned so the OCR worker only processes new photos. Photo data
+    // itself is untouched. SQL mirrors Room's generated schema exactly.
+    it.execSQL("ALTER TABLE Photo ADD COLUMN ocrText TEXT")
+    it.execSQL("ALTER TABLE Photo ADD COLUMN ocrScanned INTEGER NOT NULL DEFAULT 0")
+    it.execSQL("DROP TABLE IF EXISTS PhotoOCR")
 }

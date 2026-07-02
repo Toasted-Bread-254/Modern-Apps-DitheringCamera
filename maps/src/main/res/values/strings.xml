@@ -10,7 +10,7 @@
     <string name="distance_km">%1$s km</string>
 
     <!-- SearchPage -->
-    <string name="search_nearby">Search nearby…</string>
+    <string name="search_nearby">Search places &amp; addresses…</string>
     <string name="no_results_found">No results found in this area</string>
     <string name="type_to_search">Type at least 2 characters to search</string>
     <string name="unnamed_amenity">Unnamed Amenity</string>
@@ -41,6 +41,16 @@
     <string name="search_placeholder">Search…</string>
     <string name="reorder">Reorder</string>
     <string name="download_offline_map_text_overview">You are viewing Zone %1$d. Would you like to download the high-detail offline map to see more than just the overview?</string>
+
+    <!-- Saved places (Home / Work) -->
+    <string name="saved_place_home">Home</string>
+    <string name="saved_place_work">Work</string>
+    <string name="set_home">Set home</string>
+    <string name="set_work">Set work</string>
+    <string name="save_as_home">Save as Home</string>
+    <string name="save_as_work">Save as Work</string>
+    <string name="remove_from_home">Remove from Home</string>
+    <string name="remove_from_work">Remove from Work</string>
 
     <!-- MainActivity -->
     <string name="downloading_amenity_database">Downloading Amenity Database…</string>

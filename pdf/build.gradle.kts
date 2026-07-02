@@ -21,4 +21,5 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.reorderable)
     implementation(libs.material)
+    implementation(project(":library:ocr"))
 }
