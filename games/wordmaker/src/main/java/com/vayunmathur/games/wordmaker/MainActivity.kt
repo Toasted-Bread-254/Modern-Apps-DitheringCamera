@@ -47,6 +47,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -372,7 +373,8 @@ fun WordGameScreen(
                 gameMode = gameMode,
                 onModeSelected = { viewModel.setGameMode(it) },
                 onOpenGameCenter = onOpenGameCenter,
-                onOpenSettings = onOpenSettings
+                onOpenSettings = onOpenSettings,
+                levelNumber = currentLevel
             )
         }
     ) { innerPadding ->
@@ -663,19 +665,30 @@ fun WordMakerTopBar(
     gameMode: GameMode,
     onModeSelected: (GameMode) -> Unit,
     onOpenGameCenter: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    levelNumber: Int? = null
 ) {
-    TopAppBar(
-        title = { GameModeDropdown(selected = gameMode, onSelected = onModeSelected) },
-        actions = {
-            IconButton(onClick = onOpenGameCenter) {
-                Icon(painterResource(id = android.R.drawable.btn_star_big_on), "Achievements")
+        CenterAlignedTopAppBar(
+            title = {
+                if (gameMode == GameMode.CASUAL && levelNumber != null) {
+                    Text(
+                        text = stringResource(R.string.level_number, levelNumber),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            navigationIcon = {
+                GameModeDropdown(selected = gameMode, onSelected = onModeSelected)
+            },
+            actions = {
+                IconButton(onClick = onOpenGameCenter) {
+                    Icon(painterResource(id = android.R.drawable.btn_star_big_on), "Achievements")
+                }
+                IconButton(onClick = onOpenSettings) {
+                    IconSettings()
+                }
             }
-            IconButton(onClick = onOpenSettings) {
-                IconSettings()
-            }
-        }
-    )
+        )
 }
 
 /**
