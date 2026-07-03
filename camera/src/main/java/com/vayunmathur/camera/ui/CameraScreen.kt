@@ -1131,10 +1131,13 @@ private fun QrResultOverlay(text: String, onDismiss: () -> Unit, context: Contex
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(vertical = 8.dp)
         )
+        // Passkey (FIDO hybrid/caBLE) QR codes decode to a "FIDO:/..." URI. Treat it as an
+        // openable URL (scheme is case-insensitive) alongside normal web links.
+        val isFidoUri = text.startsWith("FIDO:", ignoreCase = true)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (Patterns.WEB_URL.matcher(text).matches()) {
+            if (isFidoUri || Patterns.WEB_URL.matcher(text).matches()) {
                 Button(onClick = {
-                    val url = if (!text.startsWith("http")) "https://$text" else text
+                    val url = if (!isFidoUri && !text.startsWith("http")) "https://$text" else text
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                 }) {
                     Text(stringResource(R.string.open_url))
