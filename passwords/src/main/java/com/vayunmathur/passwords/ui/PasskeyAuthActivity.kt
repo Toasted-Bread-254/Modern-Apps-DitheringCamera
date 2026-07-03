@@ -12,6 +12,7 @@ import androidx.fragment.app.FragmentActivity
 import com.vayunmathur.library.biometric.unlockDatabaseWithBiometrics
 import com.vayunmathur.library.util.DatabaseHelper
 import com.vayunmathur.library.util.buildDatabase
+import com.vayunmathur.passwords.cable.WebAuthnAuthenticator
 import com.vayunmathur.passwords.data.Passkey
 import com.vayunmathur.passwords.data.PasswordDatabase
 import com.vayunmathur.passwords.util.Cbor
@@ -22,13 +23,10 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.ByteBuffer
-import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
-import java.security.Signature
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
-import java.security.spec.PKCS8EncodedKeySpec
 import java.util.UUID
 
 class PasskeyAuthActivity : FragmentActivity() {
@@ -236,12 +234,6 @@ class PasskeyAuthActivity : FragmentActivity() {
         val origin = privilegedOrigin ?: PasskeyUtils.getAndroidOrigin(callingAppInfo)
         Log.d(TAG, "Get passkey for rpId=${passkey.rpId}, origin=$origin, privileged=$isPrivileged")
 
-        val newSignCount = passkey.signCount + 1
-        val authenticatorData = PasskeyUtils.buildAuthenticatorData(
-            rpId = passkey.rpId,
-            signCount = newSignCount,
-        )
-
         val clientDataJson = JSONObject().apply {
             put("type", "webauthn.get")
             put("challenge", challenge)
@@ -260,22 +252,11 @@ class PasskeyAuthActivity : FragmentActivity() {
             clientDataJsonB64 = b64Url(clientDataJson.toByteArray())
         }
 
-        val signedData = authenticatorData + clientDataHash
-        val keyFactory = KeyFactory.getInstance("EC")
-        val privateKey = keyFactory.generatePrivate(PKCS8EncodedKeySpec(passkey.privateKeyBytes))
-        val signature = Signature.getInstance("SHA256withECDSA")
-        signature.initSign(privateKey)
-        signature.update(signedData)
-        val sig = signature.sign()
-
-        runBlocking {
-            passkeyDao.upsert(
-                passkey.copy(
-                    signCount = newSignCount,
-                    lastUsedTime = System.currentTimeMillis(),
-                )
-            )
+        val assertion = runBlocking {
+            WebAuthnAuthenticator.signAssertion(passkey, clientDataHash, passkeyDao)
         }
+        val authenticatorData = assertion.authenticatorData
+        val sig = assertion.signature
 
         val credIdBytes = Base64.decode(
             passkey.credentialId,
