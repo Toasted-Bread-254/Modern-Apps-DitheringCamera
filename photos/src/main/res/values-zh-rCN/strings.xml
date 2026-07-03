@@ -37,4 +37,13 @@
     <string name="enable_ai_search_button">启用</string>
     <string name="model_downloading_title">正在下载 AI 模型</string>
     <string name="model_downloading_description">AI 模型正在下载中。这可能需要几分钟，具体取决于您的连接情况。</string>
+    <string name="label_people">人物</string>
+    <string name="people_empty">尚未找到人物。扫描正在后台进行 — 请在照片索引完成后再查看。</string>
+    <string name="people_scanning">正在分组面孔… 找到人物后将显示在此处。</string>
+    <string name="face_indexing_progress">正在索引 %1$d / %2$d</string>
+    <string name="people_model_missing">面孔分组需要 MobileFaceNet 模型。请将具有宽松许可的 mobilefacenet.tflite 添加到 photos/src/main/assets（参见 FaceRecognizer）。</string>
+    <string name="people_photo_count">%1$d 张照片</string>
+    <plurals name="people_in_photo">
+        <item quantity="other">%1$d 位人物</item>
+    </plurals>
 </resources>
