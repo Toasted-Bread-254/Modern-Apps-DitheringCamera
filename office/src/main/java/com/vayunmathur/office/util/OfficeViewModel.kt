@@ -6,6 +6,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.vayunmathur.library.util.DataStoreUtils
 import com.vayunmathur.office.odf.*
 import com.vayunmathur.library.ui.odf.*
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +15,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class OfficeViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow<ViewState>(ViewState.Empty)
@@ -1814,6 +1816,79 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     fun exportFlat(): String {
         val doc = (_state.value as? ViewState.Loaded)?.document ?: return ""
         return OdfSerializer.serializeFlat(doc)
+    }
+
+    // --- End-to-end-encrypted cloud sync & sharing (via OfficeSync + :library:e2ee-p2p) ---
+
+    /** This device's sync id. Empty until [initSync] has run. */
+    val syncDeviceId: String get() = OfficeSync.deviceId
+
+    /** Registers this device's public key in the directory so documents can be shared to/from it. */
+    fun initSync() {
+        viewModelScope.launch(Dispatchers.IO) { runCatching { OfficeSync.init(getApplication()) } }
+    }
+
+    /** Per-document AES content key, persisted locally (created on first use). */
+    private suspend fun documentKey(docId: String): ByteArray {
+        val ds = DataStoreUtils.getInstance(getApplication())
+        val name = "docKey:$docId"
+        ds.getByteArray(name)?.let { return it }
+        val key = OfficeSync.newDocumentKey()
+        ds.setByteArray(name, key, onlyIfAbsent = true)
+        return ds.getByteArray(name) ?: key
+    }
+
+    /** Encrypts and uploads the current document snapshot under [docId]. */
+    fun pushDocument(docId: String, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = runCatching {
+                OfficeSync.init(getApplication())
+                OfficeSync.pushSnapshot(docId, documentKey(docId), exportFlat().encodeToByteArray()) != null
+            }.getOrDefault(false)
+            withContext(Dispatchers.Main) { onResult(ok) }
+        }
+    }
+
+    /** Shares [docId] with another device by id: uploads the snapshot and wraps the key to them. */
+    fun shareDocument(docId: String, recipientId: String, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = runCatching {
+                OfficeSync.init(getApplication())
+                val key = documentKey(docId)
+                OfficeSync.pushSnapshot(docId, key, exportFlat().encodeToByteArray())
+                OfficeSync.shareWith(docId, recipientId, key)
+            }.getOrDefault(false)
+            withContext(Dispatchers.Main) { onResult(ok) }
+        }
+    }
+
+    /**
+     * Pulls and decrypts the latest shared snapshot for [docId] as flat-ODF text (null if none, or
+     * not shared with this device). Applying it back into the editor is left to the caller.
+     */
+    fun pullDocument(docId: String, onResult: (String?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val text = runCatching {
+                OfficeSync.init(getApplication())
+                val key = OfficeSync.fetchDocumentKey(docId)
+                    ?: DataStoreUtils.getInstance(getApplication()).getByteArray("docKey:$docId")
+                    ?: return@runCatching null
+                OfficeSync.pullLatest(docId, key)?.plaintext?.decodeToString()
+            }.getOrNull()
+            withContext(Dispatchers.Main) { onResult(text) }
+        }
+    }
+
+    /** Computes the verification security code with a peer device id (compare out-of-band). */
+    fun securityCodeWith(peerId: String, onResult: (String?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val code = runCatching {
+                OfficeSync.init(getApplication())
+                val pem = OfficeSync.getKey(peerId) ?: return@runCatching null
+                OfficeSync.securityCode(pem)
+            }.getOrNull()
+            withContext(Dispatchers.Main) { onResult(code) }
+        }
     }
 
     fun exportAsPlainText(): String {
