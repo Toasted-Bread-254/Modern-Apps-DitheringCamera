@@ -13,6 +13,7 @@ dependencies {
 
     // ktor
     implementation(project(":library:network"))
+    implementation(project(":library:e2ee-p2p"))
 
     implementRoom(libs)
 

@@ -39,6 +39,10 @@ fun IconDelete(modifier: Modifier = Modifier, tint: Color = LocalContentColor.cu
     AppIcon(R.drawable.delete_24px, "Delete", modifier, tint)
 
 @Composable
+fun IconVerify(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(R.drawable.verified_user_24px, "Verify security code", modifier, tint)
+
+@Composable
 fun IconShare(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
     AppIcon(R.drawable.share_24px, "Share", modifier, tint)
 

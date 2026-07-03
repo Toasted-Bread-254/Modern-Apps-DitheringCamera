@@ -5,7 +5,6 @@ import com.vayunmathur.findfamily.data.TemporaryLink
 import com.vayunmathur.findfamily.util.Networking
 import com.vayunmathur.library.util.AssistantIntent
 import com.vayunmathur.library.util.buildDatabase
-import dev.whyoleg.cryptography.algorithms.RSA
 import kotlinx.serialization.InternalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.serializer
@@ -33,8 +32,8 @@ class CreateLinkIntent : AssistantIntent<CreateLinkData, String>(
         val keypair = Networking.generateKeyPair()
         val link = TemporaryLink(
             input.name,
-            Base64.encode(keypair.privateKey.encodeToByteArray(RSA.PrivateKey.Format.PEM)),
-            Base64.encode(keypair.publicKey.encodeToByteArray(RSA.PublicKey.Format.PEM)),
+            Base64.encode(keypair.privateKeyPem),
+            Base64.encode(keypair.publicKeyPem),
             Clock.System.now() + input.expiryMillis.milliseconds,
         )
         val id = buildDatabase<FFDatabase>().temporaryLinkDao().upsert(link)

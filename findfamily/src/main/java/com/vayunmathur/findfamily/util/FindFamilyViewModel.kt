@@ -28,7 +28,6 @@ import com.vayunmathur.findfamily.data.UserDao
 import com.vayunmathur.findfamily.data.Waypoint
 import com.vayunmathur.findfamily.data.WaypointDao
 import com.vayunmathur.library.util.DatabaseHelper
-import dev.whyoleg.cryptography.algorithms.RSA
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -142,6 +141,10 @@ class FindFamilyViewModel(
             LocationServiceController.syncServiceState(ctx)
         }
     }
+
+    /** Computes the end-to-end verification security code for a connected [user] (off the main thread). */
+    suspend fun securityCodeFor(user: User): String? =
+        withContext(Dispatchers.IO) { Networking.securityCode(user) }
 
     fun upsertUser(user: User, onDone: () -> Unit = {}) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -367,12 +370,8 @@ class FindFamilyViewModel(
             val keypair = Networking.generateKeyPair()
             val newLink = TemporaryLink(
                 name,
-                Base64.encode(
-                    keypair.privateKey.encodeToByteArray(RSA.PrivateKey.Format.PEM)
-                ),
-                Base64.encode(
-                    keypair.publicKey.encodeToByteArray(RSA.PublicKey.Format.PEM)
-                ),
+                Base64.encode(keypair.privateKeyPem),
+                Base64.encode(keypair.publicKeyPem),
                 Clock.System.now() + expiry,
             )
             temporaryLinkDao.upsert(newLink)

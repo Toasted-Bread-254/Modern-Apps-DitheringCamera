@@ -6,11 +6,11 @@ import com.vayunmathur.findfamily.data.User
 import com.vayunmathur.findfamily.data.RequestStatus
 import com.vayunmathur.findfamily.data.UserDao
 import com.vayunmathur.findfamily.uwb.UwbEnvelope
+import com.vayunmathur.e2ee.E2ee
+import com.vayunmathur.e2ee.E2eeIdentity
+import com.vayunmathur.e2ee.E2eeKeyStore
 import com.vayunmathur.library.network.NetworkClient
 import com.vayunmathur.library.util.DataStoreUtils
-import dev.whyoleg.cryptography.CryptographyProvider
-import dev.whyoleg.cryptography.algorithms.RSA
-import dev.whyoleg.cryptography.algorithms.SHA512
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -25,9 +25,8 @@ object Networking {
         ignoreUnknownKeys = true
     }
 
-    private val crypto = CryptographyProvider.Default.get(RSA.OAEP)
-    private var publickey: RSA.OAEP.PublicKey? = null
-    private var privatekey: RSA.OAEP.PrivateKey? = null
+    /** Shared end-to-end-encryption identity (key generation/storage/crypto lives in :library:e2ee-p2p). */
+    private lateinit var identity: E2eeIdentity
     private var network_is_down = false
 
     var userid = 0L
@@ -36,16 +35,20 @@ object Networking {
     private lateinit var userDao: UserDao
     private lateinit var dataStoreUtils: DataStoreUtils
 
+    /** Adapts the app's encrypted DataStore to the e2ee module's storage abstraction. */
+    private class DataStoreKeyStore(private val ds: DataStoreUtils) : E2eeKeyStore {
+        override fun getBytes(name: String): ByteArray? = ds.getByteArray(name)
+        override suspend fun setBytes(name: String, value: ByteArray, onlyIfAbsent: Boolean) =
+            ds.setByteArray(name, value, onlyIfAbsent)
+    }
+
     suspend fun init(userDao: UserDao, dataStoreUtils: DataStoreUtils, meName: String) {
         Networking.dataStoreUtils = dataStoreUtils
         Networking.userDao = userDao
-        val keyPair = crypto.keyPairGenerator(digest = SHA512).generateKey()
-        dataStoreUtils.setByteArray("privateKey", keyPair.privateKey.encodeToByteArray(RSA.PrivateKey.Format.PEM), true)
-        dataStoreUtils.setByteArray("publicKey", keyPair.publicKey.encodeToByteArray(RSA.PublicKey.Format.PEM), true)
+        // Loads the persisted keypair (or generates+stores one on first launch) using the same
+        // "publicKey"/"privateKey" datastore entries as before, so existing installs keep their key.
+        identity = E2eeIdentity.loadOrCreate(DataStoreKeyStore(dataStoreUtils))
         dataStoreUtils.setLong("userid", Random.nextLong(), true)
-
-        publickey = crypto.publicKeyDecoder(SHA512).decodeFromByteArray(RSA.PublicKey.Format.PEM, dataStoreUtils.getByteArray("publicKey")!!)
-        privatekey = crypto.privateKeyDecoder(SHA512).decodeFromByteArray(RSA.PrivateKey.Format.PEM, dataStoreUtils.getByteArray("privateKey")!!)
         userid = dataStoreUtils.getLong("userid")!!
 
         if (userDao.getById(userid) == null) {
@@ -99,7 +102,7 @@ object Networking {
         data class Register(val userid: ULong, val key: String)
         return makeRequest<Boolean, Register>("/api/register", Register(
             userid.toULong(),
-            Base64.encode(publickey!!.encodeToByteArray(RSA.PublicKey.Format.PEM))
+            Base64.encode(identity.publicKeyPem)
         )
         ) ?: false
     }
@@ -110,7 +113,8 @@ object Networking {
         }
     }
 
-    private suspend fun getKey(userid: Long): RSA.OAEP.PublicKey? {
+    /** Fetches a peer's public key by id, returning its PEM bytes (or null if unknown/offline). */
+    private suspend fun getKey(userid: Long): ByteArray? {
         return checkNetworkDown {
             val response = NetworkClient.performRequest(
                 url = "$URL/api/getkey",
@@ -121,9 +125,7 @@ object Networking {
             if(response.status != 200) {
                 return@checkNetworkDown null
             }
-            return@checkNetworkDown crypto.publicKeyDecoder(SHA512).decodeFromByteArray(RSA.PublicKey.Format.PEM,
-                Base64.decode(response.body)
-            )
+            return@checkNetworkDown Base64.decode(response.body)
         }
     }
 
@@ -131,24 +133,19 @@ object Networking {
     private const val PLATFORM = "android"
 
     suspend fun publishLocation(location: LocationValue, user: User): Boolean {
-        val key = if(user.encryptionKey != null) {
-            crypto.publicKeyDecoder(SHA512).decodeFromByteArray(RSA.PublicKey.Format.PEM,
-                Base64.decode(user.encryptionKey)
-            )
+        val keyPem = if (user.encryptionKey != null) {
+            Base64.decode(user.encryptionKey)
         } else {
             getKey(user.id)?.also {
-                val keyString = Base64.encode(it.encodeToByteArray(RSA.PublicKey.Format.PEM))
-                userDao.upsert(user.copy(encryptionKey = keyString))
+                userDao.upsert(user.copy(encryptionKey = Base64.encode(it)))
             }
         } ?: return false
-        return makeRequest<Boolean, LocationSharingData>("/api/location/publish", encryptLocation(location, user.id, key)) ?: false
+        return makeRequest<Boolean, LocationSharingData>("/api/location/publish", encryptLocation(location, user.id, keyPem)) ?: false
     }
 
     suspend fun publishLocation(location: LocationValue, user: TemporaryLink): Boolean {
-        val key = crypto.publicKeyDecoder(SHA512).decodeFromByteArray(RSA.PublicKey.Format.PEM,
-            Base64.decode(user.publicKey)
-        )
-        return makeRequest<Boolean, LocationSharingData>("/api/location/publish", encryptLocation(location, user.id, key)) ?: false
+        val keyPem = Base64.decode(user.publicKey)
+        return makeRequest<Boolean, LocationSharingData>("/api/location/publish", encryptLocation(location, user.id, keyPem)) ?: false
     }
 
     suspend fun receiveLocations(): List<LocationValue>? {
@@ -176,17 +173,13 @@ object Networking {
     // ----------------------------------------------------------------
 
     suspend fun publishUwbMessage(envelope: UwbEnvelope, recipientUserId: Long, recipient: User? = null): Boolean {
-        val key = if (recipient?.encryptionKey != null) {
-            crypto.publicKeyDecoder(SHA512).decodeFromByteArray(
-                RSA.PublicKey.Format.PEM,
-                Base64.decode(recipient.encryptionKey)
-            )
+        val keyPem = if (recipient?.encryptionKey != null) {
+            Base64.decode(recipient.encryptionKey)
         } else {
             getKey(recipientUserId) ?: return false
         }
-        val cipher = key.encryptor()
         val str = json.encodeToString(envelope)
-        val encryptedData = Base64.encode(cipher.encrypt(str.encodeToByteArray()))
+        val encryptedData = Base64.encode(E2ee.encryptTo(keyPem, str.encodeToByteArray()))
         // We can't reuse `makeRequest<Boolean, ...>` here because the server
         // returns `204 No Content` (no body) on success, and Ktor's content
         // negotiation throws `NoTransformationFoundException` trying to
@@ -210,31 +203,45 @@ object Networking {
      */
     suspend fun receiveUwbMessages(): List<UwbEnvelope>? {
         val strings: List<String>? = makeRequest("/api/uwb/receive", json.encodeToString(UserIdRequest(userid)))
-        val cipher = privatekey?.decryptor() ?: return null
         return strings?.mapNotNull { b64 ->
             runCatching {
-                val plain = cipher.decrypt(Base64.decode(b64)).decodeToString()
+                val plain = identity.decrypt(Base64.decode(b64)).decodeToString()
                 json.decodeFromString<UwbEnvelope>(plain)
             }.getOrNull()
         }
     }
 
-    private suspend fun encryptLocation(location: LocationValue, recipientUserID: Long, key: RSA.OAEP.PublicKey): LocationSharingData {
-        val cipher = key.encryptor()
+    private suspend fun encryptLocation(location: LocationValue, recipientUserID: Long, keyPem: ByteArray): LocationSharingData {
         val str = json.encodeToString(location.toCompatible(senderPlatform = PLATFORM))
-        val encryptedData = Base64.encode(cipher.encrypt(str.encodeToByteArray()))
+        val encryptedData = Base64.encode(E2ee.encryptTo(keyPem, str.encodeToByteArray()))
         return LocationSharingData(recipientUserID.toULong(), encryptedData)
     }
 
     private suspend fun decryptLocation(encryptedLocation: String): Pair<LocationValue, String?> {
-        val cipher = privatekey!!.decryptor()
-        val decryptedData = cipher.decrypt(Base64.decode(encryptedLocation)).decodeToString()
+        val decryptedData = identity.decrypt(Base64.decode(encryptedLocation)).decodeToString()
         val compat = json.decodeFromString<LocationValueCompatible>(decryptedData)
         return compat.toLocationValue() to compat.senderPlatform
     }
 
-    suspend fun generateKeyPair(): RSA.OAEP.KeyPair {
-        return crypto.keyPairGenerator(digest = SHA512).generateKey()
+    /** Generates a fresh keypair (used for anonymous temporary share links). PEM bytes. */
+    suspend fun generateKeyPair(): E2ee.KeyPairPem = E2ee.generateKeyPair()
+
+    /**
+     * Computes the verification "security code" for a connection: a fingerprint of *both* this
+     * device's and [user]'s public keys. Identical on both peers' devices; comparing them confirms
+     * the end-to-end channel isn't being intercepted. Returns null if the peer's key isn't known yet.
+     */
+    suspend fun securityCode(user: User): String? {
+        val theirPem = peerPublicKeyPem(user) ?: return null
+        return runCatching { E2ee.securityCode(identity.publicKeyPem, theirPem) }.getOrNull()
+    }
+
+    /** The peer's public key as PEM bytes — from the cached [User.encryptionKey] or fetched by id. */
+    private suspend fun peerPublicKeyPem(user: User): ByteArray? {
+        user.encryptionKey?.let { return Base64.decode(it) }
+        val pem = getKey(user.id) ?: return null
+        userDao.upsert(user.copy(encryptionKey = Base64.encode(pem)))
+        return pem
     }
 
     @Serializable

@@ -72,6 +72,7 @@ import com.vayunmathur.findfamily.data.User
 import com.vayunmathur.findfamily.data.Waypoint
 import com.vayunmathur.findfamily.data.toPosition
 import com.vayunmathur.findfamily.ui.dialogs.encodeBase26
+import com.vayunmathur.findfamily.ui.dialogs.SecurityCodeDialog
 import com.vayunmathur.findfamily.util.FindFamilyViewModel
 import com.vayunmathur.findfamily.util.Networking
 import com.vayunmathur.findfamily.util.Platform
@@ -83,6 +84,7 @@ import com.vayunmathur.library.ui.IconDelete
 import com.vayunmathur.library.ui.IconEdit
 import com.vayunmathur.library.ui.IconNavigation
 import com.vayunmathur.library.ui.IconNavigationArrow
+import com.vayunmathur.library.ui.IconVerify
 import com.vayunmathur.library.ui.IconSave
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.util.ResultEffect
@@ -122,6 +124,7 @@ fun MainPage(
     val selectedWaypointId by ffViewModel.selectedWaypointId.collectAsState()
     val isShowingPresent by ffViewModel.isShowingPresent.collectAsState()
     val historicalPosition by ffViewModel.historicalPosition.collectAsState()
+    var showSecurityCode by remember { mutableStateOf(false) }
 
     val waypointName by ffViewModel.waypointName.collectAsState()
     val waypointRange by ffViewModel.waypointRange.collectAsState()
@@ -170,6 +173,9 @@ fun MainPage(
                                 }) {
                                     IconNavigationArrow()
                                 }
+                            }
+                            IconButton({ showSecurityCode = true }) {
+                                IconVerify()
                             }
                             IconButton({
                                 user?.let { ffViewModel.deleteUser(it) }
@@ -415,6 +421,11 @@ fun MainPage(
                 )
             }
         }
+    }
+
+    if (showSecurityCode && selectedUserId != null && selectedUserId != Networking.userid) {
+        val user by ffViewModel.userByIdState(selectedUserId!!)
+        user?.let { SecurityCodeDialog(it, ffViewModel) { showSecurityCode = false } }
     }
 }
 
