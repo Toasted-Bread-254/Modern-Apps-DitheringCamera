@@ -25,9 +25,6 @@ dependencies {
     // maplibre
     implementation(libs.maplibre.compose)
 
-    implementation(libs.cryptography.core)
-    implementation(libs.cryptography.provider.jdk)
-
     // Public AOSP ranging API (android.ranging.*) is part of the framework
     // on Android 15+ — no third-party library needed. We intentionally avoid
     // androidx.core.uwb because its only backend is GMS-mediated, which fails
