@@ -7,6 +7,9 @@ import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.library.util.DataStoreUtils
+import kotlin.io.encoding.Base64
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import com.vayunmathur.office.odf.*
 import com.vayunmathur.library.ui.odf.*
 import kotlinx.coroutines.Dispatchers
@@ -14,8 +17,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** Local metadata for a document in the online folder (title/key stay client-side; never sent in the clear). */
+@Serializable
+data class OfficeDocMeta(val docId: String, val title: String, val keyB64: String, val owner: Boolean)
 
 class OfficeViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow<ViewState>(ViewState.Empty)
@@ -1820,62 +1828,115 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
 
     // --- End-to-end-encrypted cloud sync & sharing (via OfficeSync + :library:e2ee-p2p) ---
 
+    private val _onlineDocs = MutableStateFlow<List<OfficeDocMeta>>(emptyList())
+    /** Documents in the "online" folder: created/shared by you or shared with you. */
+    val onlineDocs: StateFlow<List<OfficeDocMeta>> = _onlineDocs.asStateFlow()
+
+    /** The online doc id/key of the currently open document, if it lives online. */
+    private var currentDocId: String? = null
+    private var currentDocKey: ByteArray? = null
+    private val syncJson = Json { ignoreUnknownKeys = true }
+
     /** This device's sync id. Empty until [initSync] has run. */
     val syncDeviceId: String get() = OfficeSync.deviceId
 
-    /** Registers this device's public key in the directory so documents can be shared to/from it. */
+    /** Registers this device, loads the local online index, and pulls any new invites. */
     fun initSync() {
-        viewModelScope.launch(Dispatchers.IO) { runCatching { OfficeSync.init(getApplication()) } }
-    }
-
-    /** Per-document AES content key, persisted locally (created on first use). */
-    private suspend fun documentKey(docId: String): ByteArray {
-        val ds = DataStoreUtils.getInstance(getApplication())
-        val name = "docKey:$docId"
-        ds.getByteArray(name)?.let { return it }
-        val key = OfficeSync.newDocumentKey()
-        ds.setByteArray(name, key, onlyIfAbsent = true)
-        return ds.getByteArray(name) ?: key
-    }
-
-    /** Encrypts and uploads the current document snapshot under [docId]. */
-    fun pushDocument(docId: String, onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch(Dispatchers.IO) {
-            val ok = runCatching {
+            runCatching {
                 OfficeSync.init(getApplication())
-                OfficeSync.pushSnapshot(docId, documentKey(docId), exportFlat().encodeToByteArray()) != null
-            }.getOrDefault(false)
-            withContext(Dispatchers.Main) { onResult(ok) }
+                _onlineDocs.value = loadIndex(DataStoreUtils.getInstance(getApplication()))
+            }
+            refreshOnline()
         }
     }
 
-    /** Shares [docId] with another device by id: uploads the snapshot and wraps the key to them. */
-    fun shareDocument(docId: String, recipientId: String, onResult: (Boolean) -> Unit = {}) {
+    private suspend fun loadIndex(ds: DataStoreUtils): List<OfficeDocMeta> =
+        ds.getString("officeDocsIndex")
+            ?.let { runCatching { syncJson.decodeFromString<List<OfficeDocMeta>>(it) }.getOrNull() }
+            ?: emptyList()
+
+    private suspend fun saveIndex(ds: DataStoreUtils, list: List<OfficeDocMeta>) {
+        ds.setString("officeDocsIndex", syncJson.encodeToString(list))
+        _onlineDocs.value = list
+    }
+
+    /** Pulls new invites from this device's inbox and merges them into the online list. */
+    fun refreshOnline() {
         viewModelScope.launch(Dispatchers.IO) {
-            val ok = runCatching {
+            runCatching {
                 OfficeSync.init(getApplication())
-                val key = documentKey(docId)
-                OfficeSync.pushSnapshot(docId, key, exportFlat().encodeToByteArray())
-                OfficeSync.shareWith(docId, recipientId, key)
-            }.getOrDefault(false)
-            withContext(Dispatchers.Main) { onResult(ok) }
+                val ds = DataStoreUtils.getInstance(getApplication())
+                val cursor = ds.getLong("officeInboxCursor")?.toInt() ?: 0
+                val res = OfficeSync.pullInvites(cursor)
+                if (res.invites.isNotEmpty()) {
+                    val index = loadIndex(ds).associateBy { it.docId }.toMutableMap()
+                    for (inv in res.invites) {
+                        if (!index.containsKey(inv.docId)) {
+                            index[inv.docId] = OfficeDocMeta(inv.docId, inv.title, inv.key, owner = false)
+                        }
+                    }
+                    saveIndex(ds, index.values.toList())
+                }
+                ds.setLong("officeInboxCursor", res.seq.toLong())
+            }
         }
     }
 
     /**
-     * Pulls and decrypts the latest shared snapshot for [docId] as flat-ODF text (null if none, or
-     * not shared with this device). Applying it back into the editor is left to the caller.
+     * Shares the current document with [recipientId]. If it isn't online yet, it is first copied
+     * into the online folder (new doc id + content key + uploaded snapshot), then the invite is sent.
      */
-    fun pullDocument(docId: String, onResult: (String?) -> Unit) {
+    fun shareCurrentDocument(recipientId: String, onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch(Dispatchers.IO) {
-            val text = runCatching {
+            val ok = runCatching {
                 OfficeSync.init(getApplication())
-                val key = OfficeSync.fetchDocumentKey(docId)
-                    ?: DataStoreUtils.getInstance(getApplication()).getByteArray("docKey:$docId")
-                    ?: return@runCatching null
-                OfficeSync.pullLatest(docId, key)?.plaintext?.decodeToString()
-            }.getOrNull()
-            withContext(Dispatchers.Main) { onResult(text) }
+                val ds = DataStoreUtils.getInstance(getApplication())
+                val title = (_state.value as? ViewState.Loaded)?.document?.title ?: "Document"
+                val docId = currentDocId ?: OfficeSync.newDocumentId()
+                val key = currentDocKey ?: OfficeSync.newDocumentKey()
+                currentDocId = docId
+                currentDocKey = key
+                OfficeSync.pushSnapshot(docId, key, exportFlat())
+                val index = loadIndex(ds).associateBy { it.docId }.toMutableMap()
+                if (!index.containsKey(docId)) {
+                    index[docId] = OfficeDocMeta(docId, title, Base64.encode(key), owner = true)
+                    saveIndex(ds, index.values.toList())
+                }
+                OfficeSync.sendInvite(recipientId, docId, key, title)
+            }.getOrDefault(false)
+            withContext(Dispatchers.Main) { onResult(ok) }
+        }
+    }
+
+    /** Uploads the current document's latest state to its online channel (no-op if offline-only). */
+    fun syncCurrentDocument() {
+        val docId = currentDocId ?: return
+        val key = currentDocKey ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                OfficeSync.init(getApplication())
+                OfficeSync.pushSnapshot(docId, key, exportFlat())
+            }
+        }
+    }
+
+    /** Opens an online document by pulling + decrypting its latest snapshot into the editor. */
+    fun openOnlineDocument(meta: OfficeDocMeta) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                OfficeSync.init(getApplication())
+                val key = Base64.decode(meta.keyB64)
+                val flat = OfficeSync.latestSnapshot(meta.docId, key) ?: return@runCatching
+                val ctx: Context = getApplication()
+                val file = java.io.File(ctx.cacheDir, "online_${meta.docId}.fodt")
+                file.writeText(flat)
+                currentDocId = meta.docId
+                currentDocKey = key
+                withContext(Dispatchers.Main) {
+                    loadDocument(Uri.fromFile(file), "${meta.title}.fodt")
+                }
+            }
         }
     }
 

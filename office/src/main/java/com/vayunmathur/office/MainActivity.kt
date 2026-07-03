@@ -53,6 +53,15 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Card
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -140,7 +149,7 @@ class MainActivity : ComponentActivity() {
             OfficeLightTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     when (val s = state) {
-                        is OfficeViewModel.ViewState.Empty -> InitialScreen(
+                        is OfficeViewModel.ViewState.Empty -> HomeScreen(
                             viewModel = viewModel,
                             onOpenDocument = { filePickerLauncher.launch(odfMimeTypes) }
                         )
@@ -186,10 +195,108 @@ fun InitialScreen(viewModel: OfficeViewModel, onOpenDocument: () -> Unit) {
     }
 }
 
+/** Home with a bottom nav: Offline (local files + new docs) and Online (E2EE shared documents). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HomeScreen(viewModel: OfficeViewModel, onOpenDocument: () -> Unit) {
+    var tab by rememberSaveable { mutableStateOf(0) }
+    LaunchedEffect(Unit) { viewModel.initSync() }
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = tab == 0, onClick = { tab = 0 },
+                    icon = { Icon(painterResource(com.vayunmathur.library.R.drawable.home_24px), null) },
+                    label = { Text("Offline") }
+                )
+                NavigationBarItem(
+                    selected = tab == 1, onClick = { tab = 1 },
+                    icon = { Icon(painterResource(com.vayunmathur.library.R.drawable.outline_file_download_24), null) },
+                    label = { Text("Online") }
+                )
+            }
+        }
+    ) { pad ->
+        Box(Modifier.padding(pad).fillMaxSize()) {
+            if (tab == 0) InitialScreen(viewModel, onOpenDocument) else OnlineTab(viewModel)
+        }
+    }
+}
+
+/** Dialog to copy the current document into the online folder and share it with a device id. */
+@Composable
+fun ShareOnlineDialog(deviceId: String, onShare: (String) -> Unit, onDismiss: () -> Unit) {
+    var recipient by remember { mutableStateOf("") }
+    val clipboard = LocalClipboardManager.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Share online") },
+        text = {
+            Column {
+                Text("Copies this document into your online folder (end-to-end encrypted) and shares it with the person whose device id you enter.")
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = recipient, onValueChange = { recipient = it },
+                    label = { Text("Recipient device id") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("Your device id:", style = MaterialTheme.typography.bodySmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(deviceId.ifEmpty { "…" }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { if (deviceId.isNotEmpty()) clipboard.setText(AnnotatedString(deviceId)) }) { Text("Copy") }
+                }
+            }
+        },
+        confirmButton = { TextButton(enabled = recipient.isNotBlank(), onClick = { onShare(recipient.trim()) }) { Text("Share") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+/** Lists documents shared by you or with you; tap to pull + open. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OnlineTab(viewModel: OfficeViewModel) {
+    val docs by viewModel.onlineDocs.collectAsState()
+    val deviceId = viewModel.syncDeviceId
+    val clipboard = LocalClipboardManager.current
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Online", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            IconButton(onClick = { viewModel.refreshOnline() }) {
+                Icon(painterResource(com.vayunmathur.library.R.drawable.refresh_24px), "Refresh")
+            }
+        }
+        Text("Your device id (share this so others can send you documents):",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(deviceId.ifEmpty { "…" }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+            TextButton(onClick = { if (deviceId.isNotEmpty()) clipboard.setText(AnnotatedString(deviceId)) }) { Text("Copy") }
+        }
+        Spacer(Modifier.height(12.dp))
+        if (docs.isEmpty()) {
+            Text("No online documents yet. Open a document and use \u201CShare\u201D to copy it here and send it to someone, or ask them to share to your device id, then tap refresh.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(docs) { meta ->
+                    Card(Modifier.fillMaxWidth().clickable { viewModel.openOnlineDocument(meta) }) {
+                        ListItem(
+                            headlineContent = { Text(meta.title) },
+                            supportingContent = { Text(if (meta.owner) "Shared by you" else "Shared with you") }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: ComponentActivity, onBack: () -> Unit) {
     var showMetadata by remember { mutableStateOf(false) }
+    var showShareDialog by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var showFontControl by remember { mutableStateOf(false) }
@@ -428,6 +535,7 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                                 DropdownMenu(expanded = fileMenu, onDismissRequest = { fileMenu = false }) {
                                     DropdownMenuItem(text = { Text("Save") }, enabled = hasUnsavedChanges, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.save_24px), null) }, onClick = { fileMenu = false; if (viewModel.needsSaveAs()) saveAsLauncher.launch(saveAsName) else viewModel.save() })
                                     DropdownMenuItem(text = { Text("Save As…") }, onClick = { fileMenu = false; saveAsLauncher.launch(saveAsName) })
+                                    DropdownMenuItem(text = { Text("Share online…") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.share_24px), null) }, onClick = { fileMenu = false; showShareDialog = true })
                                     DropdownMenuItem(text = { Text(stringResource(R.string.print_doc)) }, onClick = { fileMenu = false; printDocument(activity, document) })
                                     DropdownMenuItem(text = { Text("Export to PDF…") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.outline_file_download_24), null) }, onClick = { fileMenu = false; printDocument(activity, document) })
                                     viewModel.documentUri?.let { uri ->
@@ -666,6 +774,14 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
     }
 
     if (showMetadata) MetadataDialog(metadata = document.metadata, onSave = { m -> viewModel.updateMetadata { m } }, onDismiss = { showMetadata = false })
+    LaunchedEffect(Unit) { viewModel.initSync() }
+    if (showShareDialog) {
+        ShareOnlineDialog(
+            deviceId = viewModel.syncDeviceId,
+            onShare = { recipientId -> viewModel.shareCurrentDocument(recipientId); showShareDialog = false },
+            onDismiss = { showShareDialog = false }
+        )
+    }
     if (showUnsavedDialog) AlertDialog(onDismissRequest = { showUnsavedDialog = false }, title = { Text(stringResource(R.string.unsaved_changes)) },
         text = { Text(stringResource(R.string.unsaved_changes_message)) },
         confirmButton = { TextButton(onClick = { showUnsavedDialog = false; onBack() }) { Text(stringResource(R.string.discard), color = MaterialTheme.colorScheme.error) } },

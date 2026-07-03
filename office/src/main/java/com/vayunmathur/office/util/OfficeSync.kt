@@ -13,16 +13,17 @@ import java.util.UUID
 import kotlin.io.encoding.Base64
 
 /**
- * End-to-end-encrypted cloud sync + sharing client for the Office app, talking to the `/office`
- * endpoints on the shared server. All key generation / storage / crypto comes from
- * `:library:e2ee-p2p`, so Office and FindFamily use identical techniques.
+ * Client for the Office **pure-relay** server. The server only stores a key directory and an
+ * append-only log of opaque encrypted "action" blobs per channel; ALL intelligence is here.
  *
- * Model (last-writer-wins snapshot sync — not real-time CRDT):
- *  - each device has an [E2eeIdentity] registered in the server key directory under a random id;
- *  - a document is encrypted with a random AES content key ([newDocumentKey]); the ciphertext
- *    snapshot is pushed to the document's append log;
- *  - sharing wraps the content key to a recipient's public key (fetched by id) so only they can
- *    unwrap it. The server only ever stores ciphertext + wrapped keys — it can't read documents.
+ * Channels:
+ *  - a **document** is a channel keyed by its opaque doc id; its actions are snapshots encrypted
+ *    with the document's symmetric content key (shared only with members);
+ *  - a **device inbox** is the channel `inbox:<deviceId>`; a "share" is an [Invite] action encrypted
+ *    to that device's public key (carrying the doc id + content key + title) so a new member learns
+ *    what they need without the server knowing anything.
+ *
+ * All key generation/crypto comes from `:library:e2ee-p2p`, identical to FindFamily.
  */
 object OfficeSync {
     private const val URL = "https://findfamily.cc/office"
@@ -57,57 +58,75 @@ object OfficeSync {
     private suspend fun register(): Boolean =
         post("/register", RegisterReq(deviceId, Base64.encode(identity.publicKeyPem)))
 
-    /** A fresh random AES content key for a new document. */
-    fun newDocumentKey(): ByteArray = E2ee.newContentKey()
-
-    /** Encrypts and pushes a full document snapshot; returns the new log length, or null on failure. */
-    suspend fun pushSnapshot(docId: String, docKey: ByteArray, plaintext: ByteArray): Int? {
-        val ct = Base64.encode(E2ee.aesEncrypt(docKey, plaintext))
-        val r = raw("/doc/push", PushReq(docId, listOf(ct))) ?: return null
-        if (r.status != 200) return null
-        return runCatching { json.decodeFromString<SeqResp>(r.body).seq }.getOrNull()
-    }
-
-    /** Pulls and decrypts the latest snapshot at/after [since]; null plaintext means nothing new. */
-    suspend fun pullLatest(docId: String, docKey: ByteArray, since: Int = 0): PullResult? {
-        val r = raw("/doc/pull", PullReq(docId, since)) ?: return null
-        if (r.status != 200) return null
-        val resp = runCatching { json.decodeFromString<PullResp>(r.body) }.getOrNull() ?: return null
-        val latest = resp.updates.lastOrNull() ?: return PullResult(null, resp.seq)
-        val plain = runCatching { E2ee.aesDecrypt(docKey, Base64.decode(latest)) }.getOrNull()
-        return PullResult(plain, resp.seq)
-    }
-
-    /** Shares a document with another device by id: wraps [docKey] to their public key. */
-    suspend fun shareWith(docId: String, recipientId: String, docKey: ByteArray, rosterEntry: String? = null): Boolean {
-        val peerPem = getKey(recipientId) ?: return false
-        val wrapped = Base64.encode(E2ee.encryptTo(peerPem, docKey))
-        return post("/doc/share", ShareReq(docId, recipientId, wrapped, rosterEntry))
-    }
-
-    /** Fetches and unwraps this device's copy of a shared document's content key, if any. */
-    suspend fun fetchDocumentKey(docId: String): ByteArray? {
-        val r = raw("/doc/keys", DocKeysReq(docId, deviceId)) ?: return null
-        if (r.status != 200) return null
-        val resp = runCatching { json.decodeFromString<WrappedKeysResp>(r.body) }.getOrNull() ?: return null
-        val blob = resp.wrappedKeys.lastOrNull()?.blob ?: return null
-        return runCatching { identity.decrypt(Base64.decode(blob)) }.getOrNull()
-    }
-
     /** Fetches a peer's public key (PEM bytes) by id from the directory. */
     suspend fun getKey(id: String): ByteArray? {
         val r = raw("/getkey", IdReq(id)) ?: return null
         return if (r.status == 200) Base64.decode(r.body) else null
     }
 
-    /**
-     * Verification security code between this device and a peer (given the peer's PEM public key).
-     * Identical on both devices; compare out-of-band to confirm no key substitution.
-     */
+    /** A fresh random AES content key for a new document. */
+    fun newDocumentKey(): ByteArray = E2ee.newContentKey()
+
+    /** A fresh opaque document id. */
+    fun newDocumentId(): String = UUID.randomUUID().toString()
+
+    // --- Document channel (snapshots encrypted with the content key) ---
+
+    /** Appends an encrypted full-document snapshot action; returns the new cursor, or null. */
+    suspend fun pushSnapshot(docId: String, key: ByteArray, flatOdf: String): Int? {
+        val action = json.encodeToString(DocAction(type = "snapshot", flat = flatOdf))
+        val blob = Base64.encode(E2ee.aesEncrypt(key, action.encodeToByteArray()))
+        return append(docId, listOf(blob))
+    }
+
+    /** Pulls the latest decrypted snapshot for a document (null if none / undecryptable). */
+    suspend fun latestSnapshot(docId: String, key: ByteArray): String? {
+        val p = pull(docId, 0) ?: return null
+        for (b in p.actions.asReversed()) {
+            val plain = runCatching { E2ee.aesDecrypt(key, Base64.decode(b)) }.getOrNull() ?: continue
+            val a = runCatching { json.decodeFromString<DocAction>(plain.decodeToString()) }.getOrNull() ?: continue
+            if (a.type == "snapshot") return a.flat
+        }
+        return null
+    }
+
+    // --- Inbox channel (invites encrypted to the recipient's public key) ---
+
+    /** Shares a document by dropping an encrypted invite into the recipient's inbox channel. */
+    suspend fun sendInvite(recipientId: String, docId: String, key: ByteArray, title: String): Boolean {
+        val peerPem = getKey(recipientId) ?: return false
+        val invite = json.encodeToString(Invite(docId, Base64.encode(key), title))
+        val blob = Base64.encode(E2ee.encryptTo(peerPem, invite.encodeToByteArray()))
+        return append("inbox:$recipientId", listOf(blob)) != null
+    }
+
+    /** Drains new invites from this device's inbox at/after [since]; returns invites + new cursor. */
+    suspend fun pullInvites(since: Int): InvitesResult {
+        val p = pull("inbox:$deviceId", since) ?: return InvitesResult(emptyList(), since)
+        val invites = p.actions.mapNotNull { b ->
+            val plain = runCatching { identity.decrypt(Base64.decode(b)) }.getOrNull() ?: return@mapNotNull null
+            runCatching { json.decodeFromString<Invite>(plain.decodeToString()) }.getOrNull()
+        }
+        return InvitesResult(invites, p.seq)
+    }
+
+    /** Verification security code with a peer, given their PEM public key (compare out-of-band). */
     suspend fun securityCode(peerPublicKeyPem: ByteArray): String? =
         runCatching { E2ee.securityCode(identity.publicKeyPem, peerPublicKeyPem) }.getOrNull()
 
-    // --- HTTP helpers ---
+    // --- Generic relay primitives ---
+
+    private suspend fun append(channel: String, blobs: List<String>): Int? {
+        val r = raw("/append", AppendReq(channel, blobs)) ?: return null
+        if (r.status != 200) return null
+        return runCatching { json.decodeFromString<SeqResp>(r.body).seq }.getOrNull()
+    }
+
+    private suspend fun pull(channel: String, since: Int): PullResp? {
+        val r = raw("/pull", PullReq(channel, since)) ?: return null
+        if (r.status != 200) return null
+        return runCatching { json.decodeFromString<PullResp>(r.body) }.getOrNull()
+    }
 
     private suspend inline fun <reified T> post(path: String, body: T): Boolean {
         val r = raw(path, body) ?: return false
@@ -130,15 +149,16 @@ object OfficeSync {
 
     @Serializable private data class RegisterReq(val id: String, val key: String)
     @Serializable private data class IdReq(val id: String)
-    @Serializable private data class PushReq(val docId: String, val updates: List<String>)
-    @Serializable private data class PullReq(val docId: String, val since: Int)
-    @Serializable private data class ShareReq(val docId: String, val recipientId: String, val wrappedKey: String, val rosterEntry: String?)
-    @Serializable private data class DocKeysReq(val docId: String, val id: String)
+    @Serializable private data class AppendReq(val channel: String, val actions: List<String>)
+    @Serializable private data class PullReq(val channel: String, val since: Int)
     @Serializable private data class SeqResp(val seq: Int = 0)
-    @Serializable private data class PullResp(val updates: List<String> = emptyList(), val seq: Int = 0)
-    @Serializable private data class WrappedKeysResp(val wrappedKeys: List<WrappedKey> = emptyList())
-    @Serializable private data class WrappedKey(val recipient: String = "", val blob: String = "")
+    @Serializable private data class PullResp(val actions: List<String> = emptyList(), val seq: Int = 0)
 
-    /** Result of [pullLatest]: decrypted [plaintext] (null if nothing new) and the current [seq]. */
-    class PullResult(val plaintext: ByteArray?, val seq: Int)
+    /** A document action (currently just a full snapshot; extensible via [type]). */
+    @Serializable data class DocAction(val type: String = "snapshot", val flat: String = "")
+
+    /** An invite delivered via a device's inbox channel: everything a new member needs. */
+    @Serializable data class Invite(val docId: String, val key: String, val title: String)
+
+    class InvitesResult(val invites: List<Invite>, val seq: Int)
 }
