@@ -17,8 +17,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import java.nio.ByteBuffer
-import java.util.UUID
 
 /**
  * Foreground service (type `connectedDevice`) that runs a caBLE authenticator [CableSession].
@@ -47,9 +45,9 @@ class CableService : Service() {
             val ok = runCatching {
                 val qr = CableQrData.parse(uri)
                 val dao = applicationContext.buildDatabase<PasswordDatabase>().passkeyDao()
-                val processor = CtapProcessor(dao, AAGUID, userVerified)
+                val processor = CtapProcessor(dao, userVerified)
                 val advertiser = CableAdvertiser(applicationContext)
-                val session = CableSession(qr, processor, advertiser, AAGUID) { updateNotification(it) }
+                val session = CableSession(qr, processor, advertiser) { updateNotification(it) }
                 withTimeoutOrNull(SESSION_TIMEOUT_MS) { session.run() } ?: false
             }.getOrElse {
                 Log.e(TAG, "caBLE session failed", it)
@@ -100,10 +98,5 @@ class CableService : Service() {
         private const val CHANNEL_ID = "cable_service"
         private const val NOTIFICATION_ID = 42
         private const val SESSION_TIMEOUT_MS = 120_000L
-
-        /** Same AAGUID as the same-device authenticator ([com.vayunmathur.passwords.ui.PasskeyAuthActivity]). */
-        val AAGUID: ByteArray = UUID.fromString("a1b2c3d4-e5f6-7890-abcd-ef1234567890").let {
-            ByteBuffer.allocate(16).putLong(it.mostSignificantBits).putLong(it.leastSignificantBits).array()
-        }
     }
 }

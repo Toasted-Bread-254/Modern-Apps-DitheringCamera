@@ -127,23 +127,27 @@ data class CtapGetAssertionResponse(
 }
 
 /**
- * `authenticatorGetInfo` (0x04) response payload.
+ * `authenticatorGetInfo` (0x04) response payload, matching Chromium `BuildGetInfoResponse`
+ * (`//device/fido/cable/v2_authenticator.cc`).
  *
- * CBOR map keys: 1=versions, 3=aaguid, 4=options, 5=maxMsgSize, 0x0B=transports.
+ * CBOR map keys: 1=versions, 2=extensions, 3=aaguid, 4=options, 9=transports.
+ * caBLE advertises an all-zero AAGUID here.
  */
 data class CtapGetInfoResponse(
     val versions: List<String> = listOf("FIDO_2_0", "FIDO_2_1"),
-    val aaguid: ByteArray,
-    val options: Map<String, Boolean> = linkedMapOf("rk" to true, "uv" to true),
-    val transports: List<String> = listOf("hybrid", "internal"),
+    val extensions: List<String> = listOf("prf"),
+    val aaguid: ByteArray = ByteArray(16),
+    val options: Map<String, Boolean> = linkedMapOf("uv" to true, "rk" to true),
+    val transports: List<String> = listOf("cable", "hybrid", "internal"),
 ) {
     /** Encodes just the CBOR payload (without the leading status byte). */
     fun encode(): ByteArray {
         val map = linkedMapOf<Long, Any>(
             1L to versions,
+            2L to extensions,
             3L to aaguid,
             4L to LinkedHashMap(options),
-            0x0BL to transports,
+            9L to transports,
         )
         return Cbor.encode(map)
     }

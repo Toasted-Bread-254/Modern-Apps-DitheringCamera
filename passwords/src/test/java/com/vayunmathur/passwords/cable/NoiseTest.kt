@@ -5,15 +5,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.security.KeyPair
 import java.security.MessageDigest
+import javax.crypto.Cipher
 import javax.crypto.Mac
+import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Self-consistency tests for the Noise KNpsk0 responder ([NoiseResponder]) and [P256].
- *
- * NOTE: these prove the handshake framework agrees *with itself* (a matching initiator is
- * implemented below), not that it is byte-compatible with Chromium — that still requires the
- * Chromium test vectors called out in the plan.
+ * Handshake tests for [NoiseResponder] + [P256] + [Crypter]. The in-test initiator mirrors
+ * Chromium `HandshakeInitiator` (KNpsk0 / QR variant) from `//device/fido/cable/v2_handshake.cc`,
+ * so a successful handshake + transport round-trip exercises the exact protocol Chromium speaks.
  */
 class NoiseTest {
 
@@ -21,8 +21,7 @@ class NoiseTest {
         val kp = P256.generateKeyPair()
         val compressed = P256.toCompressed(kp.public)
         assertEquals(P256.COMPRESSED_SIZE, compressed.size)
-        val restored = P256.decodePoint(compressed)
-        assertArrayEquals(P256.toUncompressed(kp.public), P256.toUncompressed(restored))
+        assertArrayEquals(P256.toUncompressed(kp.public), P256.toUncompressed(P256.decodePoint(compressed)))
     }
 
     @Test fun p256EcdhIsSymmetric() {
@@ -31,18 +30,29 @@ class NoiseTest {
         assertArrayEquals(P256.ecdh(a.private, b.public), P256.ecdh(b.private, a.public))
     }
 
-    @Test fun cipherStateRoundTripAcrossNonces() {
-        val key = ByteArray(32) { it.toByte() }
-        val enc = CipherState(key)
-        val dec = CipherState(key)
-        for (i in 0 until 5) {
-            val msg = "message #$i".toByteArray()
-            assertArrayEquals(msg, dec.decrypt(enc.encrypt(msg)))
+    @Test fun crypterRoundTripAndPadding() {
+        val readKey = ByteArray(32) { it.toByte() }
+        val writeKey = ByteArray(32) { (it + 1).toByte() }
+        // A pair of counterpart Crypters (keys swapped) model the two ends.
+        val a = Crypter(readKey, writeKey)
+        val b = Crypter(writeKey, readKey)
+        for (i in 0 until 4) {
+            val msg = "msg-$i".toByteArray()
+            assertArrayEquals(msg, b.decrypt(a.encrypt(msg)))
+            assertArrayEquals(msg, a.decrypt(b.encrypt(msg)))
+        }
+    }
+
+    @Test fun padUnpadRoundTrip() {
+        for (len in 0..40) {
+            val msg = ByteArray(len) { it.toByte() }
+            val padded = Crypter.pad(msg)
+            assertEquals(0, padded.size % 32)
+            assertArrayEquals(msg, Crypter.unpad(padded))
         }
     }
 
     @Test fun fullHandshakeAndTransport() {
-        // The QR flow: browser (initiator) holds a static key whose compressed form is in the QR.
         val initiatorStatic = P256.generateKeyPair()
         val qrPeerKey = P256.decodePoint(P256.toCompressed(initiatorStatic.public))
         val psk = ByteArray(32) { (it * 7 + 1).toByte() }
@@ -50,77 +60,75 @@ class NoiseTest {
         val responder = NoiseResponder(qrPeerKey, psk)
         val initiator = TestInitiator(initiatorStatic, psk)
 
-        val msg1 = initiator.writeMessage1()
-        assertArrayEquals(ByteArray(0), responder.readMessage1(msg1))
+        responder.readMessage1(initiator.buildInitialMessage())
+        val (msg2, respCrypter) = responder.writeMessage2()
+        val initCrypter = initiator.processResponse(msg2)
 
-        val serverPayload = "getInfo-ish".toByteArray()
-        val (msg2, respKeys) = responder.writeMessage2(serverPayload)
-        val initKeys = initiator.readMessage2(msg2)
-        assertArrayEquals(serverPayload, initKeys.payload)
-
-        // Transport: initiator -> responder uses c1; responder -> initiator uses c2.
-        val a = "ctap request".toByteArray()
-        assertArrayEquals(a, respKeys.decrypt.decrypt(initKeys.encrypt.encrypt(a)))
-        val b = "ctap response".toByteArray()
-        assertArrayEquals(b, initKeys.decrypt.decrypt(respKeys.encrypt.encrypt(b)))
+        // initiator -> responder
+        val req = "ctap request".toByteArray()
+        assertArrayEquals(req, respCrypter.decrypt(initCrypter.encrypt(req)))
+        // responder -> initiator
+        val resp = "ctap response".toByteArray()
+        assertArrayEquals(resp, initCrypter.decrypt(respCrypter.encrypt(resp)))
     }
 
-    // --- Minimal matching KNpsk0 initiator, mirroring NoiseResponder's framework ---
-
-    private class InitiatorResult(
-        val decrypt: CipherState,
-        val encrypt: CipherState,
-        val payload: ByteArray,
-    )
-
-    private class TestInitiator(private val staticKey: KeyPair, private val psk: ByteArray) {
+    /** KNpsk0 initiator mirroring Chromium HandshakeInitiator (QR variant). */
+    private class TestInitiator(private val staticKey: KeyPair, psk: ByteArray) {
         private var ck: ByteArray
         private var h: ByteArray
-        private var cipher: CipherState? = null
+        private var key: ByteArray? = null
+        private var nonce = 0
         private val ephemeral = P256.generateKeyPair()
 
         init {
             val name = NoiseResponder.PROTOCOL_NAME.toByteArray(Charsets.US_ASCII)
             h = name + ByteArray(32 - name.size)
             ck = h.copyOf()
-            mixHash(P256.toUncompressed(staticKey.public)) // pre-message -> s
+            mixHash(byteArrayOf(1))                          // prologue
+            mixHash(P256.toUncompressed(staticKey.public))   // MixHashPoint(local identity)
+            mixKeyAndHash(psk)
         }
 
-        fun writeMessage1(): ByteArray {
-            mixKeyAndHash(psk)
+        fun buildInitialMessage(): ByteArray {
             val ePub = P256.toUncompressed(ephemeral.public)
             mixHash(ePub); mixKey(ePub)
+            // peer_identity_ is null for the QR initiator, so no `es` here.
             return ePub + encryptAndHash(ByteArray(0))
         }
 
-        fun readMessage2(message: ByteArray): InitiatorResult {
-            val rePub = message.copyOfRange(0, P256.UNCOMPRESSED_SIZE)
-            val re = P256.decodePoint(rePub)
-            mixHash(rePub); mixKey(rePub)
-            mixKey(P256.ecdh(ephemeral.private, re))            // ee
-            mixKey(P256.ecdh(staticKey.private, re))            // se
+        fun processResponse(message: ByteArray): Crypter {
+            val peerPub = message.copyOfRange(0, P256.UNCOMPRESSED_SIZE)
+            val peer = P256.decodePoint(peerPub)
+            mixHash(peerPub); mixKey(peerPub)
+            mixKey(P256.ecdh(ephemeral.private, peer))          // ee
+            mixKey(P256.ecdh(staticKey.private, peer))          // se
             val payload = decryptAndHash(message.copyOfRange(P256.UNCOMPRESSED_SIZE, message.size))
-            val (c1, c2) = split()
-            return InitiatorResult(decrypt = c2, encrypt = c1, payload = payload)
+            require(payload.isEmpty())
+            val (writeKey, readKey) = hkdf2(ck, ByteArray(0))   // note: initiator swaps
+            return Crypter(readKey, writeKey)
         }
 
         private fun mixHash(data: ByteArray) { h = sha256(h + data) }
-        private fun mixKey(ikm: ByteArray) {
-            val (newCk, k) = hkdf2(ck, ikm); ck = newCk; cipher = CipherState(k)
-        }
+        private fun mixKey(ikm: ByteArray) { val (c, k) = hkdf2(ck, ikm); ck = c; key = k; nonce = 0 }
         private fun mixKeyAndHash(ikm: ByteArray) {
-            val (newCk, tempH, k) = hkdf3(ck, ikm); ck = newCk; mixHash(tempH); cipher = CipherState(k)
+            val (c, hh, k) = hkdf3(ck, ikm); ck = c; mixHash(hh); key = k; nonce = 0
         }
         private fun encryptAndHash(pt: ByteArray): ByteArray {
-            val c = cipher ?: return pt.also { mixHash(it) }
-            return c.encrypt(h, pt).also { mixHash(it) }
+            val k = key ?: return pt.also { mixHash(it) }
+            return aead(Cipher.ENCRYPT_MODE, k, pt).also { mixHash(it) }
         }
         private fun decryptAndHash(ct: ByteArray): ByteArray {
-            val c = cipher ?: return ct.also { mixHash(it) }
-            return c.decrypt(h, ct).also { mixHash(ct) }
+            val k = key ?: return ct.also { mixHash(it) }
+            return aead(Cipher.DECRYPT_MODE, k, ct).also { mixHash(ct) }
         }
-        private fun split(): Pair<CipherState, CipherState> {
-            val (k1, k2) = hkdf2(ck, ByteArray(0)); return CipherState(k1) to CipherState(k2)
+        private fun aead(mode: Int, k: ByteArray, input: ByteArray): ByteArray {
+            val n = ByteArray(12)
+            n[0] = ((nonce ushr 24) and 0xFF).toByte(); n[1] = ((nonce ushr 16) and 0xFF).toByte()
+            n[2] = ((nonce ushr 8) and 0xFF).toByte(); n[3] = (nonce and 0xFF).toByte()
+            nonce++
+            return Cipher.getInstance("AES/GCM/NoPadding").run {
+                init(mode, SecretKeySpec(k, "AES"), GCMParameterSpec(128, n)); updateAAD(h); doFinal(input)
+            }
         }
     }
 

@@ -58,8 +58,7 @@ class CtapProcessorTest {
             signCount = 5,
         )
         val dao = FakePasskeyDao(listOf(passkey))
-        val aaguid = ByteArray(16) { (it + 100).toByte() }
-        val processor = CtapProcessor(dao, aaguid, userVerified = true)
+        val processor = CtapProcessor(dao, userVerified = true)
 
         val clientDataHash = MessageDigest.getInstance("SHA-256").digest("hello".toByteArray())
         val request = Cbor.encode(linkedMapOf<Any, Any>(
@@ -93,19 +92,21 @@ class CtapProcessorTest {
 
     @Test fun getAssertionNoCredentialReturnsError() = runBlocking {
         val dao = FakePasskeyDao(emptyList())
-        val processor = CtapProcessor(dao, ByteArray(16), userVerified = true)
+        val processor = CtapProcessor(dao, userVerified = true)
         val request = Cbor.encode(linkedMapOf<Any, Any>(1L to "nobody.example", 2L to ByteArray(32)))
         val response = processor.process(byteArrayOf(Ctap.CMD_GET_ASSERTION.toByte()) + request)
         assertEquals(Ctap.ERR_NO_CREDENTIALS.toByte(), response[0])
     }
 
-    @Test fun getInfoReturnsAaguid() = runBlocking {
+    @Test fun getInfoReturnsZeroAaguidAndTransports() = runBlocking {
         val dao = FakePasskeyDao(emptyList())
-        val aaguid = ByteArray(16) { it.toByte() }
-        val processor = CtapProcessor(dao, aaguid, userVerified = false)
+        val processor = CtapProcessor(dao, userVerified = false)
         val response = processor.process(byteArrayOf(Ctap.CMD_GET_INFO.toByte()))
         assertEquals(Ctap.OK.toByte(), response[0])
         val map = CborReader.decode(response.copyOfRange(1, response.size)) as Map<*, *>
-        assertArrayEquals(aaguid, map[3L] as ByteArray)
+        assertArrayEquals(ByteArray(16), map[3L] as ByteArray)          // all-zero AAGUID
+        assertEquals(listOf("cable", "hybrid", "internal"), map[9L])    // transports at key 9
+        val options = map[4L] as Map<*, *>
+        assertEquals(true, options["uv"])
     }
 }

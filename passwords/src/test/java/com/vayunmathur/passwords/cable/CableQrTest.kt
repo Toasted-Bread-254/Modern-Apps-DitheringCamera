@@ -39,6 +39,13 @@ class CableQrTest {
         }
     }
 
+    /** Known-answer vector from Chromium v2_handshake_unittest.cc: {'a','b',0xFF} -> "16736865". */
+    @Test fun digitKnownAnswerVector() {
+        val bytes = byteArrayOf(0x61, 0x62, 0xFF.toByte())
+        assertEquals("16736865", digitEncode(bytes))
+        assertArrayEquals(bytes, CableQrData.digitDecode("16736865"))
+    }
+
     @Test fun parseFidoUri() {
         val peerKey = ByteArray(33) { (it + 1).toByte() }
         val secret = ByteArray(16) { (0xA0 + it).toByte() }
@@ -78,7 +85,7 @@ class CableQrTest {
         assertArrayEquals(byteArrayOf(3, 0, 0, 0), CableKeys.leUint32(CableKeys.Purpose.PSK.value))
         // Derived values are deterministic and length-correct.
         val secret = ByteArray(16) { it.toByte() }
-        assertEquals(CableKeys.PSK_SIZE, CableKeys.psk(secret).size)
+        assertEquals(CableKeys.PSK_SIZE, CableKeys.psk(secret, ByteArray(16)).size)
         assertEquals(CableKeys.EID_KEY_SIZE, CableKeys.eidKey(secret).size)
         assertEquals(CableKeys.TUNNEL_ID_SIZE, CableKeys.tunnelId(secret).size)
     }

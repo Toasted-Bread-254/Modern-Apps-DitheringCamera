@@ -1,7 +1,6 @@
 package com.vayunmathur.passwords.cable
 
 import java.security.MessageDigest
-import java.security.PrivateKey
 import java.security.PublicKey
 import javax.crypto.Cipher
 import javax.crypto.Mac
@@ -9,100 +8,86 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Noise `KNpsk0` handshake over `P256 / AES256-GCM / SHA256`, responder side, for the caBLE v2
- * authenticator. The desktop browser is the initiator; the phone (this app) is the responder.
+ * Noise `KNpsk0` handshake over `P256 / AES256-GCM / SHA256`, responder side, matching Chromium
+ * `RespondToHandshake` / `Noise` (`//device/fido/cable/{v2_handshake,noise}.cc`). The desktop
+ * browser is the initiator; the phone (this app) is the responder.
  *
- * Pattern (KNpsk0):
+ * Responder sequence for the QR flow:
  * ```
- *   -> s            (pre-message: initiator static = the QR peer public key)
- *   ...
- *   -> psk, e
- *   <- e, ee, se
+ *   Init(KNpsk0); MixHash([1]/*prologue*/); MixHash(peerIdentity); MixKeyAndHash(psk)
+ *   read msg1  = peerEphemeral(65) || ciphertext(16, empty payload):
+ *                MixHash(peerEphemeral); MixKey(peerEphemeral); DecryptAndHash(ciphertext)
+ *   write msg2 = ephemeral(65) || EncryptAndHash({}):
+ *                MixHash(ephemeral); MixKey(ephemeral); MixKey(ee); MixKey(se)
+ *   traffic keys = HKDF2(ck, {})  ->  Crypter(readKey=k1, writeKey=k2)
  * ```
  *
- * ⚠️ UNVERIFIED against Chromium test vectors. The Noise *framework* here follows the published
- * Noise spec (rev 34), but several caBLE-specific choices are reconstructed and MUST be confirmed
- * against Chromium `//device/fido/cable/noise.cc` before relying on interop:
- *  - protocol name string + padding of the initial `h`;
- *  - AES-GCM nonce layout (spec: `0x00000000 || big-endian uint64 counter`; Chromium is believed
- *    to place a 32-bit little-endian counter at bytes [4..8) — see [CipherState.nonceBytes]);
- *  - point encoding used for `e` on the wire and in MixHash (assumed 65-byte uncompressed).
- * A mismatch surfaces only as the generic browser "Bluetooth?" error.
+ * Verified against Chromium `//device/fido/cable/` source (2024). The handshake AEAD nonce is
+ * `big-endian uint32(counter) || 8 zero bytes` with the counter reset on every MixKey; associated
+ * data is the running transcript hash `h`. (The *transport* [Crypter] uses a different nonce.)
  */
 class NoiseResponder(
     /** Initiator's static public key, decompressed from the 33-byte QR value. */
-    private val initiatorStatic: PublicKey,
+    initiatorStatic: PublicKey,
     /** Pre-shared key from [CableKeys.psk]. */
-    private val psk: ByteArray,
+    psk: ByteArray,
 ) {
-    private val symmetric = SymmetricState(PROTOCOL_NAME)
+    private val symmetric = SymmetricState()
+    private val initiatorStaticBytes = P256.toUncompressed(initiatorStatic)
+    private val initiatorStaticKey = initiatorStatic
     private val ephemeral = P256.generateKeyPair()
     private var peerEphemeral: PublicKey? = null
 
     init {
         require(psk.size == 32) { "Noise psk must be 32 bytes" }
-        // Pre-message `-> s`: both sides MixHash the initiator's static public key.
-        symmetric.mixHash(P256.toUncompressed(initiatorStatic))
+        symmetric.mixHash(byteArrayOf(1))          // KN prologue byte
+        symmetric.mixHash(initiatorStaticBytes)    // pre-message `-> s`
+        symmetric.mixKeyAndHash(psk)               // psk0
     }
 
-    /**
-     * Reads the initiator's first handshake message (`-> psk, e` [+ encrypted payload]).
-     * Returns the decrypted payload (usually empty).
-     */
-    fun readMessage1(message: ByteArray): ByteArray {
-        // psk token (psk0): mix the PSK into ck and h before processing e.
-        symmetric.mixKeyAndHash(psk)
-
-        // e token: read the 65-byte ephemeral, MixHash then (psk mode) MixKey it.
+    /** Reads the initiator's first handshake message (`peerEphemeral(65) || tag(16)`). */
+    fun readMessage1(message: ByteArray) {
         require(message.size >= P256.UNCOMPRESSED_SIZE) { "Noise msg1 too short" }
         val rePublic = message.copyOfRange(0, P256.UNCOMPRESSED_SIZE)
         peerEphemeral = P256.decodePoint(rePublic)
         symmetric.mixHash(rePublic)
         symmetric.mixKey(rePublic)
 
-        val payloadCipher = message.copyOfRange(P256.UNCOMPRESSED_SIZE, message.size)
-        return symmetric.decryptAndHash(payloadCipher)
+        val ciphertext = message.copyOfRange(P256.UNCOMPRESSED_SIZE, message.size)
+        val payload = symmetric.decryptAndHash(ciphertext)
+        require(payload.isEmpty()) { "Noise msg1 payload must be empty" }
     }
 
     /**
-     * Writes the responder's reply (`<- e, ee, se` [+ encrypted payload]) and finalizes the
-     * handshake. Returns the message bytes to send plus the derived transport keys.
+     * Writes the responder's reply (`ephemeral(65) || EncryptAndHash({})`) and finalizes the
+     * handshake, returning the message to send plus the post-handshake transport [Crypter].
      */
-    fun writeMessage2(payload: ByteArray = ByteArray(0)): Pair<ByteArray, TransportKeys> {
+    fun writeMessage2(): Pair<ByteArray, Crypter> {
         val re = peerEphemeral ?: error("readMessage1 must be called first")
 
-        // e token: send our ephemeral public key, MixHash then (psk mode) MixKey it.
         val ePublic = P256.toUncompressed(ephemeral.public)
         symmetric.mixHash(ePublic)
         symmetric.mixKey(ePublic)
+        symmetric.mixKey(P256.ecdh(ephemeral.private, re))               // ee
+        symmetric.mixKey(P256.ecdh(ephemeral.private, initiatorStaticKey)) // se
 
-        // ee: DH(our ephemeral, their ephemeral).
-        symmetric.mixKey(P256.ecdh(ephemeral.private, re))
-        // se: DH(our ephemeral, initiator static). (Responder has no static key in KN.)
-        symmetric.mixKey(P256.ecdh(ephemeral.private, initiatorStatic))
+        val ciphertext = symmetric.encryptAndHash(ByteArray(0))
+        val message = ePublic + ciphertext
 
-        val encryptedPayload = symmetric.encryptAndHash(payload)
-        val message = ePublic + encryptedPayload
-
-        val (c1, c2) = symmetric.split()
-        // c1 = initiator->responder (decrypt), c2 = responder->initiator (encrypt).
-        return message to TransportKeys(decrypt = c1, encrypt = c2)
+        val (readKey, writeKey) = symmetric.trafficKeys()
+        return message to Crypter(readKey, writeKey)
     }
 
-    /** Post-handshake transport cipher pair. */
-    class TransportKeys(val decrypt: CipherState, val encrypt: CipherState)
-
-    // ---- Noise SymmetricState ----
-
-    private class SymmetricState(protocolName: String) {
+    /** Noise SymmetricState (h, ck, and the handshake CipherState). */
+    private class SymmetricState {
         private var ck: ByteArray
         private var h: ByteArray
-        private var cipher: CipherState? = null
+        private var key: ByteArray? = null
+        private var nonce = 0
 
         init {
-            val nameBytes = protocolName.toByteArray(Charsets.US_ASCII)
-            h = if (nameBytes.size <= 32) nameBytes + ByteArray(32 - nameBytes.size)
-                else sha256(nameBytes)
+            val name = PROTOCOL_NAME.toByteArray(Charsets.US_ASCII)
+            h = name + ByteArray(32 - name.size)  // name (31 bytes) zero-padded to 32
             ck = h.copyOf()
         }
 
@@ -110,36 +95,50 @@ class NoiseResponder(
             h = sha256(h + data)
         }
 
-        fun mixKey(input: ByteArray) {
-            val (newCk, tempK) = hkdf2(ck, input)
+        fun mixKey(ikm: ByteArray) {
+            val (newCk, tempK) = hkdf2(ck, ikm)
             ck = newCk
-            cipher = CipherState(tempK)
+            key = tempK
+            nonce = 0
         }
 
-        fun mixKeyAndHash(input: ByteArray) {
-            val (newCk, tempH, tempK) = hkdf3(ck, input)
+        fun mixKeyAndHash(ikm: ByteArray) {
+            val (newCk, tempH, tempK) = hkdf3(ck, ikm)
             ck = newCk
             mixHash(tempH)
-            cipher = CipherState(tempK)
+            key = tempK
+            nonce = 0
         }
 
         fun encryptAndHash(plaintext: ByteArray): ByteArray {
-            val c = cipher ?: return plaintext.also { mixHash(it) }
-            val ciphertext = c.encrypt(h, plaintext)
+            val k = key ?: return plaintext.also { mixHash(it) }
+            val ciphertext = aead(Cipher.ENCRYPT_MODE, k, plaintext)
             mixHash(ciphertext)
             return ciphertext
         }
 
         fun decryptAndHash(ciphertext: ByteArray): ByteArray {
-            val c = cipher ?: return ciphertext.also { mixHash(it) }
-            val plaintext = c.decrypt(h, ciphertext)
+            val k = key ?: return ciphertext.also { mixHash(it) }
+            val plaintext = aead(Cipher.DECRYPT_MODE, k, ciphertext)
             mixHash(ciphertext)
             return plaintext
         }
 
-        fun split(): Pair<CipherState, CipherState> {
-            val (k1, k2) = hkdf2(ck, ByteArray(0))
-            return CipherState(k1) to CipherState(k2)
+        fun trafficKeys(): Pair<ByteArray, ByteArray> = hkdf2(ck, ByteArray(0))
+
+        /** AES-256-GCM with AD = h and nonce = big-endian uint32(counter) || 8 zeros. */
+        private fun aead(mode: Int, k: ByteArray, input: ByteArray): ByteArray {
+            val nonceBytes = ByteArray(12)
+            nonceBytes[0] = ((nonce ushr 24) and 0xFF).toByte()
+            nonceBytes[1] = ((nonce ushr 16) and 0xFF).toByte()
+            nonceBytes[2] = ((nonce ushr 8) and 0xFF).toByte()
+            nonceBytes[3] = (nonce and 0xFF).toByte()
+            nonce++
+            return Cipher.getInstance("AES/GCM/NoPadding").run {
+                init(mode, SecretKeySpec(k, "AES"), GCMParameterSpec(128, nonceBytes))
+                updateAAD(h)
+                doFinal(input)
+            }
         }
     }
 
@@ -155,7 +154,7 @@ class NoiseResponder(
                 doFinal(data)
             }
 
-        /** Noise HKDF with two outputs. */
+        /** Noise HKDF (RFC 5869 expand, empty info) with two 32-byte outputs. */
         private fun hkdf2(ck: ByteArray, ikm: ByteArray): Pair<ByteArray, ByteArray> {
             val tempKey = hmac(ck, ikm)
             val o1 = hmac(tempKey, byteArrayOf(0x01))
@@ -163,7 +162,7 @@ class NoiseResponder(
             return o1 to o2
         }
 
-        /** Noise HKDF with three outputs. */
+        /** Noise HKDF with three 32-byte outputs. */
         private fun hkdf3(ck: ByteArray, ikm: ByteArray): Triple<ByteArray, ByteArray, ByteArray> {
             val tempKey = hmac(ck, ikm)
             val o1 = hmac(tempKey, byteArrayOf(0x01))
@@ -171,42 +170,5 @@ class NoiseResponder(
             val o3 = hmac(tempKey, o2 + 0x03)
             return Triple(o1, o2, o3)
         }
-    }
-}
-
-/**
- * A Noise CipherState: AES-256-GCM keyed by a 32-byte key with a monotonically increasing nonce.
- * `h` is passed as the GCM associated data during the handshake; transport messages use empty AD.
- */
-class CipherState(private val key: ByteArray) {
-    private var nonce: Long = 0
-
-    fun encrypt(ad: ByteArray, plaintext: ByteArray): ByteArray {
-        val cipher = gcm(Cipher.ENCRYPT_MODE)
-        if (ad.isNotEmpty()) cipher.updateAAD(ad)
-        return cipher.doFinal(plaintext).also { nonce++ }
-    }
-
-    fun decrypt(ad: ByteArray, ciphertext: ByteArray): ByteArray {
-        val cipher = gcm(Cipher.DECRYPT_MODE)
-        if (ad.isNotEmpty()) cipher.updateAAD(ad)
-        return cipher.doFinal(ciphertext).also { nonce++ }
-    }
-
-    fun encrypt(plaintext: ByteArray): ByteArray = encrypt(ByteArray(0), plaintext)
-    fun decrypt(ciphertext: ByteArray): ByteArray = decrypt(ByteArray(0), ciphertext)
-
-    private fun gcm(mode: Int): Cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
-        init(mode, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonceBytes()))
-    }
-
-    /**
-     * Noise-spec AES-GCM nonce: 4 zero bytes then the 64-bit big-endian counter.
-     * ⚠️ Chromium's caBLE may instead use a 32-bit little-endian counter at bytes [4..8) — verify.
-     */
-    private fun nonceBytes(): ByteArray {
-        val n = ByteArray(12)
-        for (i in 0 until 8) n[11 - i] = ((nonce ushr (8 * i)) and 0xFF).toByte()
-        return n
     }
 }

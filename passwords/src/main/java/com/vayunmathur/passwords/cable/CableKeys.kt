@@ -53,9 +53,13 @@ object CableKeys {
     fun tunnelId(qrSecret: ByteArray): ByteArray =
         derive(qrSecret, null, Purpose.TUNNEL_ID, TUNNEL_ID_SIZE)
 
-    /** Pre-shared key mixed into the Noise KNpsk0 handshake. */
-    fun psk(qrSecret: ByteArray): ByteArray =
-        derive(qrSecret, null, Purpose.PSK, PSK_SIZE)
+    /**
+     * Pre-shared key mixed into the Noise KNpsk0 handshake. Per Chromium
+     * `v2_authenticator.cc`, the salt is the 16-byte plaintext EID that is BLE-advertised, binding
+     * the handshake to the advertised beacon.
+     */
+    fun psk(qrSecret: ByteArray, plaintextEid: ByteArray): ByteArray =
+        derive(qrSecret, plaintextEid, Purpose.PSK, PSK_SIZE)
 
     /** Encodes an int as a little-endian uint32 (the HKDF `info` field). */
     fun leUint32(value: Int): ByteArray = byteArrayOf(

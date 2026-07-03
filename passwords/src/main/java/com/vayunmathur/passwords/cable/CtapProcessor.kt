@@ -15,7 +15,6 @@ import java.util.Base64
  */
 class CtapProcessor(
     private val passkeyDao: PasskeyDao,
-    private val aaguid: ByteArray,
     /** Whether the user was verified (biometric) when the session was approved. */
     private val userVerified: Boolean,
 ) {
@@ -29,7 +28,7 @@ class CtapProcessor(
         return try {
             when (command[0].toInt() and 0xFF) {
                 Ctap.CMD_GET_INFO ->
-                    Ctap.response(Ctap.OK, CtapGetInfoResponse(aaguid = aaguid).encode())
+                    Ctap.response(Ctap.OK, CtapGetInfoResponse().encode())
                 Ctap.CMD_GET_ASSERTION -> handleGetAssertion(payload)
                 else -> Ctap.response(Ctap.ERR_NOT_ALLOWED)
             }
