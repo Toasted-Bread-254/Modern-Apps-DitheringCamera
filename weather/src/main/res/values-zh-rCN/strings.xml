@@ -6,4 +6,10 @@
     <string name="city_name_hint">城市名称</string>
     <string name="weather_title">天气</string>
     <string name="add_location">添加位置</string>
+    <string name="open_map">打开地图</string>
+    <string name="weather_map_title">天气图</string>
+    <string name="map_measure">测量</string>
+    <string name="map_time">时间</string>
+    <string name="map_back">返回</string>
+    <string name="map_attribution">© OpenStreetMap · © CARTO</string>
 </resources>
