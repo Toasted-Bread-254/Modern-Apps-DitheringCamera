@@ -45,4 +45,5 @@
     <string name="dialog_create_playlist">创建播放列表</string>
     <string name="dialog_create">创建</string>
     <string name="playlist_name_hint">播放列表名称</string>
+    <string name="show_lyrics_on_lock_screen">在锁定屏幕上显示歌词</string>
 </resources>
