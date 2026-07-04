@@ -40,4 +40,6 @@
     <string name="grant_notifications_permission">Autoriser l\'envoi de notifications</string>
     <string name="channel_ongoing_timers_description">Décomptes en cours</string>
     <string name="channel_completed_timers_description">Alertes lorsque les minuteurs sont écoulés</string>
+    <string name="analog_clock_widget_label">Horloge analogique</string>
+    <string name="analog_clock_widget_description">Horloge analogique Material You — tapotez pour ouvrir l\'horloge</string>
 </resources>
