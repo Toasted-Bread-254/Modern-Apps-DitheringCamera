@@ -11,6 +11,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readBytes
+import android.util.Log
 import java.io.IOException
 
 /**
@@ -64,14 +65,21 @@ class CableTunnel private constructor(
         suspend fun connectNew(domain: String, tunnelId: ByteArray): CableTunnel {
             val client = HttpClient(CIO) { install(WebSockets) }
             val url = "wss://$domain/cable/new/${hex(tunnelId)}"
+            Log.d(TAG, "Opening tunnel: $url")
             val session = client.webSocketSession {
                 url(url)
                 header(HttpHeaders.SecWebSocketProtocol, SUBPROTOCOL)
             }
-            val routingHex = session.call.response.headers[ROUTING_ID_HEADER]
+            val response = session.call.response
+            Log.d(TAG, "Tunnel status=${response.status}; headers: " +
+                response.headers.entries().joinToString(", ") { "${it.key}=${it.value}" })
+            val routingHex = response.headers[ROUTING_ID_HEADER]
             val routingId = routingHex?.let { runCatching { unhex(it) }.getOrNull() }
+            Log.d(TAG, "routingId header=$routingHex parsed=${routingId?.let { hex(it) }}")
             return CableTunnel(client, session, routingId)
         }
+
+        private const val TAG = "CableTunnel"
 
         fun hex(bytes: ByteArray): String =
             bytes.joinToString("") { "%02x".format(it.toInt() and 0xFF) }

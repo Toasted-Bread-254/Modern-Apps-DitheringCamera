@@ -40,12 +40,25 @@ class CtapProcessor(
 
     private suspend fun handleGetAssertion(payload: ByteArray): ByteArray {
         val req = CtapGetAssertionRequest.parse(payload)
+        Log.d(TAG, "getAssertion rpId=${req.rpId} allowList=${req.allowList.size} " +
+            "up=${req.userPresenceRequired} uv=${req.userVerificationRequired} " +
+            "clientDataHash=${req.clientDataHash.size}B")
+        req.allowList.forEachIndexed { i, d -> Log.d(TAG, "  allow[$i] id=${hex(d.id)}") }
 
         if (req.userVerificationRequired && !userVerified) {
+            Log.w(TAG, "UV required but user not verified")
             return Ctap.response(Ctap.ERR_OPERATION_DENIED)
         }
 
-        val passkey = resolveCredential(req) ?: return Ctap.response(Ctap.ERR_NO_CREDENTIALS)
+        val allForRp = passkeyDao.getByRpId(req.rpId)
+        Log.d(TAG, "stored passkeys for ${req.rpId}: ${allForRp.size} " +
+            allForRp.joinToString { "credId=${it.credentialId}" })
+
+        val passkey = resolveCredential(req) ?: run {
+            Log.w(TAG, "no matching credential -> ERR_NO_CREDENTIALS")
+            return Ctap.response(Ctap.ERR_NO_CREDENTIALS)
+        }
+        Log.d(TAG, "using credential credId=${passkey.credentialId} rpId=${passkey.rpId} userId=${passkey.userId}")
 
         val assertion = WebAuthnAuthenticator.signAssertion(
             passkey = passkey,
@@ -61,6 +74,7 @@ class CtapProcessor(
             signature = assertion.signature,
             userId = decodeUserId(passkey.userId),
         )
+        Log.d(TAG, "assertion signed: authData=${assertion.authenticatorData.size}B sig=${assertion.signature.size}B")
         return Ctap.response(Ctap.OK, response.encode())
     }
 
@@ -81,5 +95,8 @@ class CtapProcessor(
 
     companion object {
         private const val TAG = "CtapProcessor"
+
+        private fun hex(bytes: ByteArray): String =
+            bytes.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     }
 }

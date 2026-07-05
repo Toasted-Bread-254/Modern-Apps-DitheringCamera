@@ -36,6 +36,7 @@ class CableSession(
             val tun = CableTunnel.connectNew(domain, tunnelId).also { tunnel = it }
 
             val routingId = tun.routingId ?: ByteArray(CableEid.ROUTING_ID_SIZE)
+            if (tun.routingId == null) Log.w(TAG, "No routing id from tunnel; using zeros (browser likely won't connect back)")
             val nonce = CableEid.randomNonce()
             val plaintextEid = CableEid.buildPlaintext(nonce, routingId, domainId)
             onStatus("Advertising over Bluetooth")
@@ -47,17 +48,24 @@ class CableSession(
             val psk = CableKeys.psk(qr.qrSecret, plaintextEid)
 
             onStatus("Performing secure handshake")
+            Log.d(TAG, "Waiting for browser handshake (msg1)...")
             val responder = NoiseResponder(P256.decodePoint(qr.peerPublicKey), psk)
-            responder.readMessage1(tun.receive())
+            val msg1 = tun.receive()
+            Log.d(TAG, "Received handshake msg1: ${msg1.size} bytes")
+            responder.readMessage1(msg1)
             val (msg2, crypter) = responder.writeMessage2()
             tun.send(msg2)
+            Log.d(TAG, "Handshake complete; sent msg2 (${msg2.size} bytes)")
 
-            // Post-handshake message: { 1: getInfo bytes, 3: features }, padded then encrypted.
+            // Post-handshake message: { 1: getInfo bytes, 3: features }. Sent as PLAIN CBOR, which
+            // makes the desktop negotiate protocol revision 1 (MessageType-byte framing below).
+            // (Padding it here would select revision 0, which omits the type byte.)
             val postHandshake = Cbor.encode(linkedMapOf<Any, Any>(
                 1L to CtapGetInfoResponse().encode(),
                 3L to listOf("ctap"),
             ))
-            tun.send(crypter.encrypt(encodePaddedCborMap(postHandshake)))
+            tun.send(crypter.encrypt(postHandshake))
+            Log.d(TAG, "Sent post-handshake getInfo")
 
             onStatus("Waiting for sign-in request")
             return ctapLoop(tun, crypter)
@@ -75,6 +83,7 @@ class CableSession(
         while (true) {
             val plain = crypter.decrypt(tun.receive())
             if (plain.isEmpty()) continue
+            Log.d(TAG, "Transport message: type=${plain[0].toInt() and 0xFF}, ${plain.size} bytes")
 
             val messageType = plain[0].toInt() and 0xFF
             val payload = plain.copyOfRange(1, plain.size)
@@ -104,23 +113,5 @@ class CableSession(
         // caBLE MessageType (v2_constants.h).
         private const val MSG_SHUTDOWN = 0
         private const val MSG_CTAP = 1
-        private const val MSG_UPDATE = 2
-        private const val MSG_JSON = 3
-
-        private const val PADDING_GRANULARITY = 512
-
-        /**
-         * Pads CBOR bytes as Chromium `EncodePaddedCBORMap`: append zeros then a little-endian
-         * uint16 padding-length, rounding the total up to a multiple of [PADDING_GRANULARITY].
-         */
-        fun encodePaddedCborMap(cborBytes: ByteArray): ByteArray {
-            val paddedSize = ((cborBytes.size + 2 + PADDING_GRANULARITY - 1) / PADDING_GRANULARITY) * PADDING_GRANULARITY
-            val numPadding = paddedSize - cborBytes.size - 2
-            val out = ByteArray(paddedSize)
-            System.arraycopy(cborBytes, 0, out, 0, cborBytes.size)
-            out[paddedSize - 2] = (numPadding and 0xFF).toByte()
-            out[paddedSize - 1] = ((numPadding ushr 8) and 0xFF).toByte()
-            return out
-        }
     }
 }
