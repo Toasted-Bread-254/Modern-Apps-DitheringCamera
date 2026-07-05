@@ -232,7 +232,7 @@ fun ShareOnlineDialog(
     isOwner: Boolean,
     myRole: String,
     members: List<com.vayunmathur.office.util.OfficeMember>,
-    onShare: (String, String) -> Unit,
+    onShare: (String, String, (Boolean) -> Unit) -> Unit,
     onSetRole: (String, String) -> Unit,
     onComputeCode: (String, (String?) -> Unit) -> Unit,
     onDismiss: () -> Unit
@@ -242,6 +242,8 @@ fun ShareOnlineDialog(
     var roleMenu by remember { mutableStateOf(false) }
     var code by remember { mutableStateOf<String?>(null) }
     var computing by remember { mutableStateOf(false) }
+    var sharing by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf<String?>(null) }
     val clipboard = LocalClipboardManager.current
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -304,11 +306,25 @@ fun ShareOnlineDialog(
                         Text("Compare with the recipient out-of-band — it must match on both devices:", style = MaterialTheme.typography.bodySmall)
                         Text(it, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
                     }
+                    status?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
                 }
             }
         },
         confirmButton = {
-            if (isOwner) TextButton(enabled = recipient.isNotBlank(), onClick = { onShare(recipient.trim(), addRole) }) { Text("Add") }
+            if (isOwner) TextButton(
+                enabled = recipient.isNotBlank() && !sharing,
+                onClick = {
+                    sharing = true; status = null
+                    onShare(recipient.trim(), addRole) { ok ->
+                        sharing = false
+                        status = if (ok) "Added ✓" else "Couldn't share — check your connection and the server."
+                        if (ok) recipient = ""
+                    }
+                }
+            ) { Text(if (sharing) "Adding…" else "Add") }
             else TextButton(onClick = onDismiss) { Text("Close") }
         },
         dismissButton = { if (isOwner) TextButton(onClick = onDismiss) { Text("Close") } }
@@ -863,9 +879,10 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
             isOwner = viewModel.currentDocRole() == com.vayunmathur.office.util.OfficeRoles.OWNER,
             myRole = viewModel.currentDocRole(),
             members = members,
-            onShare = { recipientId, role ->
-                viewModel.shareCurrentDocument(recipientId, role) {
-                    viewModel.documentMembers { members = it } // refresh roster after sharing
+            onShare = { recipientId, role, cb ->
+                viewModel.shareCurrentDocument(recipientId, role) { ok ->
+                    if (ok) viewModel.documentMembers { members = it } // refresh roster after sharing
+                    cb(ok)
                 }
             },
             onSetRole = { memberId, role ->

@@ -294,6 +294,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
 
     fun createNewTextDocument() {
         currentDocId = null; currentDocKey = null; currentCrdt = null; currentCharMode = false
+        currentRole = OfficeRoles.OWNER; currentOwnerKey = null; currentMembers.clear()
         undoStack.clear(); redoStack.clear()
         _canUndo.value = false; _canRedo.value = false
         val doc = OdfDocument.TextDocument(
@@ -308,6 +309,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
 
     fun createNewSpreadsheet() {
         currentDocId = null; currentDocKey = null; currentCrdt = null; currentCharMode = false
+        currentRole = OfficeRoles.OWNER; currentOwnerKey = null; currentMembers.clear()
         undoStack.clear(); redoStack.clear()
         _canUndo.value = false; _canRedo.value = false
         val rows = (0 until 10).map { OdfRow(List(5) { OdfCell(text = "") }) }
@@ -323,6 +325,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
 
     fun createNewPresentation() {
         currentDocId = null; currentDocKey = null; currentCrdt = null; currentCharMode = false
+        currentRole = OfficeRoles.OWNER; currentOwnerKey = null; currentMembers.clear()
         undoStack.clear(); redoStack.clear()
         _canUndo.value = false; _canRedo.value = false
         val doc = OdfDocument.Presentation(
