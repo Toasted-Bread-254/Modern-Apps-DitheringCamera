@@ -31,6 +31,10 @@ data class OfficeDocMeta(val docId: String, val title: String, val keyB64: Strin
 @Serializable
 data class OfficePresence(val id: String, val name: String, val typing: Boolean, val ts: Long, val caret: Int? = null)
 
+/** A member of a document (who has access), distributed as encrypted records on a members channel. */
+@Serializable
+data class OfficeMember(val id: String, val name: String = "")
+
 class OfficeViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow<ViewState>(ViewState.Empty)
     val state: StateFlow<ViewState> = _state
@@ -206,13 +210,34 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         currentCharMode = false
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val doc = DocumentImporter.open(getApplication(), uri, fileName)
+                // Copy the source into app-owned storage immediately: SAF often grants only a
+                // one-time read permission, so the original Uri may be unreadable on a later open.
+                val localUri = persistToAppStorage(uri, fileName)
+                documentUri = localUri
+                val doc = DocumentImporter.open(getApplication(), localUri, fileName)
                 _state.value = ViewState.Loaded(doc)
-                addToRecent(getApplication(), uri, fileName)
+                addToRecent(getApplication(), localUri, fileName)
             } catch (e: Exception) {
                 _state.value = ViewState.Error(e.message ?: "Unknown error")
             }
         }
+    }
+
+    /**
+     * Copies the bytes behind [uri] into app-private storage and returns a file Uri we own. This is
+     * required because the system file picker typically grants only a transient read grant, so the
+     * original Uri can't be reopened later. Uris already inside our storage are returned as-is.
+     */
+    private fun persistToAppStorage(uri: Uri, fileName: String): Uri {
+        val ctx: Context = getApplication()
+        val dir = java.io.File(ctx.filesDir, "documents").apply { mkdirs() }
+        if (uri.scheme == "file" && uri.path?.startsWith(dir.absolutePath) == true) return uri
+        val safe = fileName.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "document" }
+        val dest = java.io.File(dir, "${System.currentTimeMillis()}_$safe")
+        ctx.contentResolver.openInputStream(uri)?.use { input ->
+            dest.outputStream().use { output -> input.copyTo(output) }
+        } ?: throw java.io.IOException("Cannot read $uri")
+        return Uri.fromFile(dest)
     }
 
     fun clear() {
@@ -2091,6 +2116,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                     }
                 }
                 startLive(docId, key)
+                recordMembers(docId, key, listOf(OfficeMember(OfficeSync.deviceId, myName()), OfficeMember(recipientId)))
                 OfficeSync.sendInvite(recipientId, docId, key, title, charMode)
             }.getOrDefault(false)
             withContext(Dispatchers.Main) { onResult(ok) }
@@ -2139,6 +2165,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                 currentCrdt = crdt
                 currentCharMode = meta.charMode
                 startLive(meta.docId, key)
+                recordMembers(meta.docId, key, listOf(OfficeMember(OfficeSync.deviceId, myName())))
             }
         }
     }
@@ -2154,6 +2181,38 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
             withContext(Dispatchers.Main) { onResult(code) }
         }
     }
+
+    /** Records a member on the document's (encrypted) members channel so all members can see it. */
+    private suspend fun recordMembers(docId: String, key: ByteArray, members: List<OfficeMember>) {
+        runCatching {
+            OfficeSync.appendDocActions("members:$docId", key, members.map { syncJson.encodeToString(it) })
+        }
+    }
+
+    /** Reads the current member roster (deduped by id, latest name wins). */
+    private suspend fun fetchMembers(docId: String, key: ByteArray): List<OfficeMember> {
+        val res = OfficeSync.pullDocActions("members:$docId", key, 0)
+        val byId = LinkedHashMap<String, OfficeMember>()
+        for (item in res.items) {
+            val m = runCatching { syncJson.decodeFromString<OfficeMember>(item) }.getOrNull() ?: continue
+            byId[m.id] = if (m.name.isBlank() && byId[m.id]?.name?.isNotBlank() == true) byId[m.id]!! else m
+        }
+        return byId.values.toList()
+    }
+
+    /** Loads the people who have access to the currently open document (for the share menu). */
+    fun documentMembers(onResult: (List<OfficeMember>) -> Unit) {
+        val docId = currentDocId
+        val key = currentDocKey
+        if (docId == null || key == null) { onResult(emptyList()); return }
+        viewModelScope.launch(Dispatchers.IO) {
+            val members = runCatching { OfficeSync.init(getApplication()); fetchMembers(docId, key) }.getOrDefault(emptyList())
+            withContext(Dispatchers.Main) { onResult(members) }
+        }
+    }
+
+    /** This device's own display name (for the roster/presence). */
+    fun myDisplayName(): String = myName()
 
     fun exportAsPlainText(): String {
         val doc = (_state.value as? ViewState.Loaded)?.document ?: return ""

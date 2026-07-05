@@ -229,6 +229,7 @@ fun HomeScreen(viewModel: OfficeViewModel, onOpenDocument: () -> Unit) {
 @Composable
 fun ShareOnlineDialog(
     deviceId: String,
+    members: List<com.vayunmathur.office.util.OfficeMember>,
     onShare: (String) -> Unit,
     onComputeCode: (String, (String?) -> Unit) -> Unit,
     onDismiss: () -> Unit
@@ -242,6 +243,15 @@ fun ShareOnlineDialog(
         title = { Text("Share online") },
         text = {
             Column {
+                if (members.isNotEmpty()) {
+                    Text("People with access:", style = MaterialTheme.typography.labelMedium)
+                    members.forEach { m ->
+                        val label = (if (m.name.isNotBlank()) m.name else m.id.take(8)) +
+                            if (m.id == deviceId) " (you)" else ""
+                        Text("• $label", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
                 Text("Copies this document into your online folder (end-to-end encrypted) and shares it with the person whose device id you enter.")
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
@@ -270,8 +280,8 @@ fun ShareOnlineDialog(
                 }
             }
         },
-        confirmButton = { TextButton(enabled = recipient.isNotBlank(), onClick = { onShare(recipient.trim()) }) { Text("Share") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        confirmButton = { TextButton(enabled = recipient.isNotBlank(), onClick = { onShare(recipient.trim()) }) { Text("Add") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
     )
 }
 
@@ -816,9 +826,16 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
     if (showMetadata) MetadataDialog(metadata = document.metadata, onSave = { m -> viewModel.updateMetadata { m } }, onDismiss = { showMetadata = false })
     LaunchedEffect(Unit) { viewModel.initSync() }
     if (showShareDialog) {
+        var members by remember { mutableStateOf<List<com.vayunmathur.office.util.OfficeMember>>(emptyList()) }
+        LaunchedEffect(showShareDialog) { viewModel.documentMembers { members = it } }
         ShareOnlineDialog(
             deviceId = viewModel.syncDeviceId,
-            onShare = { recipientId -> viewModel.shareCurrentDocument(recipientId); showShareDialog = false },
+            members = members,
+            onShare = { recipientId ->
+                viewModel.shareCurrentDocument(recipientId) {
+                    viewModel.documentMembers { members = it } // refresh roster after sharing
+                }
+            },
             onComputeCode = { id, cb -> viewModel.securityCodeWith(id, cb) },
             onDismiss = { showShareDialog = false }
         )
