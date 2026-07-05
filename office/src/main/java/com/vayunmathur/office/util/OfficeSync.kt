@@ -109,9 +109,9 @@ object OfficeSync {
     // --- Inbox channel (invites encrypted to the recipient's public key) ---
 
     /** Shares a document by dropping an encrypted invite into the recipient's inbox channel. */
-    suspend fun sendInvite(recipientId: String, docId: String, key: ByteArray, title: String, charMode: Boolean): Boolean {
+    suspend fun sendInvite(recipientId: String, docId: String, key: ByteArray, title: String, charMode: Boolean, role: String, ownerKeyB64: String): Boolean {
         val peerPem = getKey(recipientId) ?: return false
-        val invite = json.encodeToString(Invite(docId, Base64.encode(key), title, charMode))
+        val invite = json.encodeToString(Invite(docId, Base64.encode(key), title, charMode, role, ownerKeyB64))
         val blob = Base64.encode(E2ee.sealTo(peerPem, invite.encodeToByteArray()))
         return append("inbox:$recipientId", listOf(blob)) != null
     }
@@ -129,6 +129,16 @@ object OfficeSync {
     /** Verification security code with a peer, given their PEM public key (compare out-of-band). */
     suspend fun securityCode(peerPublicKeyPem: ByteArray): String? =
         runCatching { E2ee.securityCode(identity.publicKeyPem, peerPublicKeyPem) }.getOrNull()
+
+    /** This device's public key (PEM), e.g. to record as a document owner. */
+    val publicKeyPem: ByteArray get() = identity.publicKeyPem
+
+    /** Signs [data] with this device's identity key (authenticates op/roster authorship). */
+    suspend fun sign(data: ByteArray): ByteArray = identity.sign(data)
+
+    /** Verifies a signature against a public key (PEM). */
+    suspend fun verify(publicKeyPem: ByteArray, data: ByteArray, signature: ByteArray): Boolean =
+        E2ee.verify(publicKeyPem, data, signature)
 
     // --- Live sync + presence over WebSocket (receive live; send presence) ---
 
@@ -235,7 +245,14 @@ object OfficeSync {
     @Serializable data class DocAction(val type: String = "snapshot", val flat: String = "")
 
     /** An invite delivered via a device's inbox channel: everything a new member needs. */
-    @Serializable data class Invite(val docId: String, val key: String, val title: String, val charMode: Boolean = false)
+    @Serializable data class Invite(
+        val docId: String,
+        val key: String,
+        val title: String,
+        val charMode: Boolean = false,
+        val role: String = "editor",
+        val ownerKey: String = "",
+    )
 
     class InvitesResult(val invites: List<Invite>, val seq: Int)
     class DocActionsResult(val items: List<String>, val seq: Int)

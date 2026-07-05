@@ -25,15 +25,40 @@ import kotlinx.coroutines.withContext
 
 /** Local metadata for a document in the online folder (title/key stay client-side; never sent in the clear). */
 @Serializable
-data class OfficeDocMeta(val docId: String, val title: String, val keyB64: String, val owner: Boolean, val charMode: Boolean = false)
+data class OfficeDocMeta(
+    val docId: String,
+    val title: String,
+    val keyB64: String,
+    val owner: Boolean,
+    val charMode: Boolean = false,
+    val role: String = OfficeRoles.EDITOR,
+    val ownerKeyB64: String = "",
+)
+
+/** Document access roles. Enforced entirely client-side via signature checks (server is a pure relay). */
+object OfficeRoles {
+    const val OWNER = "owner"
+    const val EDITOR = "editor"
+    const val VIEWER = "viewer"
+    const val REVOKED = "revoked"
+    fun canEdit(role: String) = role == OWNER || role == EDITOR
+}
 
 /** Ephemeral presence for a collaborator in a document (relayed encrypted; never stored). */
 @Serializable
 data class OfficePresence(val id: String, val name: String, val typing: Boolean, val ts: Long, val caret: Int? = null)
 
-/** A member of a document (who has access), distributed as encrypted records on a members channel. */
+/** A member of a document (who has access + their role). Distributed as owner-signed records. */
 @Serializable
-data class OfficeMember(val id: String, val name: String = "")
+data class OfficeMember(val id: String, val name: String = "", val role: String = OfficeRoles.EDITOR)
+
+/** An owner-signed member record (only records with a valid owner signature are honored). */
+@Serializable
+data class SignedMember(val member: OfficeMember, val sig: String)
+
+/** An author-signed CRDT op batch: author id, signature over [ops], and the ops JSON. */
+@Serializable
+data class SignedOp(val author: String, val sig: String, val ops: String)
 
 class OfficeViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow<ViewState>(ViewState.Empty)
@@ -208,6 +233,13 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         currentDocKey = onlineDocKey
         currentCrdt = null
         currentCharMode = false
+        if (onlineDocId == null) {
+            // Offline document: you own your own local file and may edit it freely.
+            currentRole = OfficeRoles.OWNER
+            currentOwnerKey = null
+            currentMembers.clear()
+            memberKeyCache.clear()
+        }
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 // Copy the source into app-owned storage immediately: SAF often grants only a
@@ -1883,6 +1915,10 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     private var currentDocKey: ByteArray? = null
     private var currentCrdt: DocumentCrdt? = null
     private var currentCharMode: Boolean = false
+    private var currentRole: String = OfficeRoles.OWNER
+    private var currentOwnerKey: ByteArray? = null
+    private val currentMembers = java.util.concurrent.ConcurrentHashMap<String, String>() // id -> role
+    private val memberKeyCache = java.util.concurrent.ConcurrentHashMap<String, ByteArray>() // id -> pubkey PEM
     private val syncJson = Json { ignoreUnknownKeys = true }
     private val indexMutex = Mutex()
     private val syncMutex = Mutex()
@@ -1943,6 +1979,20 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
+    /** Verifies an incoming signed op (author signature + editor/owner role) and applies it. */
+    private suspend fun applySignedOp(crdt: DocumentCrdt, plain: String): Boolean {
+        val so = runCatching { syncJson.decodeFromString<SignedOp>(plain) }.getOrNull() ?: return false
+        // Role gate: our own ops are always ours; others must be owner/editor per the signed roster.
+        val allowed = so.author == OfficeSync.deviceId ||
+            OfficeRoles.canEdit(currentMembers[so.author] ?: OfficeRoles.VIEWER)
+        if (!allowed) return false
+        val authorKey = memberKey(so.author) ?: return false
+        if (!OfficeSync.verify(authorKey, so.ops.encodeToByteArray(), Base64.decode(so.sig))) return false
+        val ops = runCatching { syncJson.decodeFromString<List<DocumentCrdt.CrdtElement>>(so.ops) }.getOrNull() ?: return false
+        crdt.apply(ops)
+        return true
+    }
+
     private fun handleLive(raw: String, docId: String, key: ByteArray) {
         val msg = OfficeSync.parseLive(raw) ?: return
         when (msg.t) {
@@ -1952,8 +2002,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                     var changed = false
                     for (blob in msg.actions) {
                         val plain = OfficeSync.decrypt(key, blob) ?: continue
-                        val ops = runCatching { syncJson.decodeFromString<List<DocumentCrdt.CrdtElement>>(plain) }.getOrNull() ?: continue
-                        crdt.apply(ops); changed = true
+                        if (applySignedOp(crdt, plain)) changed = true
                     }
                     if (changed) {
                         val ds = DataStoreUtils.getInstance(getApplication())
@@ -2072,14 +2121,17 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         val cursor = ds.getLong("crdtCursor:$docId")?.toInt() ?: 0
         val localCells = currentDocCells()
         val localOps = crdt.update(localCells)
-        if (localOps.isNotEmpty()) {
-            OfficeSync.appendDocActions(docId, key, listOf(syncJson.encodeToString(localOps)))
+        // Only push signed ops if we're allowed to edit; viewers never push.
+        if (localOps.isNotEmpty() && OfficeRoles.canEdit(currentRole)) {
+            val opsJson = syncJson.encodeToString(localOps)
+            val sig = Base64.encode(OfficeSync.sign(opsJson.encodeToByteArray()))
+            val signed = syncJson.encodeToString(SignedOp(OfficeSync.deviceId, sig, opsJson))
+            OfficeSync.appendDocActions(docId, key, listOf(signed))
         }
         // Pull from the OLD cursor so remote ops (and our just-pushed, idempotent ops) are merged.
         val pulled = OfficeSync.pullDocActions(docId, key, cursor)
         for (item in pulled.items) {
-            val ops = runCatching { syncJson.decodeFromString<List<DocumentCrdt.CrdtElement>>(item) }.getOrNull() ?: continue
-            crdt.apply(ops)
+            applySignedOp(crdt, item)
         }
         ds.setLong("crdtCursor:$docId", pulled.seq.toLong())
         saveCrdt(ds, docId, crdt)
@@ -2094,7 +2146,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
      * Shares the current document with [recipientId]. If it isn't online yet, it is first copied
      * into the online folder (new doc id + content key + CRDT upload), then the invite is sent.
      */
-    fun shareCurrentDocument(recipientId: String, onResult: (Boolean) -> Unit = {}) {
+    fun shareCurrentDocument(recipientId: String, role: String = OfficeRoles.EDITOR, onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch(Dispatchers.IO) {
             val ok = runCatching {
                 OfficeSync.init(getApplication())
@@ -2102,22 +2154,35 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                 val doc = (_state.value as? ViewState.Loaded)?.document
                 val title = doc?.title ?: "Document"
                 val charMode = doc != null && TextDocCodec.isEligible(doc)
+                val firstShare = currentDocId == null
                 val docId = currentDocId ?: OfficeSync.newDocumentId()
                 val key = currentDocKey ?: OfficeSync.newDocumentKey()
                 currentDocId = docId
                 currentDocKey = key
                 currentCharMode = charMode
+                // The sharer is the owner. Only the owner may share (client-enforced everywhere).
+                if (firstShare) {
+                    currentRole = OfficeRoles.OWNER
+                    currentOwnerKey = OfficeSync.publicKeyPem
+                    currentMembers[OfficeSync.deviceId] = OfficeRoles.OWNER
+                }
+                if (currentRole != OfficeRoles.OWNER) return@runCatching false
+                val ownerKeyB64 = Base64.encode(OfficeSync.publicKeyPem)
                 syncDoc(docId, key)
                 indexMutex.withLock {
                     val index = loadIndex(ds).associateBy { it.docId }.toMutableMap()
                     if (!index.containsKey(docId)) {
-                        index[docId] = OfficeDocMeta(docId, title, Base64.encode(key), owner = true, charMode = charMode)
+                        index[docId] = OfficeDocMeta(docId, title, Base64.encode(key), owner = true, charMode = charMode, role = OfficeRoles.OWNER, ownerKeyB64 = ownerKeyB64)
                         saveIndex(ds, index.values.toList())
                     }
                 }
                 startLive(docId, key)
-                recordMembers(docId, key, listOf(OfficeMember(OfficeSync.deviceId, myName()), OfficeMember(recipientId)))
-                OfficeSync.sendInvite(recipientId, docId, key, title, charMode)
+                // Owner-signed roster: record self (owner) and the new member with their role.
+                recordMembers(docId, key, listOf(
+                    OfficeMember(OfficeSync.deviceId, myName(), OfficeRoles.OWNER),
+                    OfficeMember(recipientId, "", role),
+                ))
+                OfficeSync.sendInvite(recipientId, docId, key, title, charMode, role, ownerKeyB64)
             }.getOrDefault(false)
             withContext(Dispatchers.Main) { onResult(ok) }
         }
@@ -2139,12 +2204,16 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                 OfficeSync.init(getApplication())
                 val ds = DataStoreUtils.getInstance(getApplication())
                 val key = Base64.decode(meta.keyB64)
+                currentRole = meta.role
+                currentOwnerKey = meta.ownerKeyB64.takeIf { it.isNotBlank() }?.let { Base64.decode(it) }
+                currentMembers.clear()
                 val crdt = loadCrdt(ds, meta.docId) ?: DocumentCrdt(OfficeSync.deviceId)
+                // Refresh the (owner-signed) roster so op role-checks are correct before applying.
+                runCatching { fetchMembers(meta.docId, key, currentOwnerKey) }
                 val cursor = ds.getLong("crdtCursor:${meta.docId}")?.toInt() ?: 0
                 val pulled = OfficeSync.pullDocActions(meta.docId, key, cursor)
                 for (item in pulled.items) {
-                    val ops = runCatching { syncJson.decodeFromString<List<DocumentCrdt.CrdtElement>>(item) }.getOrNull() ?: continue
-                    crdt.apply(ops)
+                    applySignedOp(crdt, item)
                 }
                 ds.setLong("crdtCursor:${meta.docId}", pulled.seq.toLong())
                 saveCrdt(ds, meta.docId, crdt)
@@ -2161,11 +2230,11 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                 file.writeText(flat)
                 withContext(Dispatchers.Main) {
                     loadDocument(Uri.fromFile(file), "$safeTitle.fodt", meta.docId, key)
+                    _isEditMode.value = OfficeRoles.canEdit(meta.role) // viewers are read-only
                 }
                 currentCrdt = crdt
                 currentCharMode = meta.charMode
                 startLive(meta.docId, key)
-                recordMembers(meta.docId, key, listOf(OfficeMember(OfficeSync.deviceId, myName())))
             }
         }
     }
@@ -2182,21 +2251,41 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** Records a member on the document's (encrypted) members channel so all members can see it. */
+    /** This device's role in the open document (owner/editor/viewer). */
+    fun currentDocRole(): String = currentRole
+
+    /** True if the local user may edit the open document. */
+    fun canEditCurrent(): Boolean = currentDocId == null || OfficeRoles.canEdit(currentRole)
+
+    /** Canonical bytes an owner signs for a member record (binds id+role to the doc). */
+    private fun memberSigningBytes(docId: String, m: OfficeMember): ByteArray =
+        "$docId|${m.id}|${m.role}".encodeToByteArray()
+
+    /** Owner-signs and appends member records to the (encrypted) members channel. Owner only. */
     private suspend fun recordMembers(docId: String, key: ByteArray, members: List<OfficeMember>) {
+        if (currentRole != OfficeRoles.OWNER) return
         runCatching {
-            OfficeSync.appendDocActions("members:$docId", key, members.map { syncJson.encodeToString(it) })
+            val items = members.map { m ->
+                val sig = Base64.encode(OfficeSync.sign(memberSigningBytes(docId, m)))
+                syncJson.encodeToString(SignedMember(m, sig))
+            }
+            OfficeSync.appendDocActions("members:$docId", key, items)
         }
     }
 
-    /** Reads the current member roster (deduped by id, latest name wins). */
-    private suspend fun fetchMembers(docId: String, key: ByteArray): List<OfficeMember> {
+    /** Reads + verifies the roster: only records with a valid OWNER signature are honored. */
+    private suspend fun fetchMembers(docId: String, key: ByteArray, ownerKey: ByteArray?): List<OfficeMember> {
+        if (ownerKey == null) return emptyList()
         val res = OfficeSync.pullDocActions("members:$docId", key, 0)
         val byId = LinkedHashMap<String, OfficeMember>()
         for (item in res.items) {
-            val m = runCatching { syncJson.decodeFromString<OfficeMember>(item) }.getOrNull() ?: continue
-            byId[m.id] = if (m.name.isBlank() && byId[m.id]?.name?.isNotBlank() == true) byId[m.id]!! else m
+            val sm = runCatching { syncJson.decodeFromString<SignedMember>(item) }.getOrNull() ?: continue
+            val ok = OfficeSync.verify(ownerKey, memberSigningBytes(docId, sm.member), Base64.decode(sm.sig))
+            if (!ok) continue // not signed by the owner -> ignore (client-enforced authority)
+            byId[sm.member.id] = sm.member
         }
+        currentMembers.clear()
+        byId.values.forEach { currentMembers[it.id] = it.role }
         return byId.values.toList()
     }
 
@@ -2206,10 +2295,27 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         val key = currentDocKey
         if (docId == null || key == null) { onResult(emptyList()); return }
         viewModelScope.launch(Dispatchers.IO) {
-            val members = runCatching { OfficeSync.init(getApplication()); fetchMembers(docId, key) }.getOrDefault(emptyList())
+            val members = runCatching { OfficeSync.init(getApplication()); fetchMembers(docId, key, currentOwnerKey) }.getOrDefault(emptyList())
             withContext(Dispatchers.Main) { onResult(members) }
         }
     }
+
+    /** Owner sets/changes a member's role (editor/viewer) or revokes (role="revoked"). Owner only. */
+    fun setMemberRole(memberId: String, role: String, onResult: (Boolean) -> Unit = {}) {
+        val docId = currentDocId; val key = currentDocKey
+        if (docId == null || key == null || currentRole != OfficeRoles.OWNER) { onResult(false); return }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                OfficeSync.init(getApplication())
+                recordMembers(docId, key, listOf(OfficeMember(memberId, "", role)))
+            }
+            onResult(true)
+        }
+    }
+
+    /** Verifies + returns the pubkey for a member id (cached). */
+    private suspend fun memberKey(id: String): ByteArray? =
+        memberKeyCache[id] ?: OfficeSync.getKey(id)?.also { memberKeyCache[id] = it }
 
     /** This device's own display name (for the roster/presence). */
     fun myDisplayName(): String = myName()

@@ -229,12 +229,17 @@ fun HomeScreen(viewModel: OfficeViewModel, onOpenDocument: () -> Unit) {
 @Composable
 fun ShareOnlineDialog(
     deviceId: String,
+    isOwner: Boolean,
+    myRole: String,
     members: List<com.vayunmathur.office.util.OfficeMember>,
-    onShare: (String) -> Unit,
+    onShare: (String, String) -> Unit,
+    onSetRole: (String, String) -> Unit,
     onComputeCode: (String, (String?) -> Unit) -> Unit,
     onDismiss: () -> Unit
 ) {
     var recipient by remember { mutableStateOf("") }
+    var addRole by remember { mutableStateOf(com.vayunmathur.office.util.OfficeRoles.EDITOR) }
+    var roleMenu by remember { mutableStateOf(false) }
     var code by remember { mutableStateOf<String?>(null) }
     var computing by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
@@ -245,43 +250,68 @@ fun ShareOnlineDialog(
             Column {
                 if (members.isNotEmpty()) {
                     Text("People with access:", style = MaterialTheme.typography.labelMedium)
-                    members.forEach { m ->
-                        val label = (if (m.name.isNotBlank()) m.name else m.id.take(8)) +
-                            if (m.id == deviceId) " (you)" else ""
-                        Text("• $label", style = MaterialTheme.typography.bodySmall)
+                    members.filter { it.role != com.vayunmathur.office.util.OfficeRoles.REVOKED }.forEach { m ->
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            val label = (if (m.name.isNotBlank()) m.name else m.id.take(8)) + if (m.id == deviceId) " (you)" else ""
+                            Text("• $label — ${m.role}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                            if (isOwner && m.id != deviceId) {
+                                if (m.role == com.vayunmathur.office.util.OfficeRoles.EDITOR)
+                                    TextButton(onClick = { onSetRole(m.id, com.vayunmathur.office.util.OfficeRoles.VIEWER) }) { Text("Make viewer") }
+                                else
+                                    TextButton(onClick = { onSetRole(m.id, com.vayunmathur.office.util.OfficeRoles.EDITOR) }) { Text("Make editor") }
+                                TextButton(onClick = { onSetRole(m.id, com.vayunmathur.office.util.OfficeRoles.REVOKED) }) { Text("Remove") }
+                            }
+                        }
                     }
                     Spacer(Modifier.height(12.dp))
                 }
-                Text("Copies this document into your online folder (end-to-end encrypted) and shares it with the person whose device id you enter.")
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = recipient, onValueChange = { recipient = it; code = null },
-                    label = { Text("Recipient device id") }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
-                Text("Your device id:", style = MaterialTheme.typography.bodySmall)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(deviceId.ifEmpty { "…" }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { if (deviceId.isNotEmpty()) clipboard.setText(AnnotatedString(deviceId)) }) { Text("Copy") }
-                }
-                Spacer(Modifier.height(8.dp))
-                TextButton(
-                    enabled = recipient.isNotBlank() && !computing,
-                    onClick = {
-                        computing = true; code = null
-                        onComputeCode(recipient.trim()) { c -> code = c; computing = false }
+                if (!isOwner) {
+                    Text("You have $myRole access. Only the owner can change sharing.", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Your device id:", style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(deviceId.ifEmpty { "…" }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { if (deviceId.isNotEmpty()) clipboard.setText(AnnotatedString(deviceId)) }) { Text("Copy") }
                     }
-                ) { Text(if (computing) "Computing…" else "Show security code") }
-                code?.let {
-                    Text("Compare with the recipient out-of-band — it must match on both devices:",
-                        style = MaterialTheme.typography.bodySmall)
-                    Text(it, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                } else {
+                    Text("Add someone by device id (copies this document into your online folder, end-to-end encrypted):")
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = recipient, onValueChange = { recipient = it; code = null },
+                        label = { Text("Recipient device id") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Role:", style = MaterialTheme.typography.bodySmall)
+                        Box {
+                            TextButton(onClick = { roleMenu = true }) { Text(addRole) }
+                            DropdownMenu(expanded = roleMenu, onDismissRequest = { roleMenu = false }) {
+                                DropdownMenuItem(text = { Text("editor") }, onClick = { addRole = com.vayunmathur.office.util.OfficeRoles.EDITOR; roleMenu = false })
+                                DropdownMenuItem(text = { Text("viewer") }, onClick = { addRole = com.vayunmathur.office.util.OfficeRoles.VIEWER; roleMenu = false })
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Your device id:", style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(deviceId.ifEmpty { "…" }, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { if (deviceId.isNotEmpty()) clipboard.setText(AnnotatedString(deviceId)) }) { Text("Copy") }
+                    }
+                    TextButton(
+                        enabled = recipient.isNotBlank() && !computing,
+                        onClick = { computing = true; code = null; onComputeCode(recipient.trim()) { c -> code = c; computing = false } }
+                    ) { Text(if (computing) "Computing…" else "Show security code") }
+                    code?.let {
+                        Text("Compare with the recipient out-of-band — it must match on both devices:", style = MaterialTheme.typography.bodySmall)
+                        Text(it, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                    }
                 }
             }
         },
-        confirmButton = { TextButton(enabled = recipient.isNotBlank(), onClick = { onShare(recipient.trim()) }) { Text("Add") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+        confirmButton = {
+            if (isOwner) TextButton(enabled = recipient.isNotBlank(), onClick = { onShare(recipient.trim(), addRole) }) { Text("Add") }
+            else TextButton(onClick = onDismiss) { Text("Close") }
+        },
+        dismissButton = { if (isOwner) TextButton(onClick = onDismiss) { Text("Close") } }
     )
 }
 
@@ -830,10 +860,17 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
         LaunchedEffect(showShareDialog) { viewModel.documentMembers { members = it } }
         ShareOnlineDialog(
             deviceId = viewModel.syncDeviceId,
+            isOwner = viewModel.currentDocRole() == com.vayunmathur.office.util.OfficeRoles.OWNER,
+            myRole = viewModel.currentDocRole(),
             members = members,
-            onShare = { recipientId ->
-                viewModel.shareCurrentDocument(recipientId) {
+            onShare = { recipientId, role ->
+                viewModel.shareCurrentDocument(recipientId, role) {
                     viewModel.documentMembers { members = it } // refresh roster after sharing
+                }
+            },
+            onSetRole = { memberId, role ->
+                viewModel.setMemberRole(memberId, role) {
+                    viewModel.documentMembers { members = it }
                 }
             },
             onComputeCode = { id, cb -> viewModel.securityCodeWith(id, cb) },
