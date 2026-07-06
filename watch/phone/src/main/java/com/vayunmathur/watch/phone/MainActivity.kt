@@ -37,8 +37,13 @@ import com.vayunmathur.watch.phone.sync.SyncForegroundService
 
 class MainActivity : ComponentActivity() {
 
+    // Notification-policy (DnD) access is granted via a Settings screen, so re-read
+    // it on resume to hide the prompt as soon as the user returns from Settings.
+    private var dndAccessGranted by mutableStateOf(true)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        dndAccessGranted = notificationPolicyGranted()
         setContent {
             MaterialTheme {
                 Scaffold { padding ->
@@ -48,13 +53,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        dndAccessGranted = notificationPolicyGranted()
+    }
+
+    private fun notificationPolicyGranted(): Boolean =
+        getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted
+
     @Composable
     private fun SyncScreen(modifier: Modifier) {
         val context = this
         val health = remember { HealthConnectManager(context) }
-        val notificationManager = remember {
-            context.getSystemService(NotificationManager::class.java)
-        }
 
         val connection by SyncForegroundService.connectionStateFlow.collectAsState()
         val synced by SyncForegroundService.syncedCountFlow.collectAsState()
@@ -62,7 +72,6 @@ class MainActivity : ComponentActivity() {
         var hasBlePerms by remember { mutableStateOf(false) }
         var hasHcPerms by remember { mutableStateOf(false) }
         var hcAvailable by remember { mutableStateOf(true) }
-        var hasDndAccess by remember { mutableStateOf(true) }
 
         val blePermsLauncher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.RequestMultiplePermissions(),
@@ -80,7 +89,6 @@ class MainActivity : ComponentActivity() {
             }
             hcAvailable = health.isAvailable()
             if (hcAvailable) hasHcPerms = health.hasAllPermissions()
-            hasDndAccess = notificationManager.isNotificationPolicyAccessGranted
         }
 
         Column(
@@ -112,8 +120,9 @@ class MainActivity : ComponentActivity() {
             }
 
             // Policy access can't be granted via the runtime permission dialog, so
-            // deep-link into the dedicated Settings screen when it is missing.
-            if (!hasDndAccess) {
+            // deep-link into the dedicated Settings screen when it is missing. The
+            // flag is refreshed in onResume, so this hides on return from Settings.
+            if (!dndAccessGranted) {
                 Button(onClick = { openDndAccessSettings() }) {
                     Text(stringResource(R.string.grant_dnd_access))
                 }
