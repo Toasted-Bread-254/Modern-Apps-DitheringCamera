@@ -100,6 +100,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.Typography
 import com.vayunmathur.office.odf.*
 import com.vayunmathur.library.ui.odf.*
@@ -109,8 +110,15 @@ import kotlinx.coroutines.launch
 
 @Composable
 private fun OfficeLightTheme(content: @Composable () -> Unit) {
-    // Office only supports light mode; always use a light color scheme regardless of the system theme.
+    // Light scheme — used only for the rendered document (the "paper"), which stays light in dark mode.
     val colorScheme = dynamicLightColorScheme(LocalContext.current)
+    MaterialTheme(colorScheme = colorScheme, typography = Typography(), content = content)
+}
+
+@Composable
+private fun OfficeAppTheme(content: @Composable () -> Unit) {
+    // The app chrome (menus, toolbars, home) is dark; the document content re-wraps in the light theme.
+    val colorScheme = dynamicDarkColorScheme(LocalContext.current)
     MaterialTheme(colorScheme = colorScheme, typography = Typography(), content = content)
 }
 
@@ -188,7 +196,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            OfficeLightTheme {
+            OfficeAppTheme {
                 val editorContent: @Composable () -> Unit = {
                     when (val s = state) {
                         is OfficeViewModel.ViewState.Loaded -> DocumentScreen(
@@ -467,6 +475,7 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
     var selStart by remember { mutableIntStateOf(0) }
     var selEnd by remember { mutableIntStateOf(0) }
     var fileMenu by remember { mutableStateOf(false) }
+    var exportMenu by remember { mutableStateOf(false) }
     var insertMenu by remember { mutableStateOf(false) }
     var viewMenu by remember { mutableStateOf(false) }
     // Hoisted selection for the shared bottom bar (Phase 2).
@@ -687,34 +696,36 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                                     }
                                     DropdownMenuItem(text = { Text("Share online…") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.share_24px), null) }, onClick = { fileMenu = false; showShareDialog = true })
                                     DropdownMenuItem(text = { Text(stringResource(R.string.print_doc)) }, onClick = { fileMenu = false; printDocument(activity, document) })
-                                    DropdownMenuItem(text = { Text("Export to PDF…") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.outline_file_download_24), null) }, onClick = { fileMenu = false; printDocument(activity, document) })
                                     viewModel.documentUri?.let { uri ->
                                         DropdownMenuItem(text = { Text(stringResource(R.string.share)) }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.share_24px), null) }, onClick = { fileMenu = false; context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "*/*"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, null)) })
                                     }
-                                    DropdownMenuItem(text = { Text("Export as Text") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.outline_file_download_24), null) }, onClick = { fileMenu = false; val t = viewModel.exportAsPlainText(); if (t.isNotEmpty()) context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, t) }, null)) })
-                                    DropdownMenuItem(text = { Text("Export flat ODF…") }, onClick = { fileMenu = false; val ext = when { isTextDoc -> ".fodt"; isSpreadsheet -> ".fods"; isPresentation -> ".fodp"; else -> ".fodg" }; flatExportLauncher.launch(document.title.substringBeforeLast('.') + ext) })
+                                    DropdownMenuItem(text = { Text("Export ▸") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.outline_file_download_24), null) }, onClick = { fileMenu = false; exportMenu = true })
+                                    HorizontalDivider()
+                                    DropdownMenuItem(text = { Text("Settings") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.settings_24px), null) }, onClick = { fileMenu = false; showSettings = true })
+                                }
+                                // Export submenu (opened from File ▸ Export)
+                                DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
                                     val baseName = document.title.substringBeforeLast('.').ifBlank { "document" }
+                                    DropdownMenuItem(text = { Text("Export as Text") }, onClick = { exportMenu = false; val t = viewModel.exportAsPlainText(); if (t.isNotEmpty()) context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, t) }, null)) })
+                                    DropdownMenuItem(text = { Text("Flat ODF…") }, onClick = { exportMenu = false; val ext = when { isTextDoc -> ".fodt"; isSpreadsheet -> ".fods"; isPresentation -> ".fodp"; else -> ".fodg" }; flatExportLauncher.launch(document.title.substringBeforeLast('.') + ext) })
                                     if (isTextDoc) {
-                                        DropdownMenuItem(text = { Text("Export as Word (.docx)…") }, onClick = { fileMenu = false; exportWarning = { ooxmlExportLauncher.launch("$baseName.docx") } })
-                                        DropdownMenuItem(text = { Text("Export as PDF (.pdf)…") }, onClick = { fileMenu = false; exportWarning = { pdfExportLauncher.launch("$baseName.pdf") } })
-                                        DropdownMenuItem(text = { Text("Export as HTML (.html)…") }, onClick = { fileMenu = false; exportWarning = { htmlExportLauncher.launch("$baseName.html") } })
-                                        DropdownMenuItem(text = { Text("Export as Rich Text (.rtf)…") }, onClick = { fileMenu = false; exportWarning = { rtfExportLauncher.launch("$baseName.rtf") } })
-                                        DropdownMenuItem(text = { Text("Export as EPUB (.epub)…") }, onClick = { fileMenu = false; exportWarning = { epubExportLauncher.launch("$baseName.epub") } })
-                                        DropdownMenuItem(text = { Text("Export as LaTeX (.tex)…") }, onClick = { fileMenu = false; exportWarning = { latexExportLauncher.launch("$baseName.tex") } })
-                                        DropdownMenuItem(text = { Text("Export as Markdown (.md)…") }, onClick = { fileMenu = false; exportWarning = { markdownExportLauncher.launch("$baseName.md") } })
-                                        DropdownMenuItem(text = { Text("Export as Text (.txt)…") }, onClick = { fileMenu = false; exportWarning = { txtExportLauncher.launch("$baseName.txt") } })
+                                        DropdownMenuItem(text = { Text("Word (.docx)…") }, onClick = { exportMenu = false; exportWarning = { ooxmlExportLauncher.launch("$baseName.docx") } })
+                                        DropdownMenuItem(text = { Text("PDF (.pdf)…") }, onClick = { exportMenu = false; exportWarning = { pdfExportLauncher.launch("$baseName.pdf") } })
+                                        DropdownMenuItem(text = { Text("HTML (.html)…") }, onClick = { exportMenu = false; exportWarning = { htmlExportLauncher.launch("$baseName.html") } })
+                                        DropdownMenuItem(text = { Text("Rich Text (.rtf)…") }, onClick = { exportMenu = false; exportWarning = { rtfExportLauncher.launch("$baseName.rtf") } })
+                                        DropdownMenuItem(text = { Text("EPUB (.epub)…") }, onClick = { exportMenu = false; exportWarning = { epubExportLauncher.launch("$baseName.epub") } })
+                                        DropdownMenuItem(text = { Text("LaTeX (.tex)…") }, onClick = { exportMenu = false; exportWarning = { latexExportLauncher.launch("$baseName.tex") } })
+                                        DropdownMenuItem(text = { Text("Markdown (.md)…") }, onClick = { exportMenu = false; exportWarning = { markdownExportLauncher.launch("$baseName.md") } })
+                                        DropdownMenuItem(text = { Text("Text (.txt)…") }, onClick = { exportMenu = false; exportWarning = { txtExportLauncher.launch("$baseName.txt") } })
                                     }
                                     if (isSpreadsheet) {
-                                        DropdownMenuItem(text = { Text("Export as Excel (.xlsx)…") }, onClick = { fileMenu = false; exportWarning = { ooxmlExportLauncher.launch("$baseName.xlsx") } })
-                                        DropdownMenuItem(text = { Text("Export as CSV…") }, onClick = { fileMenu = false; exportWarning = { csvExportLauncher.launch("$baseName.csv") } })
-                                        DropdownMenuItem(text = { Text("Export as TSV…") }, onClick = { fileMenu = false; exportWarning = { tsvExportLauncher.launch("$baseName.tsv") } })
+                                        DropdownMenuItem(text = { Text("Excel (.xlsx)…") }, onClick = { exportMenu = false; exportWarning = { ooxmlExportLauncher.launch("$baseName.xlsx") } })
+                                        DropdownMenuItem(text = { Text("CSV…") }, onClick = { exportMenu = false; exportWarning = { csvExportLauncher.launch("$baseName.csv") } })
+                                        DropdownMenuItem(text = { Text("TSV…") }, onClick = { exportMenu = false; exportWarning = { tsvExportLauncher.launch("$baseName.tsv") } })
                                     }
                                     if (isPresentation) {
-                                        DropdownMenuItem(text = { Text("Export as PowerPoint (.pptx)…") }, onClick = { fileMenu = false; exportWarning = { ooxmlExportLauncher.launch("$baseName.pptx") } })
+                                        DropdownMenuItem(text = { Text("PowerPoint (.pptx)…") }, onClick = { exportMenu = false; exportWarning = { ooxmlExportLauncher.launch("$baseName.pptx") } })
                                     }
-                                    HorizontalDivider()
-                                    DropdownMenuItem(text = { Text(stringResource(R.string.document_info)) }, onClick = { fileMenu = false; showMetadata = true })
-                                    DropdownMenuItem(text = { Text("Settings") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.settings_24px), null) }, onClick = { fileMenu = false; showSettings = true })
                                 }
                             }
                             // Edit menu removed: Search moved to a top-bar icon; paragraph ops live in the bottom bar's ⋮ menu.
@@ -722,9 +733,7 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                             if (isTextDoc) Box {
                                 TextButton(onClick = { insertMenu = true }) { Text("Insert") }
                                 DropdownMenu(expanded = insertMenu, onDismissRequest = { insertMenu = false }) {
-                                    DropdownMenuItem(text = { Text("Paragraph") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.add_24px), null) }, onClick = { insertMenu = false; viewModel.addParagraphAfter(maxOf(0, focusedPara)) })
                                     DropdownMenuItem(text = { Text("Image…") }, onClick = { insertMenu = false; imagePickerLauncher.launch("image/*") })
-                                    DropdownMenuItem(text = { Text("Hyperlink") }, onClick = { insertMenu = false; showInsertLink = true })
                                     DropdownMenuItem(text = { Text("Chart") }, onClick = { insertMenu = false; editingChartBlock = -1; showChartEditor = true })
                                     DropdownMenuItem(text = { Text("Special character…") }, onClick = { insertMenu = false; showSpecialChars = true })
                                     DropdownMenuItem(text = { Text("Date (field)") }, onClick = { insertMenu = false; if (activeRunStart >= 0) viewModel.insertFieldInRun(activeRunStart, activeRunEnd, selStart, "date", viewModel.fieldDisplayValue("date")) })
@@ -893,6 +902,8 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                         )
                     }
                 }
+                OfficeLightTheme {
+                  Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 when (document) {
                     is OdfDocument.TextDocument -> TextDocumentView(doc = document, searchQuery = searchQuery, fontSizeMultiplier = fontSizeMultiplier, listState = listState,
                         remoteCarets = remoteCarets,
@@ -934,6 +945,8 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                         onElementSelected = { s, e -> activeSlide = s; activeSlideEl = e },
                         onCropImage = { s, e -> cropSlideTarget = s to e })
                     is OdfDocument.Drawing -> DrawingView(document)
+                }
+                  }
                 }
                 // Night reading mode: a view-only dimming scrim (does not modify or save the document). (C4)
                 if (nightMode) Box(Modifier.matchParentSize().background(Color(0x660E1116)))
