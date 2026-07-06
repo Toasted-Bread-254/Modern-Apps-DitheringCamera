@@ -2037,7 +2037,17 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                 syncMutex.withLock {
                     val crdt = currentCrdt ?: return@withLock
                     val startVersion = editVersion
-                    var changed = false
+                    val localCells = currentDocCells()
+                    // Fold pending local edits into the CRDT FIRST (and push them), so an incoming or
+                    // echoed op can't render a stale state and resurrect a char we just deleted.
+                    val localOps = crdt.update(localCells)
+                    if (localOps.isNotEmpty() && OfficeRoles.canEdit(currentRole)) {
+                        val opsJson = syncJson.encodeToString(localOps)
+                        val sig = Base64.encode(OfficeSync.sign(opsJson.encodeToByteArray()))
+                        val signed = syncJson.encodeToString(SignedOp(OfficeSync.deviceId, sig, opsJson))
+                        if (!OfficeSync.liveAppend(docId, key, listOf(signed))) OfficeSync.appendDocActions(docId, key, listOf(signed))
+                    }
+                    var changed = localOps.isNotEmpty()
                     for (blob in msg.actions) {
                         val plain = OfficeSync.decrypt(key, blob) ?: continue
                         if (applySignedOp(crdt, plain)) changed = true
@@ -2047,7 +2057,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                         ds.setLong("crdtCursor:$docId", msg.seq.toLong())
                         saveCrdt(ds, docId, crdt)
                         val merged = crdt.render()
-                        if (merged != currentDocCells()) {
+                        if (merged != localCells) {
                             val doc = rebuildDoc(merged)
                             if (doc != null) withContext(Dispatchers.Main) {
                                 // Don't clobber a keystroke the user made while we were merging.
