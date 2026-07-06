@@ -24,6 +24,7 @@ import androidx.glance.layout.ContentScale
 import androidx.glance.layout.fillMaxSize
 import com.vayunmathur.library.widgets.DynamicThemeGlance
 import com.vayunmathur.library.util.buildDatabase
+import com.vayunmathur.photos.R
 import com.vayunmathur.photos.data.PhotoDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -44,6 +45,24 @@ class PhotoGlanceWidget : GlanceAppWidget() {
             DynamicThemeGlance(context) {
                 bitmap?.let {
                     Content(it) { photo = photos.randomOrNull() }
+                }
+            }
+        }
+    }
+
+    override suspend fun providePreview(context: Context, widgetCategory: Int) {
+        provideContent {
+            DynamicThemeGlance(context) {
+                Box(
+                    modifier = GlanceModifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        provider = ImageProvider(R.drawable.widget_preview_photo),
+                        contentDescription = null,
+                        modifier = GlanceModifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
                 }
             }
         }

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Placeholder "photo" shown in the widget picker preview, since the live widget
+     renders a random image from the user's gallery that isn't available at preview time. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="135"
+        android:startColor="@android:color/system_accent1_400"
+        android:centerColor="@android:color/system_accent2_300"
+        android:endColor="@android:color/system_accent3_200"
+        android:type="linear" />
+</shape>

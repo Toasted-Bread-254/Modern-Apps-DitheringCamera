@@ -48,6 +48,31 @@ class EmailWidget : GlanceAppWidget() {
         }
     }
 
+    override suspend fun providePreview(context: Context, widgetCategory: Int) {
+        val sample = listOf(
+            EmailMessage(
+                accountEmail = "alex@example.com", folderName = "INBOX", id = 1,
+                subject = "Lunch tomorrow?", from = "Alex Johnson <alex@example.com>",
+                date = "Jul 6", body = "Are we still on for noon at the usual place?",
+            ),
+            EmailMessage(
+                accountEmail = "priya@work.com", folderName = "INBOX", id = 2,
+                subject = "Q3 report is ready", from = "Priya Patel <priya@work.com>",
+                date = "Jul 5", body = "I've attached the final numbers for review.",
+            ),
+            EmailMessage(
+                accountEmail = "news@digest.com", folderName = "INBOX", id = 3,
+                subject = "Your weekly digest", from = "Tech Weekly <news@digest.com>",
+                date = "Jul 5", body = "Top stories and updates from this week.",
+            ),
+        )
+        provideContent {
+            DynamicThemeGlance(context) {
+                EmailWidgetContent(sample)
+            }
+        }
+    }
+
     @SuppressLint("RestrictedApi")
     @Composable
     private fun EmailWidgetContent(messages: List<EmailMessage>) {

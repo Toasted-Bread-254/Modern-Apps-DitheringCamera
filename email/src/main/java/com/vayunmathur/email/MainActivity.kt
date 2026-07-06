@@ -32,8 +32,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.lifecycleScope
 import androidx.core.net.toUri
 import com.vayunmathur.email.data.EmailSyncWorker
+import com.vayunmathur.email.widget.EmailWidgetReceiver
 import com.vayunmathur.library.ui.*
 import com.vayunmathur.library.util.*
+import com.vayunmathur.library.widgets.updateWidgetPreviews
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -43,6 +45,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        updateWidgetPreviews(EmailWidgetReceiver::class)
         handleIntent(intent)
         // Wake the outbox sender on every cold start: if the process was killed
         // between scheduled retries, this is what gets it going again.

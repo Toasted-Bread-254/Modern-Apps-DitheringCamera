@@ -3,5 +3,6 @@
     android:initialLayout="@layout/glance_default_loading_layout"
     android:minWidth="200dp"
     android:minHeight="150dp"
+    android:description="@string/email_widget_description"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen" />

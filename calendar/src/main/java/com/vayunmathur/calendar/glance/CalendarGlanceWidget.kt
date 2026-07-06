@@ -82,6 +82,51 @@ class CalendarGlanceWidget : GlanceAppWidget() {
             }
         }
     }
+
+    override suspend fun providePreview(context: Context, widgetCategory: Int) {
+        provideContent {
+            DynamicThemeGlance(context) {
+                CalendarPreviewContent()
+            }
+        }
+    }
+}
+
+@SuppressLint("RestrictedApi")
+@Composable
+private fun CalendarPreviewContent() {
+    val dateFormatS = LocalDate.Format {
+        dayOfWeek(DayOfWeekNames.ENGLISH_ABBREVIATED)
+        chars(", ")
+        monthName(MonthNames.ENGLISH_ABBREVIATED)
+        chars(" ")
+        day(Padding.NONE)
+    }
+    val today = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date
+
+    Scaffold(titleBar = {
+        TitleBar(ImageProvider(R.drawable.calendar_today_24px), today.format(dateFormatS))
+    }) {
+        Column(GlanceModifier.fillMaxSize()) {
+            CalendarPreviewEvent("Team standup", "9:00 – 9:30 AM", 0xFF4285F4.toInt())
+            CalendarPreviewEvent("Lunch with Sam", "12:30 – 1:30 PM", 0xFF34A853.toInt())
+            CalendarPreviewEvent("Design review", "3:00 – 4:00 PM", 0xFFEA4335.toInt())
+        }
+    }
+}
+
+@SuppressLint("RestrictedApi")
+@Composable
+private fun CalendarPreviewEvent(title: String, time: String, color: Int) {
+    Row(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Row(GlanceModifier.background(GlanceTheme.colors.primaryContainer).cornerRadius(6.dp)) {
+            Box(GlanceModifier.background(ColorProvider(Color(color))).width(8.dp).fillMaxHeight()) {}
+            Column(GlanceModifier.padding(4.dp).fillMaxWidth()) {
+                Text(title, style = TextStyle(fontWeight = FontWeight.Bold))
+                Text(time, style = defaultTextStyle.copy(color = GlanceTheme.colors.onPrimaryContainer))
+            }
+        }
+    }
 }
 @SuppressLint("RestrictedApi")
 @Composable

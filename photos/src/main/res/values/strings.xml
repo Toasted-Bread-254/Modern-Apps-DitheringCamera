@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">Photos</string>
+    <string name="photo_widget_description">A rotating photo from your gallery — tap to shuffle</string>
     <string name="title_edit_photo">Edit Photo</string>
     <string name="action_save">Save</string>
     <string name="action_save_as_copy">Save as Copy</string>

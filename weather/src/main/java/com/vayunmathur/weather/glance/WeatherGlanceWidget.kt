@@ -80,6 +80,14 @@ class WeatherGlanceWidget : GlanceAppWidget() {
         }
     }
 
+    override suspend fun providePreview(context: Context, widgetCategory: Int) {
+        provideContent {
+            DynamicThemeGlance(context) {
+                Content(WidgetWeather(temperatureCelsius = 22.0, weatherCode = 1, isDay = true))
+            }
+        }
+    }
+
     private suspend fun loadWeatherSnapshot(context: Context): WidgetWeather? {
         return try {
             val db = context.buildDatabase<WeatherDatabase>(dbName = "weather-db")

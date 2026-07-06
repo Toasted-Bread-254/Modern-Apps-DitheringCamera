@@ -1,12 +1,14 @@
 package com.vayunmathur.library.widgets
 
 import android.content.Context
+import android.os.Build
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.GlanceId
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.appwidget.updateAll
 import androidx.glance.state.GlanceStateDefinition
@@ -83,6 +85,57 @@ fun <T : GlanceAppWidget> Context.updateWidget(widgetClass: KClass<T>) {
     WorkManager.getInstance(this).enqueueUniqueWork(
         "${className}_immediate",
         ExistingWorkPolicy.REPLACE,
+        request
+    )
+}
+
+/**
+ * Worker that pushes composable widget previews to the system so they appear in the
+ * launcher's widget picker. Backed by Glance's [GlanceAppWidgetManager.setWidgetPreviews],
+ * which renders the receiver's [GlanceAppWidget.providePreview] content. The underlying
+ * platform API only exists on Android 15+ (API 35); on older releases this is a no-op.
+ */
+class WidgetPreviewWorker(
+    context: Context,
+    workerParams: WorkerParameters
+) : CoroutineWorker(context, workerParams) {
+
+    override suspend fun doWork(): Result {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) return Result.success()
+        val className = inputData.getString(ARG_RECEIVER_CLASS) ?: return Result.failure()
+        return try {
+            @Suppress("UNCHECKED_CAST")
+            val receiverClass = Class.forName(className).kotlin as KClass<out GlanceAppWidgetReceiver>
+            GlanceAppWidgetManager(applicationContext).setWidgetPreviews(receiverClass)
+            Result.success()
+        } catch (e: Exception) {
+            Result.failure()
+        }
+    }
+
+    companion object {
+        const val ARG_RECEIVER_CLASS = "receiver_class_name"
+    }
+}
+
+/**
+ * Registers composable previews for [receiverClass] with the system widget picker.
+ * Safe and cheap to call on every app launch: it dedups within a session and the
+ * platform rate-limits repeated registrations. No-op below Android 15.
+ */
+fun <T : GlanceAppWidgetReceiver> Context.updateWidgetPreviews(receiverClass: KClass<T>) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) return
+    val className = receiverClass.qualifiedName ?: return
+
+    val inputData = workDataOf(WidgetPreviewWorker.ARG_RECEIVER_CLASS to className)
+
+    val request = OneTimeWorkRequestBuilder<WidgetPreviewWorker>()
+        .setInputData(inputData)
+        .build()
+
+    WorkManager.getInstance(this).enqueueUniqueWork(
+        "${className}_preview",
+        ExistingWorkPolicy.KEEP,
         request
     )
 }

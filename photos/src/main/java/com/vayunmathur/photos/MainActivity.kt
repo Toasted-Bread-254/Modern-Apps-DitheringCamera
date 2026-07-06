@@ -57,10 +57,12 @@ import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.util.NavKey
 import com.vayunmathur.library.util.buildDatabase
 import com.vayunmathur.library.util.rememberNavBackStack
+import com.vayunmathur.library.widgets.updateWidgetPreviews
 import com.vayunmathur.photos.data.FaceDao
 import com.vayunmathur.photos.data.Photo
 import com.vayunmathur.photos.data.PhotoDao
 import com.vayunmathur.photos.data.PhotoDatabase
+import com.vayunmathur.photos.glance.PhotoGlanceWidgetReceiver
 import com.vayunmathur.photos.ui.GalleryPage
 import com.vayunmathur.photos.ui.MapPage
 import com.vayunmathur.photos.ui.PeoplePage
@@ -101,6 +103,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        updateWidgetPreviews(PhotoGlanceWidgetReceiver::class)
         enableEdgeToEdge()
         val db = buildDatabase<PhotoDatabase>()
         photoDao = db.photoDao()

@@ -13,7 +13,9 @@ import com.vayunmathur.library.util.MainNavigation
 import com.vayunmathur.library.util.NavKey
 import com.vayunmathur.library.util.buildDatabase
 import com.vayunmathur.library.util.rememberNavBackStack
+import com.vayunmathur.library.widgets.updateWidgetPreviews
 import com.vayunmathur.weather.data.WeatherDatabase
+import com.vayunmathur.weather.glance.WeatherGlanceWidgetReceiver
 import com.vayunmathur.weather.ui.HomePage
 import com.vayunmathur.weather.ui.SearchLocationPage
 import com.vayunmathur.weather.ui.WeatherMapPage
@@ -29,6 +31,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        updateWidgetPreviews(WeatherGlanceWidgetReceiver::class)
         enableEdgeToEdge()
         setContent {
             DynamicTheme {

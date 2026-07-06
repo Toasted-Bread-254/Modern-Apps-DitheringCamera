@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vayunmathur.calendar.data.Instance
+import com.vayunmathur.calendar.glance.CalendarGlanceWidgetReceiver
 import com.vayunmathur.calendar.ui.*
 import com.vayunmathur.calendar.ui.dialogs.*
 import com.vayunmathur.calendar.util.CalendarViewModel
@@ -31,6 +32,7 @@ import com.vayunmathur.library.ui.DynamicTheme
 import com.vayunmathur.library.ui.dialog.DatePickerDialog
 import com.vayunmathur.library.ui.dialog.TimePickerDialogContent
 import com.vayunmathur.library.util.*
+import com.vayunmathur.library.widgets.updateWidgetPreviews
 import kotlin.time.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
@@ -44,6 +46,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        updateWidgetPreviews(CalendarGlanceWidgetReceiver::class)
         enableEdgeToEdge()
         handleIntent(intent)
         setContent {
