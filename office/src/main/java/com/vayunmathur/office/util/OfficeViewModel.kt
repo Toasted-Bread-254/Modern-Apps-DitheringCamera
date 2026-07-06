@@ -2073,6 +2073,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
             while (isActive) {
                 kotlinx.coroutines.delay(1200)
                 runCatching { syncDoc(docId, key) }
+                runCatching { pollTitle(docId, key) } // pick up an owner rename ~live
             }
         }
         // Presence upkeep: clear a peer's "typing…" a few seconds after they stop, and drop the whole
@@ -2517,6 +2518,22 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
             if (OfficeSync.verify(ownerKey, titleSigningBytes(docId, st.title), Base64.decode(st.sig))) latest = st.title
         }
         return latest
+    }
+
+    /** Applies an owner rename to the currently-open document (title bar + index) if it changed. */
+    private suspend fun pollTitle(docId: String, key: ByteArray) {
+        if (currentDocId != docId) return
+        val t = fetchTitle(docId, key, currentOwnerKey) ?: return
+        val cur = (_state.value as? ViewState.Loaded)?.document ?: return
+        if (cur.title == t) return
+        withContext(Dispatchers.Main) {
+            (_state.value as? ViewState.Loaded)?.document?.let { if (it.title != t) _state.value = ViewState.Loaded(withTitle(it, t)) }
+        }
+        val ds = DataStoreUtils.getInstance(getApplication())
+        indexMutex.withLock {
+            val index = loadIndex(ds).associateBy { it.docId }.toMutableMap()
+            index[docId]?.let { if (it.title != t) { index[docId] = it.copy(title = t); saveIndex(ds, index.values.toList()) } }
+        }
     }
 
     /** Owner renames the open online document; the new name is published (signed) to all members. */

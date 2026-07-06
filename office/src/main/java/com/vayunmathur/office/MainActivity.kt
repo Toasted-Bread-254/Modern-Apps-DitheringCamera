@@ -243,25 +243,26 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InitialScreen(viewModel: OfficeViewModel, onOpenDocument: () -> Unit, onNavigateEditor: () -> Unit) {
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Spacer(Modifier.height(48.dp))
-        Text("Office", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Text("Open Document Format Viewer & Editor", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(32.dp))
+    Scaffold(topBar = { TopAppBar(title = { Text("Office") }) }) { pad ->
+        Column(Modifier.fillMaxSize().padding(pad).background(MaterialTheme.colorScheme.background).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Spacer(Modifier.height(24.dp))
+            Text("Open Document Format Viewer & Editor", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(32.dp))
 
-        Button(onClick = onOpenDocument, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.open_document)) }
-        Spacer(Modifier.height(4.dp))
-        Text("Opens ODF, Word/Excel/PowerPoint, CSV, TSV, Markdown & text files",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(16.dp))
+            Button(onClick = onOpenDocument, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.open_document)) }
+            Spacer(Modifier.height(4.dp))
+            Text("Opens ODF, Word/Excel/PowerPoint, CSV, TSV, Markdown & text files",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(16.dp))
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { viewModel.createNewTextDocument(); onNavigateEditor() }, Modifier.weight(1f)) { Text("New Doc") }
-            OutlinedButton(onClick = { viewModel.createNewSpreadsheet(); onNavigateEditor() }, Modifier.weight(1f)) { Text("New Sheet") }
-            OutlinedButton(onClick = { viewModel.createNewPresentation(); onNavigateEditor() }, Modifier.weight(1f)) { Text("New Slides") }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { viewModel.createNewTextDocument(); onNavigateEditor() }, Modifier.weight(1f)) { Text("New Doc") }
+                OutlinedButton(onClick = { viewModel.createNewSpreadsheet(); onNavigateEditor() }, Modifier.weight(1f)) { Text("New Sheet") }
+                OutlinedButton(onClick = { viewModel.createNewPresentation(); onNavigateEditor() }, Modifier.weight(1f)) { Text("New Slides") }
+            }
         }
     }
 }
