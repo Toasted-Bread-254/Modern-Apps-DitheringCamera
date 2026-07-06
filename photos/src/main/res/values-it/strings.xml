@@ -37,4 +37,14 @@
     <string name="enable_ai_search_button">Abilita</string>
     <string name="model_downloading_title">Scaricamento del modello AI</string>
     <string name="model_downloading_description">Scaricamento del modello AI in corso. L\'operazione potrebbe richiedere alcuni minuti a seconda della tua connessione.</string>
+    <string name="label_people">Persone</string>
+    <string name="people_empty">Nessuna persona trovata. La scansione avviene in background — controlla più tardi, dopo che le tue foto sono state indicizzate.</string>
+    <string name="people_scanning">Raggruppamento volti… le persone appariranno qui non appena verranno trovate.</string>
+    <string name="face_indexing_progress">Indicizzazione %1$d / %2$d</string>
+    <string name="people_photo_count">%1$d foto</string>
+    <plurals name="people_in_photo">
+        <item quantity="one">%1$d persona</item>
+        <item quantity="many">%1$d persone</item>
+        <item quantity="other">%1$d persone</item>
+    </plurals>
 </resources>
