@@ -276,6 +276,7 @@ fun ShareOnlineDialog(
     members: List<com.vayunmathur.office.util.OfficeMember>,
     onShare: (String, String, String, (String?) -> Unit) -> Unit,
     onSetRole: (String, String) -> Unit,
+    onRename: (String) -> Unit,
     onComputeCode: (String, (String?) -> Unit) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -327,7 +328,12 @@ fun ShareOnlineDialog(
                         )
                         Spacer(Modifier.height(8.dp))
                     } else {
-                        Text("Document: ${docName.ifBlank { "Untitled" }}", style = MaterialTheme.typography.titleSmall)
+                        // Already online: owner can rename; the new name is published to all members.
+                        OutlinedTextField(
+                            value = docName, onValueChange = { docName = it },
+                            label = { Text("Document name") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                        )
+                        TextButton(enabled = docName.isNotBlank() && docName.trim() != initialName, onClick = { onRename(docName.trim()) }) { Text("Rename") }
                         Spacer(Modifier.height(8.dp))
                     }
                     Text("Add someone by device id (copies this document into your online folder, end-to-end encrypted):")
@@ -961,6 +967,7 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                     viewModel.documentMembers { members = it }
                 }
             },
+            onRename = { name -> viewModel.renameDocument(name) },
             onComputeCode = { id, cb -> viewModel.securityCodeWith(id, cb) },
             onDismiss = { showShareDialog = false }
         )

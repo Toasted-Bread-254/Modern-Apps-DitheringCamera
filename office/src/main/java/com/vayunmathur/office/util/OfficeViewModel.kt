@@ -81,6 +81,10 @@ data class OfficeMember(val id: String, val name: String = "", val role: String 
 @Serializable
 data class SignedMember(val member: OfficeMember, val sig: String)
 
+/** An owner-signed document title (latest valid one wins), for rename-after-share. */
+@Serializable
+data class SignedTitle(val title: String, val sig: String)
+
 /** An author-signed CRDT op batch: author id, signature over [ops], and the ops JSON. */
 @Serializable
 data class SignedOp(val author: String, val sig: String, val ops: String)
@@ -2156,7 +2160,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         _onlineDocs.value = list
     }
 
-    /** Pulls new invites from this device's inbox and merges them into the online list. */
+    /** Pulls new invites from this device's inbox and merges them into the online list; refreshes titles. */
     fun refreshOnline() {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
@@ -2168,14 +2172,26 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                     indexMutex.withLock {
                         val index = loadIndex(ds).associateBy { it.docId }.toMutableMap()
                         for (inv in res.invites) {
-                            if (!index.containsKey(inv.docId)) {
-                                index[inv.docId] = officeDocMetaFromInvite(inv)
-                            }
+                            if (!index.containsKey(inv.docId)) index[inv.docId] = officeDocMetaFromInvite(inv)
                         }
                         saveIndex(ds, index.values.toList())
                     }
                 }
                 ds.setLong("officeInboxCursor", res.seq.toLong())
+                // Pick up any owner rename for docs we already have (network done outside the lock).
+                val current = indexMutex.withLock { loadIndex(ds) }
+                val updates = HashMap<String, String>()
+                for (meta in current) {
+                    val k = runCatching { Base64.decode(meta.keyB64) }.getOrNull() ?: continue
+                    val ok = meta.ownerKeyB64.takeIf { it.isNotBlank() }?.let { runCatching { Base64.decode(it) }.getOrNull() }
+                    val t = runCatching { fetchTitle(meta.docId, k, ok) }.getOrNull()
+                    if (t != null && t != meta.title) updates[meta.docId] = t
+                }
+                if (updates.isNotEmpty()) indexMutex.withLock {
+                    val index = loadIndex(ds).associateBy { it.docId }.toMutableMap()
+                    for ((id, t) in updates) index[id]?.let { index[id] = it.copy(title = t) }
+                    saveIndex(ds, index.values.toList())
+                }
             }
         }
     }
@@ -2333,6 +2349,12 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                 val crdt = loadCrdt(ds, meta.docId) ?: DocumentCrdt(OfficeSync.deviceId)
                 // Refresh the (owner-signed) roster so op role-checks are correct before applying.
                 runCatching { fetchMembers(meta.docId, key, currentOwnerKey) }
+                // Pick up any owner rename since we last saw this doc.
+                val title = runCatching { fetchTitle(meta.docId, key, currentOwnerKey) }.getOrNull() ?: meta.title
+                if (title != meta.title) indexMutex.withLock {
+                    val index = loadIndex(ds).associateBy { it.docId }.toMutableMap()
+                    index[meta.docId]?.let { index[meta.docId] = it.copy(title = title); saveIndex(ds, index.values.toList()) }
+                }
                 val cursor = ds.getLong("crdtCursor:${meta.docId}")?.toInt() ?: 0
                 val pulled = OfficeSync.pullDocActions(meta.docId, key, cursor)
                 for (item in pulled.items) {
@@ -2350,14 +2372,14 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                     return@runCatching
                 }
                 val flat = if (meta.charMode) {
-                    val base = OdfDocument.TextDocument(title = meta.title, content = emptyList())
+                    val base = OdfDocument.TextDocument(title = title, content = emptyList())
                     val doc = runCatching { TextDocCodec.fromCells(cells, base) }.getOrNull() ?: base
                     OdfSerializer.serializeFlat(doc)
                 } else {
                     OfficeCrdtCodec.fromLines(cells)
                 }
                 val ctx: Context = getApplication()
-                val safeTitle = meta.title.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "document" }
+                val safeTitle = title.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "document" }
                 val file = java.io.File(ctx.cacheDir, "online_${meta.docId}.fodt")
                 file.writeText(flat)
                 withContext(Dispatchers.Main) {
@@ -2457,6 +2479,44 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                 recordMembers(docId, key, listOf(OfficeMember(memberId, "", role)))
             }
             onResult(true)
+        }
+    }
+
+    private fun titleSigningBytes(docId: String, title: String): ByteArray = "$docId|title|$title".encodeToByteArray()
+
+    /** Reads the latest owner-signed document title, if the owner ever renamed it. */
+    private suspend fun fetchTitle(docId: String, key: ByteArray, ownerKey: ByteArray?): String? {
+        if (ownerKey == null) return null
+        val res = OfficeSync.pullDocActions("title:$docId", key, 0)
+        var latest: String? = null
+        for (item in res.items) {
+            val st = runCatching { syncJson.decodeFromString<SignedTitle>(item) }.getOrNull() ?: continue
+            if (OfficeSync.verify(ownerKey, titleSigningBytes(docId, st.title), Base64.decode(st.sig))) latest = st.title
+        }
+        return latest
+    }
+
+    /** Owner renames the open online document; the new name is published (signed) to all members. */
+    fun renameDocument(newName: String, onResult: (Boolean) -> Unit = {}) {
+        val docId = currentDocId; val key = currentDocKey
+        val name = newName.trim()
+        if (docId == null || key == null || currentRole != OfficeRoles.OWNER || name.isBlank()) { onResult(false); return }
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = runCatching {
+                OfficeSync.init(getApplication())
+                val ds = DataStoreUtils.getInstance(getApplication())
+                val sig = Base64.encode(OfficeSync.sign(titleSigningBytes(docId, name)))
+                OfficeSync.appendDocActions("title:$docId", key, listOf(syncJson.encodeToString(SignedTitle(name, sig))))
+                indexMutex.withLock {
+                    val index = loadIndex(ds).associateBy { it.docId }.toMutableMap()
+                    index[docId]?.let { index[docId] = it.copy(title = name); saveIndex(ds, index.values.toList()) }
+                }
+                withContext(Dispatchers.Main) {
+                    (_state.value as? ViewState.Loaded)?.document?.let { _state.value = ViewState.Loaded(withTitle(it, name)) }
+                }
+                true
+            }.getOrDefault(false)
+            withContext(Dispatchers.Main) { onResult(ok) }
         }
     }
 
