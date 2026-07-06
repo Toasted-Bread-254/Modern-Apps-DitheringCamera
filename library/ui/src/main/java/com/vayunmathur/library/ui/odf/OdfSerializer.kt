@@ -1051,6 +1051,7 @@ object OdfSerializer {
         sb.append(""" xmlns:xlink="http://www.w3.org/1999/xlink"""")
         sb.append(""" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"""")
         sb.append(""" xmlns:dc="http://purl.org/dc/elements/1.1/"""")
+        sb.append(""" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0"""")
         sb.append(""" xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0"""")
         sb.append(""" xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0"""")
         sb.append(""" xmlns:loext="urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0"""")
