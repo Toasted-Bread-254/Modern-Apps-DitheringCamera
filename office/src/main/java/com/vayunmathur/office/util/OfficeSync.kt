@@ -195,6 +195,20 @@ object OfficeSync {
         runCatching { wsSession?.send(Frame.Text(json.encodeToString(PresenceMsg("presence", channel, data)))) }
     }
 
+    /**
+     * Pushes encrypted action blobs over the WebSocket (same live path as presence) so peers get them
+     * instantly. The server both stores and fans them out. Returns false if the socket isn't connected
+     * (caller should fall back to [appendDocActions] over HTTP).
+     */
+    suspend fun liveAppend(channel: String, key: ByteArray, items: List<String>): Boolean {
+        val session = wsSession ?: return false
+        val blobs = items.map { Base64.encode(E2ee.aesEncrypt(key, it.encodeToByteArray())) }
+        return runCatching {
+            session.send(Frame.Text(json.encodeToString(AppendMsg("append", channel, blobs))))
+            true
+        }.getOrDefault(false)
+    }
+
     /** Parses a raw live message. */
     fun parseLive(raw: String): LiveMsg? = runCatching { json.decodeFromString<LiveMsg>(raw) }.getOrNull()
 
@@ -260,6 +274,7 @@ object OfficeSync {
 
     @Serializable private data class SubMsg(val t: String, val channel: String)
     @Serializable private data class PresenceMsg(val t: String, val channel: String, val data: String)
+    @Serializable private data class AppendMsg(val t: String, val channel: String, val actions: List<String>)
 
     /** A live server message: `t` = "actions" (with [actions]+[seq]) or "presence" (with [data]). */
     @Serializable data class LiveMsg(

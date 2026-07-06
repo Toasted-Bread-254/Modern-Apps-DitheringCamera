@@ -14,6 +14,7 @@ import com.vayunmathur.office.odf.*
 import com.vayunmathur.library.ui.odf.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -297,6 +298,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         currentCrdt = null
         currentCharMode = false
         OfficeSync.stopLive()
+        livePollJob?.cancel()
         _remotePresence.value = emptyList()
         _isOnline.value = false
         autoSaveJob?.cancel()
@@ -1949,6 +1951,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
     private var applyingRemote = false
     private var livePushJob: Job? = null
+    private var livePollJob: Job? = null
     private var localCaret = 0
     private var caretPresenceJob: Job? = null
 
@@ -1998,6 +2001,15 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
             onConnected = { runCatching { syncDoc(docId, key) } }, // catch up on (re)connect
             onMessage = { raw -> handleLive(raw, docId, key) },
         )
+        // Fallback poll: guarantees remote edits arrive even if the server doesn't push them over
+        // the WebSocket. syncDoc is a no-op push when there are no local changes, then pulls+merges.
+        livePollJob?.cancel()
+        livePollJob = viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                kotlinx.coroutines.delay(1200)
+                runCatching { syncDoc(docId, key) }
+            }
+        }
     }
 
     /** Verifies an incoming signed op (author signature + editor/owner role) and applies it. */
@@ -2147,7 +2159,10 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
             val opsJson = syncJson.encodeToString(localOps)
             val sig = Base64.encode(OfficeSync.sign(opsJson.encodeToByteArray()))
             val signed = syncJson.encodeToString(SignedOp(OfficeSync.deviceId, sig, opsJson))
-            OfficeSync.appendDocActions(docId, key, listOf(signed))
+            // Prefer the live WebSocket (peers get it instantly, like presence); HTTP is the fallback.
+            if (!OfficeSync.liveAppend(docId, key, listOf(signed))) {
+                OfficeSync.appendDocActions(docId, key, listOf(signed))
+            }
         }
         // Pull from the OLD cursor so remote ops (and our just-pushed, idempotent ops) are merged.
         val pulled = OfficeSync.pullDocActions(docId, key, cursor)

@@ -645,8 +645,10 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                             if (canEdit) IconButton(onClick = { showSearch = !showSearch }) { Icon(painterResource(com.vayunmathur.library.R.drawable.outline_search_24), contentDescription = "Search") }
                             IconButton(onClick = { viewModel.undo() }, enabled = canUndo) { Icon(painterResource(com.vayunmathur.library.R.drawable.undo_24px), contentDescription = "Undo") }
                             IconButton(onClick = { viewModel.redo() }, enabled = canRedo) { Icon(painterResource(R.drawable.redo_24px), contentDescription = "Redo") }
-                            IconButton(onClick = { if (viewModel.needsSaveAs()) saveAsLauncher.launch(saveAsName) else viewModel.save() }, enabled = hasUnsavedChanges && !isSaving) {
-                                if (isSaving) CircularProgressIndicator(Modifier.size(20.dp)) else Icon(painterResource(com.vayunmathur.library.R.drawable.save_24px), contentDescription = "Save")
+                            if (!isOnline) {
+                                IconButton(onClick = { if (viewModel.needsSaveAs()) saveAsLauncher.launch(saveAsName) else viewModel.save() }, enabled = hasUnsavedChanges && !isSaving) {
+                                    if (isSaving) CircularProgressIndicator(Modifier.size(20.dp)) else Icon(painterResource(com.vayunmathur.library.R.drawable.save_24px), contentDescription = "Save")
+                                }
                             }
                         }
                     )
