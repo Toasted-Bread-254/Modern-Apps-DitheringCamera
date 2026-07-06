@@ -119,7 +119,10 @@ private fun OfficeLightTheme(content: @Composable () -> Unit) {
 sealed interface OfficeRoute : NavKey {
     @Serializable data object Offline : OfficeRoute
     @Serializable data object Online : OfficeRoute
-    @Serializable data object Editor : OfficeRoute
+    /** Editing a local/offline document (optionally identified by its source uri). */
+    @Serializable data class OfflineEditor(val uri: String? = null) : OfficeRoute
+    /** Editing a cloud-synced document, identified by its document id. */
+    @Serializable data class OnlineEditor(val docId: String) : OfficeRoute
 }
 
 class MainActivity : ComponentActivity() {
@@ -137,7 +140,7 @@ class MainActivity : ComponentActivity() {
             var documentUri by rememberSaveable { mutableStateOf(intentUri) }
             val state by viewModel.state.collectAsState()
             val backStack = rememberNavBackStack<OfficeRoute>(
-                if (intentUri != null) OfficeRoute.Editor else OfficeRoute.Offline
+                if (intentUri != null) OfficeRoute.OfflineEditor(intentUri.toString()) else OfficeRoute.Offline
             )
 
             LaunchedEffect(Unit) { viewModel.initSync() }
@@ -167,7 +170,7 @@ class MainActivity : ComponentActivity() {
                 uri?.let {
                     documentUri = it
                     viewModel.loadDocument(it, it.lastPathSegment ?: "document")
-                    backStack.add(OfficeRoute.Editor)
+                    backStack.add(OfficeRoute.OfflineEditor(it.toString()))
                 }
             }
 
@@ -186,6 +189,24 @@ class MainActivity : ComponentActivity() {
             }
 
             OfficeLightTheme {
+                val editorContent: @Composable () -> Unit = {
+                    when (val s = state) {
+                        is OfficeViewModel.ViewState.Loaded -> DocumentScreen(
+                            document = s.document, viewModel = viewModel, activity = this@MainActivity,
+                            onBack = { leaveEditor() },
+                            // When an offline doc is shared it becomes a cloud doc — switch its route.
+                            onBecameOnline = { id -> backStack.setLast(OfficeRoute.OnlineEditor(id)) }
+                        )
+                        is OfficeViewModel.ViewState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(stringResource(R.string.error_loading), style = MaterialTheme.typography.titleMedium)
+                                Text(s.message, Modifier.padding(16.dp))
+                                Button(onClick = { leaveEditor() }) { Text(stringResource(R.string.open_document)) }
+                            }
+                        }
+                        else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    }
+                }
                 MainNavigation(
                     backStack,
                     bottomBar = {
@@ -197,31 +218,17 @@ class MainActivity : ComponentActivity() {
                         InitialScreen(
                             viewModel = viewModel,
                             onOpenDocument = { filePickerLauncher.launch(odfMimeTypes) },
-                            onNavigateEditor = { backStack.add(OfficeRoute.Editor) }
+                            onNavigateEditor = { backStack.add(OfficeRoute.OfflineEditor()) }
                         )
                     }
                     entry<OfficeRoute.Online> {
                         OnlineTab(viewModel = viewModel, onOpenDoc = { meta ->
                             viewModel.openOnlineDocument(meta)
-                            backStack.add(OfficeRoute.Editor)
+                            backStack.add(OfficeRoute.OnlineEditor(meta.docId))
                         })
                     }
-                    entry<OfficeRoute.Editor> {
-                        when (val s = state) {
-                            is OfficeViewModel.ViewState.Loaded -> DocumentScreen(
-                                document = s.document, viewModel = viewModel, activity = this@MainActivity,
-                                onBack = { leaveEditor() }
-                            )
-                            is OfficeViewModel.ViewState.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(stringResource(R.string.error_loading), style = MaterialTheme.typography.titleMedium)
-                                    Text(s.message, Modifier.padding(16.dp))
-                                    Button(onClick = { leaveEditor() }) { Text(stringResource(R.string.open_document)) }
-                                }
-                            }
-                            else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                        }
-                    }
+                    entry<OfficeRoute.OfflineEditor> { editorContent() }
+                    entry<OfficeRoute.OnlineEditor> { editorContent() }
                 }
             }
         }
@@ -406,7 +413,7 @@ fun OnlineTab(viewModel: OfficeViewModel, onOpenDoc: (com.vayunmathur.office.uti
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: ComponentActivity, onBack: () -> Unit) {
+fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: ComponentActivity, onBack: () -> Unit, onBecameOnline: (String) -> Unit = {}) {
     var showMetadata by remember { mutableStateOf(false) }
     var showShareDialog by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
@@ -924,7 +931,10 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
             members = members,
             onShare = { recipientId, role, cb ->
                 viewModel.shareCurrentDocument(recipientId, role) { err ->
-                    if (err == null) viewModel.documentMembers { members = it } // refresh roster on success
+                    if (err == null) {
+                        viewModel.documentMembers { members = it } // refresh roster on success
+                        viewModel.currentOnlineDocId()?.let { onBecameOnline(it) } // now a cloud doc
+                    }
                     cb(err)
                 }
             },

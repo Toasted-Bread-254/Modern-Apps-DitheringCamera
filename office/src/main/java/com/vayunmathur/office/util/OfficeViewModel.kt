@@ -2293,6 +2293,9 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     /** This device's role in the open document (owner/editor/viewer). */
     fun currentDocRole(): String = currentRole
 
+    /** The open document's online id, or null if it isn't a cloud document. */
+    fun currentOnlineDocId(): String? = currentDocId
+
     /** True if the local user may edit the open document. */
     fun canEditCurrent(): Boolean = currentDocId == null || OfficeRoles.canEdit(currentRole)
 
