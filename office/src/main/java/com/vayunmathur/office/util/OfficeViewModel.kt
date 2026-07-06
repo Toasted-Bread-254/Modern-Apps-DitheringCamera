@@ -196,6 +196,9 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         val stored = if (newDoc is OdfDocument.TextDocument) renumberLists(newDoc) else newDoc
         _state.value = ViewState.Loaded(stored)
         _hasUnsavedChanges.value = true
+        // Bump the local-edit version for genuine user edits (not remote merges) so a background
+        // sync/merge won't overwrite a keystroke that landed while it was running.
+        if (!applyingRemote) editVersion++
         onLocalEdit()
     }
 
@@ -1950,6 +1953,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     /** True when the open document is an online (cloud-synced) document — hides Save, changes back nav. */
     val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
     private var applyingRemote = false
+    @Volatile private var editVersion = 0
     private var livePushJob: Job? = null
     private var livePollJob: Job? = null
     private var localCaret = 0
@@ -2032,6 +2036,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
             "actions" -> viewModelScope.launch(Dispatchers.IO) {
                 syncMutex.withLock {
                     val crdt = currentCrdt ?: return@withLock
+                    val startVersion = editVersion
                     var changed = false
                     for (blob in msg.actions) {
                         val plain = OfficeSync.decrypt(key, blob) ?: continue
@@ -2045,9 +2050,12 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                         if (merged != currentDocCells()) {
                             val doc = rebuildDoc(merged)
                             if (doc != null) withContext(Dispatchers.Main) {
-                                applyingRemote = true
-                                updateDocument(doc)
-                                applyingRemote = false
+                                // Don't clobber a keystroke the user made while we were merging.
+                                if (editVersion == startVersion) {
+                                    applyingRemote = true
+                                    updateDocument(doc)
+                                    applyingRemote = false
+                                }
                             }
                         }
                     }
@@ -2153,6 +2161,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         val crdt = currentCrdt ?: (loadCrdt(ds, docId) ?: DocumentCrdt(OfficeSync.deviceId)).also { currentCrdt = it }
         val cursor = ds.getLong("crdtCursor:$docId")?.toInt() ?: 0
         val localCells = currentDocCells()
+        val startVersion = editVersion
         val localOps = crdt.update(localCells)
         // Only push signed ops if we're allowed to edit; viewers never push.
         if (localOps.isNotEmpty() && OfficeRoles.canEdit(currentRole)) {
@@ -2174,7 +2183,9 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         val mergedCells = crdt.render()
         if (mergedCells != localCells) {
             val doc = rebuildDoc(mergedCells)
-            if (doc != null) withContext(Dispatchers.Main) { updateDocument(doc) }
+            // Don't overwrite the editor if the user typed while this sync was running; the next
+            // sync (triggered by that edit) will fold it in and re-merge. Prevents "deletes coming back".
+            if (doc != null) withContext(Dispatchers.Main) { if (editVersion == startVersion) updateDocument(doc) }
         }
     }
 
