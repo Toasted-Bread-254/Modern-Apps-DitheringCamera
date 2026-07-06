@@ -29,4 +29,5 @@
     <string name="settings">Impostazioni</string>
     <string name="drafts">Bozze</string>
     <string name="save">Salva</string>
+    <string name="cancel">Annulla</string>
 </resources>
