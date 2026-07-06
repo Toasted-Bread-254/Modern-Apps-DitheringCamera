@@ -7,6 +7,7 @@ import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ElevationGainedRecord
 import androidx.health.connect.client.records.ExerciseRoute
+import androidx.health.connect.client.records.ExerciseLap
 import androidx.health.connect.client.records.ExerciseSegment
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.FloorsClimbedRecord
@@ -226,6 +227,14 @@ class HealthConnectManager(private val context: Context) {
             )
         }
 
+        val laps = summary.laps.orEmpty().map { lap ->
+            val lapStart = Instant.ofEpochMilli(lap.start)
+            val lapEnd = Instant.ofEpochMilli(lap.end).let {
+                if (it.isAfter(lapStart)) it else lapStart.plusSeconds(1)
+            }
+            ExerciseLap(startTime = lapStart, endTime = lapEnd)
+        }
+
         toInsert += ExerciseSessionRecord(
             startTime = start,
             startZoneOffset = startOffset,
@@ -234,28 +243,42 @@ class HealthConnectManager(private val context: Context) {
             exerciseType = healthConnectExerciseType(summary.exerciseType),
             title = null,
             segments = segments,
-            laps = emptyList(),
+            laps = laps,
             exerciseRoute = route,
             metadata = Metadata.manualEntry(clientRecordId = "exercise-$key"),
         )
 
-        // Speed: only avg/max were reported (no time series), so emit avg at the
-        // start and max at the end of the window.
-        summary.avgSpeedMps?.let { avg ->
-            val samples = buildList {
-                add(SpeedRecord.Sample(time = start, speed = Velocity.metersPerSecond(avg)))
-                summary.maxSpeedMps?.let {
-                    add(SpeedRecord.Sample(time = end, speed = Velocity.metersPerSecond(it)))
-                }
-            }
+        // Speed: prefer the real captured time-series; fall back to the avg@start /
+        // max@end approximation only when no series was reported.
+        val speedSamples = summary.speedSamples.orEmpty()
+            .map { SpeedRecord.Sample(time = Instant.ofEpochMilli(it.timeMs), speed = Velocity.metersPerSecond(it.mps)) }
+            .filter { !it.time.isBefore(start) && !it.time.isAfter(end) }
+        if (speedSamples.isNotEmpty()) {
             toInsert += SpeedRecord(
                 startTime = start,
                 startZoneOffset = startOffset,
                 endTime = end,
                 endZoneOffset = endOffset,
-                samples = samples,
+                samples = speedSamples,
                 metadata = Metadata.manualEntry(clientRecordId = "exercise-speed-$key"),
             )
+        } else {
+            summary.avgSpeedMps?.let { avg ->
+                val samples = buildList {
+                    add(SpeedRecord.Sample(time = start, speed = Velocity.metersPerSecond(avg)))
+                    summary.maxSpeedMps?.let {
+                        add(SpeedRecord.Sample(time = end, speed = Velocity.metersPerSecond(it)))
+                    }
+                }
+                toInsert += SpeedRecord(
+                    startTime = start,
+                    startZoneOffset = startOffset,
+                    endTime = end,
+                    endZoneOffset = endOffset,
+                    samples = samples,
+                    metadata = Metadata.manualEntry(clientRecordId = "exercise-speed-$key"),
+                )
+            }
         }
 
         summary.avgCadenceSpm?.let { cadence ->

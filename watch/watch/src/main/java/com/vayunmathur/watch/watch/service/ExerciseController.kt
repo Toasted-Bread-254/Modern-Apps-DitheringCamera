@@ -8,11 +8,14 @@ import androidx.health.services.client.HealthServices
 import androidx.health.services.client.data.Availability
 import androidx.health.services.client.data.DataPointContainer
 import androidx.health.services.client.data.DataType
+import androidx.health.services.client.data.DataTypeAvailability
 import androidx.health.services.client.data.ExerciseConfig
+import androidx.health.services.client.data.ExerciseEndReason
 import androidx.health.services.client.data.ExerciseLapSummary
 import androidx.health.services.client.data.ExerciseState
 import androidx.health.services.client.data.ExerciseTrackedStatus
 import androidx.health.services.client.data.ExerciseUpdate
+import androidx.health.services.client.data.LocationAvailability
 import androidx.health.services.client.data.LocationData
 import androidx.health.services.client.data.WarmUpConfig
 import com.vayunmathur.watch.shared.data.ExerciseSessionSummary
@@ -48,6 +51,8 @@ class ExerciseController(
     private val onState: (ExerciseState) -> Unit,
     private val onMetrics: (LiveMetrics) -> Unit,
     private val onMessage: (String) -> Unit,
+    // Data-availability hint (e.g. "Acquiring GPS…"); empty string clears it.
+    private val onAvailability: (String) -> Unit,
 ) {
     data class LiveMetrics(
         val activeDurationMs: Long = 0,
@@ -69,6 +74,9 @@ class ExerciseController(
     // Accumulated across updates for the final summary.
     private val routePoints = mutableListOf<RoutePoint>()
     @Volatile private var lastRouteAtMs = 0L
+    private val laps = mutableListOf<LapMarker>()
+    private val speedSamples = mutableListOf<SpeedSample>()
+    @Volatile private var lastSpeedAtMs = 0L
     @Volatile private var latestActiveDurationMs = 0L
     @Volatile private var latestHr: Double? = null
     @Volatile private var latestCalories: Double? = null
@@ -200,6 +208,11 @@ class ExerciseController(
         }
 
         override fun onExerciseUpdateReceived(update: ExerciseUpdate) {
+            // Orphan recovery: a re-attached (or restarted) session has no locally
+            // set start anchor, so adopt the first reported start time.
+            if (startedAtMs == 0L) {
+                startedAtMs = update.startTime?.toEpochMilli() ?: System.currentTimeMillis()
+            }
             val metrics = update.latestMetrics
             captureLive(update, metrics)
             val state = update.exerciseStateInfo.state
@@ -209,9 +222,27 @@ class ExerciseController(
             }
         }
 
-        override fun onLapSummaryReceived(lapSummary: ExerciseLapSummary) {}
+        override fun onLapSummaryReceived(lapSummary: ExerciseLapSummary) {
+            laps += LapMarker(
+                start = lapSummary.startTime.toEpochMilli(),
+                end = lapSummary.endTime.toEpochMilli(),
+            )
+        }
 
-        override fun onAvailabilityChanged(dataType: DataType<*, *>, availability: Availability) {}
+        override fun onAvailabilityChanged(dataType: DataType<*, *>, availability: Availability) {
+            val label = when (dataType) {
+                DataType.LOCATION -> "GPS"
+                DataType.HEART_RATE_BPM -> "HR"
+                else -> return
+            }
+            val acquiring = when (availability) {
+                is LocationAvailability -> availability != LocationAvailability.ACQUIRED_TETHERED &&
+                    availability != LocationAvailability.ACQUIRED_UNTETHERED
+                is DataTypeAvailability -> availability != DataTypeAvailability.AVAILABLE
+                else -> false
+            }
+            onAvailability(if (acquiring) "Acquiring $label…" else "")
+        }
     }
 
     private fun captureLive(update: ExerciseUpdate, metrics: DataPointContainer) {
@@ -224,6 +255,14 @@ class ExerciseController(
         metrics.getData(DataType.SPEED_STATS)?.let {
             latestAvgSpeed = it.average
             latestMaxSpeed = it.max
+        }
+        // Accumulate a throttled speed time-series (same cadence as route points).
+        metrics.getData(DataType.SPEED).forEach { sample ->
+            val now = System.currentTimeMillis()
+            if (now - lastSpeedAtMs >= SPEED_MIN_INTERVAL_MS) {
+                lastSpeedAtMs = now
+                speedSamples += SpeedSample(timeMs = now, mps = sample.value)
+            }
         }
         metrics.getData(DataType.STEPS_PER_MINUTE_STATS)?.let {
             latestAvgCadence = it.average.toDouble()
@@ -267,6 +306,7 @@ class ExerciseController(
         activeWorkout = null
         val endTime = System.currentTimeMillis()
         val startTime = update.startTime?.toEpochMilli() ?: startedAtMs
+        val endReason = endReasonText(update.exerciseStateInfo.endReason)
 
         val summary = ExerciseSessionSummary(
             exerciseType = workout.healthServicesType.name,
@@ -279,13 +319,26 @@ class ExerciseController(
             vo2Max = latestVo2Max,
             route = routePoints.toList().takeIf { it.isNotEmpty() },
             lapCount = latestLapCount,
+            laps = laps.toList().takeIf { it.isNotEmpty() },
+            speedSamples = speedSamples.toList().takeIf { it.isNotEmpty() },
             segments = buildSegments(workout, startTime, endTime),
+            endReason = endReason,
             distanceMeters = latestDistance,
             totalCalories = latestCalories,
             avgHr = latestHr,
         )
+        onMessage(endReason)
         persist(summary)
         clearCallback()
+    }
+
+    // Health Services ExerciseEndReason -> a short human string surfaced on the UI.
+    private fun endReasonText(reason: Int): String = when (reason) {
+        ExerciseEndReason.USER_END -> "Ended by user"
+        ExerciseEndReason.AUTO_END_PERMISSION_LOST -> "Ended: sensor permission lost"
+        ExerciseEndReason.AUTO_END_PAUSE_EXPIRED -> "Ended: paused too long"
+        ExerciseEndReason.AUTO_END_MISSING_LISTENER -> "Ended: tracking interrupted"
+        else -> "Workout ended"
     }
 
     // Rep-based workouts report a running REP_COUNT_TOTAL; we emit it as a single
@@ -324,6 +377,9 @@ class ExerciseController(
     private fun resetAccumulators() {
         routePoints.clear()
         lastRouteAtMs = 0L
+        laps.clear()
+        speedSamples.clear()
+        lastSpeedAtMs = 0L
         latestActiveDurationMs = 0L
         latestHr = null
         latestCalories = null
@@ -355,6 +411,7 @@ class ExerciseController(
     companion object {
         private const val TAG = "ExerciseController"
         private const val ROUTE_MIN_INTERVAL_MS = 3_000L
+        private const val SPEED_MIN_INTERVAL_MS = 3_000L
         // Health Connect ExerciseSegment.EXERCISE_SEGMENT_TYPE_UNKNOWN.
         private const val SEGMENT_TYPE_UNKNOWN = 0
     }

@@ -27,7 +27,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.material.Button
+import androidx.wear.compose.material.Chip
+import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import com.vayunmathur.watch.watch.data.SensorDatabase
@@ -184,22 +188,32 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun PickerScreen(onPick: (WorkoutType) -> Unit, onBack: () -> Unit) {
-        Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        ScalingLazyColumn(
+            modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(stringResource(R.string.exercise_pick_type))
-            WorkoutType.entries.forEach { workout ->
-                Button(
-                    onClick = { onPick(workout) },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                ) {
-                    Text(workout.label)
-                }
+            item {
+                Text(
+                    stringResource(R.string.exercise_pick_type),
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
             }
-            Button(onClick = onBack, modifier = Modifier.padding(top = 4.dp)) {
-                Text(stringResource(R.string.exercise_back))
+            items(WorkoutType.entries) { workout ->
+                Chip(
+                    label = { Text(workout.label) },
+                    onClick = { onPick(workout) },
+                    colors = ChipDefaults.primaryChipColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            item {
+                Chip(
+                    label = { Text(stringResource(R.string.exercise_back)) },
+                    onClick = onBack,
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -216,6 +230,8 @@ class MainActivity : ComponentActivity() {
         val calories by ExerciseService.caloriesFlow.collectAsState()
         val distance by ExerciseService.distanceFlow.collectAsState()
         val label by ExerciseService.activeWorkoutLabelFlow.collectAsState()
+        val availability by ExerciseService.availabilityFlow.collectAsState()
+        val message by ExerciseService.messageFlow.collectAsState()
         val dash = stringResource(R.string.exercise_dash)
 
         Column(
@@ -229,6 +245,8 @@ class MainActivity : ComponentActivity() {
             Text(stringResource(R.string.exercise_hr, hr?.toInt()?.toString() ?: dash))
             Text(stringResource(R.string.exercise_calories, calories?.toInt()?.toString() ?: dash))
             Text(stringResource(R.string.exercise_distance, distance?.toInt()?.toString() ?: dash))
+            availability?.let { Text(it) }
+            message?.let { Text(it) }
 
             Row(
                 modifier = Modifier.padding(top = 8.dp),
