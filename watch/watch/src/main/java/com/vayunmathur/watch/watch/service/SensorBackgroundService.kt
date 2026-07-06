@@ -44,6 +44,8 @@ class SensorBackgroundService : Service(), SensorEventListener {
     private var lastStepCount = -1.0
     // Current motion state, maintained via the one-shot trigger sensors.
     @Volatile private var isStationary = false
+    // Wall-clock ms the wearer most recently became stationary (0 = moving).
+    @Volatile private var stationarySinceMs = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -97,12 +99,16 @@ class SensorBackgroundService : Service(), SensorEventListener {
             when (event.sensor.type) {
                 Sensor.TYPE_STATIONARY_DETECT -> {
                     isStationary = true
+                    stationarySinceMs = now
                     persist(SensorRecord(type = MetricType.Motion, timestamp = now, value = 1.0))
                     // Trigger sensors are one-shot; arm the opposite one.
                     armMotionDetect()
                 }
                 Sensor.TYPE_MOTION_DETECT -> {
                     isStationary = false
+                    stationarySinceMs = 0L
+                    // Movement ends any auto-sleep DnD.
+                    AutoDndManager.release(this@SensorBackgroundService, AutoDndManager.OWNER_SLEEP)
                     persist(SensorRecord(type = MetricType.Motion, timestamp = now, value = 0.0))
                     armStationaryDetect()
                 }
@@ -127,6 +133,7 @@ class SensorBackgroundService : Service(), SensorEventListener {
                         stationary = isStationary,
                     ),
                 )
+                evaluateSleep(bpm, now)
             }
             Sensor.TYPE_STEP_COUNTER -> {
                 val cumulative = event.values.firstOrNull()?.toDouble() ?: return
@@ -162,6 +169,24 @@ class SensorBackgroundService : Service(), SensorEventListener {
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
+    // Approximate sleep heuristic from signals already collected here: sustained
+    // stillness plus a resting-low heart rate engages auto-DnD; a heart-rate rise
+    // (or motion, handled in the trigger listener) releases it. Documented as
+    // approximate — refine later with a proper sleep-staging signal.
+    private fun evaluateSleep(bpm: Double, now: Long) {
+        val stationaryLongEnough = isStationary && stationarySinceMs > 0L &&
+            now - stationarySinceMs >= SLEEP_STATIONARY_MS
+        if (stationaryLongEnough && bpm > 0.0 && bpm < RESTING_HR_THRESHOLD) {
+            AutoDndManager.engage(
+                this,
+                AutoDndManager.OWNER_SLEEP,
+                NotificationManager.INTERRUPTION_FILTER_PRIORITY,
+            )
+        } else if (bpm >= WAKE_HR_THRESHOLD) {
+            AutoDndManager.release(this, AutoDndManager.OWNER_SLEEP)
+        }
+    }
+
     private fun buildNotification(): Notification {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channel = NotificationChannel(
@@ -191,6 +216,7 @@ class SensorBackgroundService : Service(), SensorEventListener {
         gattServer.stop()
         healthServices.stop()
         dndController.unregister()
+        AutoDndManager.release(this, AutoDndManager.OWNER_SLEEP)
         scope.cancel()
         super.onDestroy()
     }
@@ -202,6 +228,10 @@ class SensorBackgroundService : Service(), SensorEventListener {
         private const val CHANNEL_ID = "sensor_collection"
         private const val NOTIFICATION_ID = 1
         private const val HEART_RATE_INTERVAL_MS = 60_000L
+        // Sleep heuristic thresholds.
+        private const val SLEEP_STATIONARY_MS = 20L * 60 * 1000
+        private const val RESTING_HR_THRESHOLD = 55.0
+        private const val WAKE_HR_THRESHOLD = 70.0
 
         fun start(context: Context) {
             val intent = Intent(context, SensorBackgroundService::class.java)

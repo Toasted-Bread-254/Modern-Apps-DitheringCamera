@@ -90,8 +90,17 @@ class ExerciseService : Service() {
         if (uiState.value == UiState.Active && activeStartEpochMs.value == 0L) {
             activeStartEpochMs.value = System.currentTimeMillis() - activeDurationMs.value
         }
+        // Auto-DnD: silence notifications for the duration of the workout.
+        if (uiState.value == UiState.Active) {
+            AutoDndManager.engage(
+                this,
+                AutoDndManager.OWNER_WORKOUT,
+                NotificationManager.INTERRUPTION_FILTER_PRIORITY,
+            )
+        }
         requestTileUpdate()
         if (state.isEnded) {
+            AutoDndManager.release(this, AutoDndManager.OWNER_WORKOUT)
             resetLiveState()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
