@@ -289,7 +289,9 @@ object OdfParser {
         val marginLeft: Float = 0f,
         val marginTop: Float = 0f,
         val marginBottom: Float = 0f,
-        val textIndent: Float = 0f,
+        // Nullable so an explicit fo:text-indent="0" (override the parent to no indent) is distinct
+        // from "unspecified" (inherit the parent). Matches LibreOffice; avoids phantom first-line indents.
+        val textIndent: Float? = null,
         val paragraphBackgroundColor: Long? = null,
         val breakBefore: String? = null,
         val breakAfter: String? = null,
@@ -361,7 +363,7 @@ object OdfParser {
         var color: Long? = null; var bgColor: Long? = null
         var superscript = false; var subscript = false
         var textAlign: TextAlign? = null
-        var marginLeft = 0f; var marginTop = 0f; var marginBottom = 0f; var textIndent = 0f
+        var marginLeft = 0f; var marginTop = 0f; var marginBottom = 0f; var textIndent: Float? = null
         var marginRight = 0f; var keepWithNext = false; var keepTogether = false
         var widows: Int? = null; var orphans: Int? = null
         var paraBgColor: Long? = null
@@ -569,7 +571,7 @@ object OdfParser {
                 marginLeft = if (info.marginLeft != 0f) info.marginLeft else parent.marginLeft,
                 marginTop = if (info.marginTop != 0f) info.marginTop else parent.marginTop,
                 marginBottom = if (info.marginBottom != 0f) info.marginBottom else parent.marginBottom,
-                textIndent = if (info.textIndent != 0f) info.textIndent else parent.textIndent,
+                textIndent = info.textIndent ?: parent.textIndent,
                 paragraphBackgroundColor = info.paragraphBackgroundColor ?: parent.paragraphBackgroundColor,
                 breakBefore = info.breakBefore ?: parent.breakBefore,
                 breakAfter = info.breakAfter ?: parent.breakAfter,
@@ -1299,7 +1301,7 @@ object OdfParser {
                             spans = spans, style = paraStyle,
                             alignment = resolved.textAlign, marginLeft = resolved.marginLeft,
                             marginTop = resolved.marginTop, marginBottom = resolved.marginBottom,
-                            textIndent = resolved.textIndent, backgroundColor = resolved.paragraphBackgroundColor,
+                            textIndent = resolved.textIndent ?: 0f, backgroundColor = resolved.paragraphBackgroundColor,
                             direction = direction,
                             lineHeightPercent = resolved.lineHeightPercent,
                             borderColor = resolved.paragraphBorderColor,
@@ -1351,7 +1353,7 @@ object OdfParser {
                                 spans = spans, style = style,
                                 alignment = resolved.textAlign, marginLeft = resolved.marginLeft,
                                 marginTop = resolved.marginTop, marginBottom = resolved.marginBottom,
-                                textIndent = resolved.textIndent, backgroundColor = resolved.paragraphBackgroundColor,
+                                textIndent = resolved.textIndent ?: 0f, backgroundColor = resolved.paragraphBackgroundColor,
                                 listLevel = listDepth,
                                 listType = listTypeResolved,
                                 listItemIndex = itemIdx,
