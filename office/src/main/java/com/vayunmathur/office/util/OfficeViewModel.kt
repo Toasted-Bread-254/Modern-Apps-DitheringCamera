@@ -34,6 +34,7 @@ data class OfficeDocMeta(
     val charMode: Boolean = false,
     val role: String = OfficeRoles.EDITOR,
     val ownerKeyB64: String = "",
+    val charKind: String = "", // "", "text", "sheet", or "slide"
 )
 
 /** Builds the local metadata for a shared document from an incoming invite (carries role + owner key). */
@@ -46,6 +47,7 @@ fun officeDocMetaFromInvite(inv: OfficeSync.Invite): OfficeDocMeta =
         charMode = inv.charMode,
         role = inv.role,
         ownerKeyB64 = inv.ownerKey,
+        charKind = inv.charKind,
     )
 
 /** Document access roles. Enforced entirely client-side via signature checks (server is a pure relay). */
@@ -305,7 +307,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         currentDocId = onlineDocId
         currentDocKey = onlineDocKey
         currentCrdt = null
-        currentCharMode = false
+        currentCharKind = ""
         _isOnline.value = onlineDocId != null
         if (onlineDocId == null) {
             // Offline document: you own your own local file and may edit it freely.
@@ -356,7 +358,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
         currentDocId = null
         currentDocKey = null
         currentCrdt = null
-        currentCharMode = false
+        currentCharKind = ""
         OfficeSync.stopLive()
         livePollJob?.cancel()
         presenceTickJob?.cancel()
@@ -370,7 +372,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     // --- Create new documents ---
 
     fun createNewTextDocument() {
-        currentDocId = null; currentDocKey = null; currentCrdt = null; currentCharMode = false
+        currentDocId = null; currentDocKey = null; currentCrdt = null; currentCharKind = ""
         currentRole = OfficeRoles.OWNER; currentOwnerKey = null; currentMembers.clear(); _isOnline.value = false
         undoStack.clear(); redoStack.clear()
         _canUndo.value = false; _canRedo.value = false
@@ -385,7 +387,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun createNewSpreadsheet() {
-        currentDocId = null; currentDocKey = null; currentCrdt = null; currentCharMode = false
+        currentDocId = null; currentDocKey = null; currentCrdt = null; currentCharKind = ""
         currentRole = OfficeRoles.OWNER; currentOwnerKey = null; currentMembers.clear(); _isOnline.value = false
         undoStack.clear(); redoStack.clear()
         _canUndo.value = false; _canRedo.value = false
@@ -401,7 +403,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun createNewPresentation() {
-        currentDocId = null; currentDocKey = null; currentCrdt = null; currentCharMode = false
+        currentDocId = null; currentDocKey = null; currentCrdt = null; currentCharKind = ""
         currentRole = OfficeRoles.OWNER; currentOwnerKey = null; currentMembers.clear(); _isOnline.value = false
         undoStack.clear(); redoStack.clear()
         _canUndo.value = false; _canRedo.value = false
@@ -2017,7 +2019,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     private var currentDocId: String? = null
     private var currentDocKey: ByteArray? = null
     private var currentCrdt: DocumentCrdt? = null
-    private var currentCharMode: Boolean = false
+    private var currentCharKind: String = "" // "", "text", "sheet", or "slide"
     private var currentRole: String = OfficeRoles.OWNER
     private var currentOwnerKey: ByteArray? = null
     private var currentEpoch: Int = 0
@@ -2279,16 +2281,39 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     /** Projects the open document to CRDT cells: character cells for eligible text docs, else XML lines. */
     private fun currentDocCells(): List<String> {
         val doc = (_state.value as? ViewState.Loaded)?.document
-        return if (currentCharMode && doc is OdfDocument.TextDocument) TextDocCodec.toCells(doc)
-        else OfficeCrdtCodec.toLines(exportFlat())
+        return when {
+            currentCharKind == "text" && doc is OdfDocument.TextDocument -> TextDocCodec.toCells(doc)
+            currentCharKind == "sheet" && doc is OdfDocument.Spreadsheet -> SheetDocCodec.toCells(doc)
+            currentCharKind == "slide" && doc is OdfDocument.Presentation -> SlideDocCodec.toCells(doc)
+            else -> OfficeCrdtCodec.toLines(exportFlat())
+        }
     }
 
     /** Rebuilds a document from merged cells (char cells → model directly; else XML lines → parse). */
     private fun rebuildDoc(cells: List<String>): OdfDocument? {
         val base = (_state.value as? ViewState.Loaded)?.document
-        return if (currentCharMode && base is OdfDocument.TextDocument)
-            runCatching { TextDocCodec.fromCells(cells, base) }.getOrNull()
-        else parseFlat(OfficeCrdtCodec.fromLines(cells))
+        val title = base?.title ?: "Document"
+        return when {
+            currentCharKind == "text" -> runCatching {
+                TextDocCodec.fromCells(cells, base as? OdfDocument.TextDocument ?: OdfDocument.TextDocument(title, emptyList()))
+            }.getOrNull()
+            currentCharKind == "sheet" -> runCatching {
+                SheetDocCodec.fromCells(cells, base as? OdfDocument.Spreadsheet ?: OdfDocument.Spreadsheet(title, emptyList()))
+            }.getOrNull()
+            currentCharKind == "slide" -> runCatching {
+                SlideDocCodec.fromCells(cells, base as? OdfDocument.Presentation ?: OdfDocument.Presentation(title, emptyList()))
+            }.getOrNull()
+            else -> parseFlat(OfficeCrdtCodec.fromLines(cells))
+        }
+    }
+
+    /** Which char-level codec (if any) a document is eligible for: "text"/"sheet"/"slide", or "". */
+    private fun charKindOf(doc: OdfDocument?): String = when {
+        doc == null -> ""
+        TextDocCodec.isEligible(doc) -> "text"
+        SheetDocCodec.isEligible(doc) -> "sheet"
+        SlideDocCodec.isEligible(doc) -> "slide"
+        else -> ""
     }
 
     private suspend fun syncDoc(docId: String, key: ByteArray) = syncMutex.withLock {
@@ -2339,7 +2364,8 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                 // The owner names the document when it first goes online; later shares keep that name.
                 val title = if (firstShare) docName.trim().ifBlank { doc?.title ?: "Document" }
                     else (currentOnlineTitle() ?: doc?.title ?: "Document")
-                val charMode = doc != null && TextDocCodec.isEligible(doc)
+                val charKind = charKindOf(doc)
+                val charMode = charKind.isNotEmpty()
                 val docId = currentDocId ?: OfficeSync.newDocumentId()
                 val key = currentDocKey ?: OfficeSync.newDocumentKey()
                 if (firstShare) {
@@ -2360,14 +2386,14 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                     else -> {
                         currentDocId = docId
                         currentDocKey = key
-                        currentCharMode = charMode
+                        currentCharKind = charKind
                         _isOnline.value = true
                         val ownerKeyB64 = Base64.encode(OfficeSync.publicBundle)
                         syncDoc(docId, key)
                         indexMutex.withLock {
                             val index = loadIndex(ds).associateBy { it.docId }.toMutableMap()
                             if (!index.containsKey(docId)) {
-                                index[docId] = OfficeDocMeta(docId, title, Base64.encode(key), owner = true, charMode = charMode, role = OfficeRoles.OWNER, ownerKeyB64 = ownerKeyB64)
+                                index[docId] = OfficeDocMeta(docId, title, Base64.encode(key), owner = true, charMode = charMode, role = OfficeRoles.OWNER, ownerKeyB64 = ownerKeyB64, charKind = charKind)
                                 saveIndex(ds, index.values.toList())
                             }
                         }
@@ -2376,7 +2402,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                             OfficeMember(OfficeSync.deviceId, myName(), OfficeRoles.OWNER),
                             OfficeMember(recipientId, "", role),
                         ))
-                        if (OfficeSync.sendInvite(recipientId, docId, key, title, charMode, role, ownerKeyB64)) null
+                        if (OfficeSync.sendInvite(recipientId, docId, key, title, charMode, role, ownerKeyB64, charKind)) null
                         else "Couldn't deliver the invite — check your connection."
                     }
                 }
@@ -2440,23 +2466,34 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                     }
                     return@runCatching
                 }
-                val flat = if (meta.charMode) {
-                    val base = OdfDocument.TextDocument(title = title, content = emptyList())
-                    val doc = runCatching { TextDocCodec.fromCells(cells, base) }.getOrNull() ?: base
-                    OdfSerializer.serializeFlat(doc)
-                } else {
-                    OfficeCrdtCodec.fromLines(cells)
+                val kind = meta.charKind.ifEmpty { if (meta.charMode) "text" else "" }
+                val flat: String
+                val ext: String
+                when (kind) {
+                    "text" -> {
+                        val base = OdfDocument.TextDocument(title = title, content = emptyList())
+                        flat = OdfSerializer.serializeFlat(runCatching { TextDocCodec.fromCells(cells, base) }.getOrNull() ?: base); ext = "fodt"
+                    }
+                    "sheet" -> {
+                        val base = OdfDocument.Spreadsheet(title = title, sheets = emptyList())
+                        flat = OdfSerializer.serializeFlat(runCatching { SheetDocCodec.fromCells(cells, base) }.getOrNull() ?: base); ext = "fods"
+                    }
+                    "slide" -> {
+                        val base = OdfDocument.Presentation(title = title, slides = emptyList())
+                        flat = OdfSerializer.serializeFlat(runCatching { SlideDocCodec.fromCells(cells, base) }.getOrNull() ?: base); ext = "fodp"
+                    }
+                    else -> { flat = OfficeCrdtCodec.fromLines(cells); ext = "fodt" }
                 }
                 val ctx: Context = getApplication()
                 val safeTitle = title.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "document" }
-                val file = java.io.File(ctx.cacheDir, "online_${meta.docId}.fodt")
+                val file = java.io.File(ctx.cacheDir, "online_${meta.docId}.$ext")
                 file.writeText(flat)
                 withContext(Dispatchers.Main) {
-                    loadDocument(Uri.fromFile(file), "$safeTitle.fodt", meta.docId, key)
+                    loadDocument(Uri.fromFile(file), "$safeTitle.$ext", meta.docId, key)
                     _isEditMode.value = OfficeRoles.canEdit(meta.role) // viewers are read-only
                 }
                 currentCrdt = crdt
-                currentCharMode = meta.charMode
+                currentCharKind = meta.charKind.ifEmpty { if (meta.charMode) "text" else "" }
                 startLive(meta.docId, key)
             }
         }

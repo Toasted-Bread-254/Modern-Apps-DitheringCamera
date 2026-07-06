@@ -110,9 +110,9 @@ object OfficeSync {
     // --- Inbox channel (invites encrypted to the recipient's public key) ---
 
     /** Shares a document by dropping an encrypted invite into the recipient's inbox channel. */
-    suspend fun sendInvite(recipientId: String, docId: String, key: ByteArray, title: String, charMode: Boolean, role: String, ownerKeyB64: String): Boolean {
+    suspend fun sendInvite(recipientId: String, docId: String, key: ByteArray, title: String, charMode: Boolean, role: String, ownerKeyB64: String, charKind: String): Boolean {
         val peerBundle = getKey(recipientId) ?: return false
-        val invite = json.encodeToString(Invite(docId, Base64.encode(key), title, charMode, role, ownerKeyB64))
+        val invite = json.encodeToString(Invite(docId, Base64.encode(key), title, charMode, role, ownerKeyB64, charKind))
         val blob = Base64.encode(Pqc.encryptTo(peerBundle, invite.encodeToByteArray()))
         return append("inbox:$recipientId", listOf(blob)) != null
     }
@@ -279,6 +279,7 @@ object OfficeSync {
         val charMode: Boolean = false,
         val role: String = "editor",
         val ownerKey: String = "",
+        val charKind: String = "",
     )
 
     class InvitesResult(val invites: List<Invite>, val seq: Int)
