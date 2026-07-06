@@ -6,7 +6,7 @@
     android:viewportWidth="200"
     android:viewportHeight="200">
     <path
-        android:strokeColor="@android:color/system_accent1_200"
+        android:strokeColor="@color/clock_widget_minute"
         android:strokeWidth="12"
         android:strokeLineCap="round"
         android:pathData="M100,100 L100,40" />

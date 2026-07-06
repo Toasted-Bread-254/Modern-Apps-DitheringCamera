@@ -1,51 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 12-leaf clover blob for the analog clock widget: analogous to Material 3
-     MaterialShapes.Clover8Leaf (round petal tips, sharp valleys; same dA/dB and tip-rounding
-     proportions) but with 12 petals whose tips sit on the 12 hour marks. Kept 1:1 (square)
-     so it always renders as a blob; the layout scales it with fitCenter to stay centered
-     and as large as possible in any widget size. -->
+<!-- Flower blob for the analog clock widget: matches BlackyHawky/Clock's
+     analog_clock_dial_flower (12 smooth rounded bumps with smooth valleys; original shape
+     designed by iJahangard). Kept 1:1 (square) so it always renders as a blob; the layout
+     scales it with fitCenter to stay centered and as large as possible in any widget size. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="120dp"
-    android:height="120dp"
-    android:viewportWidth="100"
-    android:viewportHeight="100">
+    android:width="380dp"
+    android:height="380dp"
+    android:viewportWidth="380"
+    android:viewportHeight="380">
     <path
-        android:fillColor="@android:color/system_neutral1_800"
-        android:pathData="M40.01,7.25
-            A11.57,11.57 0 0,1 59.99,7.25
-            L61,8.96
-            L62.72,7.98
-            A11.57,11.57 0 0,1 80.03,17.97
-            L80.04,19.96
-            L82.03,19.97
-            A11.57,11.57 0 0,1 92.02,37.28
-            L91.04,39
-            L92.75,40.01
-            A11.57,11.57 0 0,1 92.75,59.99
-            L91.04,61
-            L92.02,62.72
-            A11.57,11.57 0 0,1 82.03,80.03
-            L80.04,80.04
-            L80.03,82.03
-            A11.57,11.57 0 0,1 62.72,92.02
-            L61,91.04
-            L59.99,92.75
-            A11.57,11.57 0 0,1 40.01,92.75
-            L39,91.04
-            L37.28,92.02
-            A11.57,11.57 0 0,1 19.97,82.03
-            L19.96,80.04
-            L17.97,80.03
-            A11.57,11.57 0 0,1 7.98,62.72
-            L8.96,61
-            L7.25,59.99
-            A11.57,11.57 0 0,1 7.25,40.01
-            L8.96,39
-            L7.98,37.28
-            A11.57,11.57 0 0,1 17.97,19.97
-            L19.96,19.96
-            L19.97,17.97
-            A11.57,11.57 0 0,1 37.28,7.98
-            L39,8.96
-            Z" />
+        android:fillColor="@color/clock_widget_background"
+        android:pathData="M190 1c-17.9 0-34.02 7.54-45.38 19.62-15.88-4.77-33.62-3.24-49.12 5.7S69.81 49.87 66.01 66.01C49.87 69.81 35.26 80 26.32 95.5s-10.47 33.24-5.7 49.12C8.54 155.98 1 172.1 1 190s7.54 34.02 19.62 45.38c-4.77 15.88-3.24 33.62 5.7 49.12s23.55 25.69 39.69 29.49c3.8 16.14 13.99 30.75 29.49 39.69s33.24 10.47 49.12 5.7C155.98 371.46 172.1 379 190 379s34.02-7.54 45.38-19.62c15.88 4.77 33.62 3.24 49.12-5.7s25.69-23.55 29.49-39.69c16.14-3.8 30.75-13.99 39.69-29.49s10.47-33.24 5.7-49.12C371.46 224.02 379 207.9 379 190s-7.54-34.02-19.62-45.38c4.77-15.88 3.24-33.62-5.7-49.12s-23.55-25.69-39.69-29.49C310.19 49.87 300 35.26 284.5 26.32s-33.24-10.47-49.12-5.7C224.02 8.54 207.9 1 190 1Z" />
 </vector>

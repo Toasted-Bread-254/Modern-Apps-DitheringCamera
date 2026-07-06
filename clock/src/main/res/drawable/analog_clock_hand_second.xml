@@ -8,6 +8,6 @@
     android:viewportWidth="200"
     android:viewportHeight="200">
     <path
-        android:fillColor="@android:color/system_accent3_100"
+        android:fillColor="@color/clock_widget_second"
         android:pathData="M91,42 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0 Z" />
 </vector>
