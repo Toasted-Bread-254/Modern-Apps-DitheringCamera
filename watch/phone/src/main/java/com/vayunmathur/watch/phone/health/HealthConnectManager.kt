@@ -199,12 +199,13 @@ class HealthConnectManager(private val context: Context) {
         val startOffset = zone.rules.getOffset(start)
         val endOffset = zone.rules.getOffset(end)
         val key = summary.startTime
+        val kinds = exerciseRecordKinds(summary)
 
         val toInsert = mutableListOf<Record>()
 
-        val route = summary.route?.takeIf { it.isNotEmpty() }?.let { points ->
+        val route = if (ExerciseRecordKind.Route in kinds) {
             ExerciseRoute(
-                points.map { p ->
+                summary.route.orEmpty().map { p ->
                     ExerciseRoute.Location(
                         time = Instant.ofEpochMilli(p.time),
                         latitude = p.lat,
@@ -213,26 +214,36 @@ class HealthConnectManager(private val context: Context) {
                     )
                 },
             )
+        } else {
+            null
         }
 
-        val segments = summary.segments.orEmpty().map { seg ->
-            ExerciseSegment(
-                startTime = Instant.ofEpochMilli(seg.start),
-                endTime = Instant.ofEpochMilli(seg.end).let {
-                    if (it.isAfter(Instant.ofEpochMilli(seg.start))) it
-                    else Instant.ofEpochMilli(seg.start).plusSeconds(1)
-                },
-                segmentType = seg.type,
-                repetitions = seg.reps.toInt(),
-            )
-        }
-
-        val laps = summary.laps.orEmpty().map { lap ->
-            val lapStart = Instant.ofEpochMilli(lap.start)
-            val lapEnd = Instant.ofEpochMilli(lap.end).let {
-                if (it.isAfter(lapStart)) it else lapStart.plusSeconds(1)
+        val segments = if (ExerciseRecordKind.Segments in kinds) {
+            summary.segments.orEmpty().map { seg ->
+                ExerciseSegment(
+                    startTime = Instant.ofEpochMilli(seg.start),
+                    endTime = Instant.ofEpochMilli(seg.end).let {
+                        if (it.isAfter(Instant.ofEpochMilli(seg.start))) it
+                        else Instant.ofEpochMilli(seg.start).plusSeconds(1)
+                    },
+                    segmentType = seg.type,
+                    repetitions = seg.reps.toInt(),
+                )
             }
-            ExerciseLap(startTime = lapStart, endTime = lapEnd)
+        } else {
+            emptyList()
+        }
+
+        val laps = if (ExerciseRecordKind.Laps in kinds) {
+            summary.laps.orEmpty().map { lap ->
+                val lapStart = Instant.ofEpochMilli(lap.start)
+                val lapEnd = Instant.ofEpochMilli(lap.end).let {
+                    if (it.isAfter(lapStart)) it else lapStart.plusSeconds(1)
+                }
+                ExerciseLap(startTime = lapStart, endTime = lapEnd)
+            }
+        } else {
+            emptyList()
         }
 
         toInsert += ExerciseSessionRecord(
@@ -250,26 +261,23 @@ class HealthConnectManager(private val context: Context) {
 
         // Speed: prefer the real captured time-series; fall back to the avg@start /
         // max@end approximation only when no series was reported.
-        val speedSamples = summary.speedSamples.orEmpty()
-            .map { SpeedRecord.Sample(time = Instant.ofEpochMilli(it.timeMs), speed = Velocity.metersPerSecond(it.mps)) }
-            .filter { !it.time.isBefore(start) && !it.time.isAfter(end) }
-        if (speedSamples.isNotEmpty()) {
-            toInsert += SpeedRecord(
-                startTime = start,
-                startZoneOffset = startOffset,
-                endTime = end,
-                endZoneOffset = endOffset,
-                samples = speedSamples,
-                metadata = Metadata.manualEntry(clientRecordId = "exercise-speed-$key"),
-            )
-        } else {
-            summary.avgSpeedMps?.let { avg ->
-                val samples = buildList {
-                    add(SpeedRecord.Sample(time = start, speed = Velocity.metersPerSecond(avg)))
+        if (ExerciseRecordKind.Speed in kinds) {
+            val speedSamples = summary.speedSamples.orEmpty()
+                .map { SpeedRecord.Sample(time = Instant.ofEpochMilli(it.timeMs), speed = Velocity.metersPerSecond(it.mps)) }
+                .filter { !it.time.isBefore(start) && !it.time.isAfter(end) }
+            val samples = if (speedSamples.isNotEmpty()) {
+                speedSamples
+            } else {
+                buildList {
+                    summary.avgSpeedMps?.let {
+                        add(SpeedRecord.Sample(time = start, speed = Velocity.metersPerSecond(it)))
+                    }
                     summary.maxSpeedMps?.let {
                         add(SpeedRecord.Sample(time = end, speed = Velocity.metersPerSecond(it)))
                     }
                 }
+            }
+            if (samples.isNotEmpty()) {
                 toInsert += SpeedRecord(
                     startTime = start,
                     startZoneOffset = startOffset,
@@ -281,25 +289,29 @@ class HealthConnectManager(private val context: Context) {
             }
         }
 
-        summary.avgCadenceSpm?.let { cadence ->
-            toInsert += StepsCadenceRecord(
-                startTime = start,
-                startZoneOffset = startOffset,
-                endTime = end,
-                endZoneOffset = endOffset,
-                samples = listOf(StepsCadenceRecord.Sample(time = start, rate = cadence)),
-                metadata = Metadata.manualEntry(clientRecordId = "exercise-cadence-$key"),
-            )
+        if (ExerciseRecordKind.StepsCadence in kinds) {
+            summary.avgCadenceSpm?.let { cadence ->
+                toInsert += StepsCadenceRecord(
+                    startTime = start,
+                    startZoneOffset = startOffset,
+                    endTime = end,
+                    endZoneOffset = endOffset,
+                    samples = listOf(StepsCadenceRecord.Sample(time = start, rate = cadence)),
+                    metadata = Metadata.manualEntry(clientRecordId = "exercise-cadence-$key"),
+                )
+            }
         }
 
-        summary.vo2Max?.let { vo2 ->
-            toInsert += Vo2MaxRecord(
-                time = end,
-                zoneOffset = endOffset,
-                vo2MillilitersPerMinuteKilogram = vo2,
-                measurementMethod = Vo2MaxRecord.MEASUREMENT_METHOD_OTHER,
-                metadata = Metadata.manualEntry(clientRecordId = "exercise-vo2-$key"),
-            )
+        if (ExerciseRecordKind.Vo2Max in kinds) {
+            summary.vo2Max?.let { vo2 ->
+                toInsert += Vo2MaxRecord(
+                    time = end,
+                    zoneOffset = endOffset,
+                    vo2MillilitersPerMinuteKilogram = vo2,
+                    measurementMethod = Vo2MaxRecord.MEASUREMENT_METHOD_OTHER,
+                    metadata = Metadata.manualEntry(clientRecordId = "exercise-vo2-$key"),
+                )
+            }
         }
 
         try {
@@ -307,18 +319,6 @@ class HealthConnectManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "insert exercise session failed", e)
         }
-    }
-
-    // Health Services ExerciseType.name -> Health Connect EXERCISE_TYPE_* int.
-    // The two enum systems differ, so the mapping is explicit.
-    private fun healthConnectExerciseType(hsName: String): Int = when (hsName) {
-        "WALKING" -> ExerciseSessionRecord.EXERCISE_TYPE_WALKING
-        "RUNNING" -> ExerciseSessionRecord.EXERCISE_TYPE_RUNNING
-        "BIKING" -> ExerciseSessionRecord.EXERCISE_TYPE_BIKING
-        "HIKING" -> ExerciseSessionRecord.EXERCISE_TYPE_HIKING
-        "SWIMMING_POOL" -> ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_POOL
-        "STRENGTH_TRAINING" -> ExerciseSessionRecord.EXERCISE_TYPE_STRENGTH_TRAINING
-        else -> ExerciseSessionRecord.EXERCISE_TYPE_OTHER_WORKOUT
     }
 
     /** Batch-inserts derivation output; clientRecordIds make this idempotent. */
