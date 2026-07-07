@@ -76,7 +76,8 @@ jobs:
         run: |
           RAW_DIRS=$(grep -rl "versionCode" . --include="build.gradle.kts" | \
             grep -vE "^\./build.gradle.kts$" | \
-            sed 's|^\./||; s|/build.gradle.kts$||' | sort -u)
+            sed 's|^\./||; s|/build.gradle.kts$||' | \
+            grep -vE '^library(/|$)|^watch/shared$' | sort -u)
           
           REVERSED_DIRS=$(echo "$RAW_DIRS" | tac | tr '\n' ' ')
           echo "module_dirs=$REVERSED_DIRS" >> $GITHUB_ENV

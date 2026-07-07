@@ -36,10 +36,10 @@ fun AchievementNotification(
     onDismiss: () -> Unit
 ) {
     val visibleState = remember { MutableTransitionState(initialState = false) }
-    visibleState.targetState = true
 
     LaunchedEffect(achievement) {
-        delay(7000)
+        visibleState.targetState = true
+        delay(8000)
         visibleState.targetState = false
     }
     // Notify the caller only once the exit transition has fully played out.
