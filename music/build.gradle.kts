@@ -1,5 +1,6 @@
 plugins {
     id("common-conventions-app")
+    id("common-conventions-metadata")
     alias(libs.plugins.ksp)
 }
 
@@ -7,6 +8,10 @@ android {
     defaultConfig {
         applicationId = "com.vayunmathur.music"
     }
+}
+
+metadataScreenshots {
+    permissions.add("android.permission.READ_MEDIA_AUDIO")
 }
 
 dependencies {
