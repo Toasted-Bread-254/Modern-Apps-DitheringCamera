@@ -16,8 +16,8 @@ import org.junit.runner.RunWith
 import java.io.File
 
 /**
- * Screenshot generator driven by `:games:unblockjam:metadata`. Order: gameplay board
- * first, then the level grid, then the pack selector (menu) last.
+ * Screenshot generator driven by `:games:unblockjam:metadata`. Captures a single shot:
+ * the gameplay board.
  */
 @RunWith(AndroidJUnit4::class)
 class MetadataScreenshots {
@@ -47,11 +47,9 @@ class MetadataScreenshots {
         LevelPack.init(ctx)
         val firstPack = LevelPack.PACKS[0].name
 
-        // Pack selector is the launch screen — keep it as the last shot.
-        snap(3)
-
+        // Navigate pack selector -> level grid -> first level, and capture only the board.
         composeRule.onNodeWithText(firstPack).performClick()
-        snap(2) // level grid
+        composeRule.waitForIdle()
 
         composeRule.onNodeWithText("1").performClick()
         snap(1) // gameplay board
