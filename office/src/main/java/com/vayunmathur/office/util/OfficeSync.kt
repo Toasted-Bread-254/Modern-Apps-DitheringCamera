@@ -57,11 +57,15 @@ object OfficeSync {
             ds.setByteArray(name, value, onlyIfAbsent)
     }
 
-    /** Loads/creates this device's identity + id and registers the public key in the directory. */
-    suspend fun init(context: Context) {
-        if (initialized) return
-        initMutex.withLock {
-            if (initialized) return
+    /**
+     * Loads/creates this device's identity + id and registers the public key in the directory.
+     * Returns true only once registration has succeeded; safe to call repeatedly (it retries the
+     * registration if a previous attempt failed, without regenerating the identity).
+     */
+    suspend fun init(context: Context): Boolean {
+        if (initialized) return true
+        return initMutex.withLock {
+            if (initialized) return@withLock true
             val ds = DataStoreUtils.getInstance(context)
             identity = PqcIdentity.loadOrCreate(DataStoreKeyStore(ds), "office")
             var id = ds.getString("officeDeviceId")
@@ -70,8 +74,9 @@ object OfficeSync {
                 ds.setString("officeDeviceId", id, true)
             }
             deviceId = ds.getString("officeDeviceId") ?: id
-            register()
-            initialized = true
+            val registered = register()
+            if (registered) initialized = true
+            registered
         }
     }
 

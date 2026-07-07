@@ -274,6 +274,42 @@ private fun OnlineInit(viewModel: OfficeViewModel) {
     LaunchedEffect(Unit) { viewModel.initSync() }
 }
 
+/** Shown on the Online tab before the user opts in. No keys or device id exist yet. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OnlineDisabledScreen(onEnable: () -> Unit) {
+    Scaffold(topBar = { TopAppBar(title = { Text("Online") }) }) { pad ->
+        Column(
+            Modifier.fillMaxSize().padding(pad).padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(Modifier.height(24.dp))
+            Text("Online sharing is off", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Turn on online sharing to collaborate on documents in real time. This generates your encryption keys and a device id and registers your device so others can share with you. Nothing is created or sent until you enable it.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(24.dp))
+            Button(onClick = onEnable, modifier = Modifier.fillMaxWidth()) { Text("Enable online sharing") }
+        }
+    }
+}
+
+/** Prompts the user to opt into online sharing before the first share (which generates keys + id). */
+@Composable
+fun EnableOnlineDialog(onEnable: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Enable online sharing?") },
+        text = { Text("Sharing online generates your encryption keys and a device id and registers your device so others can collaborate with you. You only need to do this once.") },
+        confirmButton = { TextButton(onClick = onEnable) { Text("Enable") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
 /** Dialog to copy the current document into the online folder and share it with a device id. */
 @Composable
 fun ShareOnlineDialog(
@@ -412,6 +448,11 @@ fun ShareOnlineDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OnlineTab(viewModel: OfficeViewModel, onOpenDoc: (com.vayunmathur.office.util.OfficeDocMeta) -> Unit) {
+    val onlineEnabled by viewModel.onlineEnabled.collectAsState()
+    if (!onlineEnabled) {
+        OnlineDisabledScreen(onEnable = { viewModel.enableOnlineSharing() })
+        return
+    }
     OnlineInit(viewModel)
     val docs by viewModel.onlineDocs.collectAsState()
     val deviceId = viewModel.syncDeviceId
@@ -460,6 +501,7 @@ fun OnlineTab(viewModel: OfficeViewModel, onOpenDoc: (com.vayunmathur.office.uti
 fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: ComponentActivity, onBack: () -> Unit, onBecameOnline: (String) -> Unit = {}) {
     var showMetadata by remember { mutableStateOf(false) }
     var showShareDialog by remember { mutableStateOf(false) }
+    var showEnableOnlineDialog by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var showFontControl by remember { mutableStateOf(false) }
@@ -518,6 +560,7 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
     val isEditMode by viewModel.isEditMode.collectAsState()
     val hasUnsavedChanges by viewModel.hasUnsavedChanges.collectAsState()
     val isOnline by viewModel.isOnline.collectAsState()
+    val onlineEnabled by viewModel.onlineEnabled.collectAsState()
     val isSaving by viewModel.isSaving.collectAsState()
     val canUndo by viewModel.canUndo.collectAsState()
     val canRedo by viewModel.canRedo.collectAsState()
@@ -710,7 +753,7 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                                     } else {
                                         DropdownMenuItem(text = { Text("Synced to cloud") }, enabled = false, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.save_24px), null) }, onClick = {})
                                     }
-                                    DropdownMenuItem(text = { Text("Share online…") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.share_24px), null) }, onClick = { fileMenu = false; showShareDialog = true })
+                                    DropdownMenuItem(text = { Text("Share online…") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.share_24px), null) }, onClick = { fileMenu = false; if (onlineEnabled) showShareDialog = true else showEnableOnlineDialog = true })
                                     DropdownMenuItem(text = { Text(stringResource(R.string.print_doc)) }, onClick = { fileMenu = false; printDocument(activity, document) })
                                     viewModel.documentUri?.let { uri ->
                                         DropdownMenuItem(text = { Text(stringResource(R.string.share)) }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.share_24px), null) }, onClick = { fileMenu = false; context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "*/*"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, null)) })
@@ -973,6 +1016,12 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
 
     if (showMetadata) MetadataDialog(metadata = document.metadata, onSave = { m -> viewModel.updateMetadata { m } }, onDismiss = { showMetadata = false })
     LaunchedEffect(Unit) { viewModel.initSync() }
+    if (showEnableOnlineDialog) {
+        EnableOnlineDialog(
+            onEnable = { viewModel.enableOnlineSharing(); showEnableOnlineDialog = false; showShareDialog = true },
+            onDismiss = { showEnableOnlineDialog = false }
+        )
+    }
     if (showShareDialog) {
         var members by remember { mutableStateOf<List<com.vayunmathur.office.util.OfficeMember>>(emptyList()) }
         LaunchedEffect(showShareDialog) { viewModel.documentMembers { members = it } }

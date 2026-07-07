@@ -2034,6 +2034,36 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     /** Other people currently in the open document (name + typing), for the presence indicator. */
     val remotePresence: StateFlow<List<OfficePresence>> = _remotePresence.asStateFlow()
 
+    private val _onlineEnabled = MutableStateFlow(false)
+    /**
+     * Whether online sharing has been turned on. This is derived purely from whether this device's
+     * encryption keys + device id already exist: they are created only when the user opts in (or, for
+     * users from before the opt-in button existed, they already exist — so those users stay enabled).
+     * Until enabled, no key generation, device id, or server registration happens; the app is offline.
+     */
+    val onlineEnabled: StateFlow<Boolean> = _onlineEnabled.asStateFlow()
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            _onlineEnabled.value = hasOnlineIdentity()
+        }
+    }
+
+    /** True if this device's PQC keys and id are already stored (i.e. online sharing was enabled before). */
+    private fun hasOnlineIdentity(): Boolean {
+        val ds = DataStoreUtils.getInstance(getApplication())
+        return ds.getByteArray("officeKemPub") != null &&
+            ds.getByteArray("officeDsaPub") != null &&
+            ds.getString("officeDeviceId") != null
+    }
+
+    /** User opted into online sharing: generates keys + device id and registers the device. */
+    fun enableOnlineSharing() {
+        if (_onlineEnabled.value) return
+        _onlineEnabled.value = true // lets the gated initSync() below actually generate keys + register
+        initSync()
+    }
+
     private val _isOnline = MutableStateFlow(false)
     /** True when the open document is an online (cloud-synced) document — hides Save, changes back nav. */
     val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
@@ -2202,6 +2232,11 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     /** Registers this device, loads the local online index, and pulls any new invites. */
     fun initSync() {
         viewModelScope.launch(Dispatchers.IO) {
+            // Gate inside the coroutine so we don't miss the cold-start window where the persisted
+            // enabled-state flow hasn't loaded yet: an already-provisioned device (keys+id present)
+            // counts as enabled even if the flow still reads false. New/un-opted-in devices no-op.
+            if (!_onlineEnabled.value && !hasOnlineIdentity()) return@launch
+            if (!_onlineEnabled.value) _onlineEnabled.value = true
             runCatching {
                 OfficeSync.init(getApplication())
                 _onlineDocs.value = loadIndex(DataStoreUtils.getInstance(getApplication()))
@@ -2222,6 +2257,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
 
     /** Pulls new invites from this device's inbox and merges them into the online list; refreshes titles. */
     fun refreshOnline() {
+        if (!_onlineEnabled.value && !hasOnlineIdentity()) return
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 OfficeSync.init(getApplication())
@@ -2318,7 +2354,10 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
     fun shareCurrentDocument(recipientId: String, role: String = OfficeRoles.EDITOR, docName: String = "", onResult: (String?) -> Unit = {}) {
         viewModelScope.launch(Dispatchers.IO) {
             val error: String? = try {
-                OfficeSync.init(getApplication())
+                // Registration (key upload) must complete before we share, so peers can find us and
+                // decrypt what we send. If it fails, bail out before mutating ownership or sending.
+                if (!OfficeSync.init(getApplication())) "Couldn't register your device — check your connection and try again."
+                else {
                 val ds = DataStoreUtils.getInstance(getApplication())
                 val doc = (_state.value as? ViewState.Loaded)?.document
                 val firstShare = currentDocId == null
@@ -2367,6 +2406,7 @@ class OfficeViewModel(application: Application) : AndroidViewModel(application) 
                         if (OfficeSync.sendInvite(recipientId, docId, key, title, charMode, role, ownerKeyB64, charKind)) null
                         else "Couldn't deliver the invite — check your connection."
                     }
+                }
                 }
             } catch (e: Exception) {
                 "Error: ${e.message ?: e.javaClass.simpleName}"
