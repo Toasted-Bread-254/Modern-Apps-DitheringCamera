@@ -36,7 +36,19 @@ data class LevelPack(
         private val PACK_FILES = listOf(
             "packs/5x5.json",
             "packs/6x6.json",
-            "packs/7x7.json"
+            "packs/7x7.json",
+            "packs/8x8.json",
+            "packs/9x9.json",
+            "packs/10x10.json",
+            "packs/11x11.json",
+            "packs/12x12.json",
+            "packs/13x13.json",
+            "packs/14x14.json",
+            "packs/tower.json",
+            "packs/hourglass.json",
+            "packs/blob.json",
+            "packs/inkblot.json",
+            "packs/walls.json"
         )
 
         var PACKS: List<LevelPack> = listOf()

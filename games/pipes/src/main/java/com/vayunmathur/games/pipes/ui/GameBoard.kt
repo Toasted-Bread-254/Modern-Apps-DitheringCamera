@@ -7,7 +7,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
@@ -33,11 +32,28 @@ fun GameBoard(
     val cellSizeDp = boardSize / maxDim
 
     val cellSizePx = with(androidx.compose.ui.platform.LocalDensity.current) { cellSizeDp.toPx() }
-    val boardSizePx = cellSizePx * maxDim
+
+    // Center the board within the square canvas using the actual cells' bounding
+    // box, so non-square / non-rectangular shapes aren't stuck in the top-left.
+    // Skip when explicit render positions are provided.
+    val hasRenderPositions = levelData.renderPositions != null
+    val (offsetCol, offsetRow) = if (hasRenderPositions || levelData.cells.isEmpty()) {
+        0f to 0f
+    } else {
+        val minRow = levelData.cells.minOf { it.row }
+        val maxRow = levelData.cells.maxOf { it.row }
+        val minCol = levelData.cells.minOf { it.col }
+        val maxCol = levelData.cells.maxOf { it.col }
+        val usedCols = maxCol - minCol + 1
+        val usedRows = maxRow - minRow + 1
+        val ox = (maxDim - usedCols) / 2f - minCol
+        val oy = (maxDim - usedRows) / 2f - minRow
+        ox to oy
+    }
 
     val cellRects = levelData.cells.associateWith { cell ->
         val (x, y) = levelData.renderPositions?.get(cell)?.let { it.x to it.y }
-            ?: (cell.col.toFloat() to cell.row.toFloat())
+            ?: ((cell.col + offsetCol) to (cell.row + offsetRow))
         Rect(Offset(x * cellSizePx, y * cellSizePx), Size(cellSizePx, cellSizePx))
     }
 
@@ -75,8 +91,6 @@ fun GameBoard(
                 }
             }
     ) {
-        drawRect(Color(0xFF1A1A1A), Offset.Zero, Size(boardSizePx, boardSizePx))
-
         for (cell in levelData.cells) {
             val rect = cellRects[cell] ?: continue
             drawEmptyCell(rect)

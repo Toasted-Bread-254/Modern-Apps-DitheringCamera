@@ -205,6 +205,14 @@ fun LevelScreen(backStack: NavBackStack<Route>, viewModel: PipesViewModel, packI
                     colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surface)
                 ) {
                     Box(Modifier.fillMaxSize().padding(8.dp)) {
+                        if (levelData.cells.size < levelData.rows * levelData.cols) {
+                            LevelThumbnail(
+                                levelData,
+                                Modifier
+                                    .size(24.dp)
+                                    .align(Alignment.CenterStart)
+                            )
+                        }
                         Text("${index + 1}", Modifier.align(Alignment.Center))
                         val levelStat = levelStats[levelData.id]
                         Box(
@@ -317,6 +325,29 @@ fun GameScreen(backStack: NavBackStack<Route>, viewModel: PipesViewModel, packIn
 
 
             }
+        }
+    }
+}
+
+@Composable
+fun LevelThumbnail(levelData: com.vayunmathur.games.pipes.data.LevelData, modifier: Modifier = Modifier) {
+    val color = MaterialTheme.colorScheme.primary
+    androidx.compose.foundation.Canvas(modifier) {
+        val maxDim = maxOf(levelData.rows, levelData.cols)
+        if (maxDim == 0 || levelData.cells.isEmpty()) return@Canvas
+        val cell = size.minDimension / maxDim
+        val minRow = levelData.cells.minOf { it.row }
+        val minCol = levelData.cells.minOf { it.col }
+        val usedRows = levelData.cells.maxOf { it.row } - minRow + 1
+        val usedCols = levelData.cells.maxOf { it.col } - minCol + 1
+        val offX = (size.width - usedCols * cell) / 2f - minCol * cell
+        val offY = (size.height - usedRows * cell) / 2f - minRow * cell
+        for (c in levelData.cells) {
+            drawRect(
+                color = color,
+                topLeft = androidx.compose.ui.geometry.Offset(offX + c.col * cell, offY + c.row * cell),
+                size = androidx.compose.ui.geometry.Size(cell * 0.85f, cell * 0.85f)
+            )
         }
     }
 }
