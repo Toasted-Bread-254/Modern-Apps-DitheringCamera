@@ -380,6 +380,374 @@ def grid_to_level(grid, level_id, w, h):
     }
 
 
+# ===================== Shape Masks (non-rectangular boards) =====================
+# Cells are (row, col) tuples. Every shape is a subset of a rectangular grid
+# with normal 4-neighbour adjacency; "holes" are grid cells not in the set.
+
+_DIRS4 = ((-1, 0), (1, 0), (0, -1), (0, 1))
+
+
+def compute_4_adjacency(cells):
+    """{cell: [neighbours]} using 4-neighbour adjacency restricted to cells."""
+    cellset = set(cells)
+    return {
+        (r, c): [(r + dr, c + dc) for dr, dc in _DIRS4 if (r + dr, c + dc) in cellset]
+        for (r, c) in cellset
+    }
+
+
+def is_connected(cells):
+    """True if the cell set is 4-connected (empty/singleton => True)."""
+    cellset = set(cells)
+    if len(cellset) <= 1:
+        return True
+    start = next(iter(cellset))
+    seen = {start}
+    stack = [start]
+    while stack:
+        r, c = stack.pop()
+        for dr, dc in _DIRS4:
+            n = (r + dr, c + dc)
+            if n in cellset and n not in seen:
+                seen.add(n)
+                stack.append(n)
+    return len(seen) == len(cellset)
+
+
+def largest_component(cells):
+    cellset = set(cells)
+    seen = set()
+    best = set()
+    for cell in cellset:
+        if cell in seen:
+            continue
+        comp = set()
+        stack = [cell]
+        seen.add(cell)
+        while stack:
+            r, c = stack.pop()
+            comp.add((r, c))
+            for dr, dc in _DIRS4:
+                n = (r + dr, c + dc)
+                if n in cellset and n not in seen:
+                    seen.add(n)
+                    stack.append(n)
+        if len(comp) > len(best):
+            best = comp
+    return best
+
+
+def normalize_cells(cells):
+    """Shift so the bounding box starts at (0, 0)."""
+    if not cells:
+        return set()
+    min_r = min(r for r, c in cells)
+    min_c = min(c for r, c in cells)
+    return {(r - min_r, c - min_c) for (r, c) in cells}
+
+
+def fill_interior_holes(cells):
+    """Fill empty cells fully enclosed by the shape (flood-fill from outside)."""
+    cellset = set(cells)
+    if not cellset:
+        return cellset
+    max_r = max(r for r, c in cellset)
+    max_c = max(c for r, c in cellset)
+    outside = set()
+    stack = [(-1, -1)]
+    while stack:
+        r, c = stack.pop()
+        if (r, c) in outside or (r, c) in cellset:
+            continue
+        if r < -1 or r > max_r + 1 or c < -1 or c > max_c + 1:
+            continue
+        outside.add((r, c))
+        for dr, dc in _DIRS4:
+            stack.append((r + dr, c + dc))
+    result = set(cellset)
+    for r in range(max_r + 1):
+        for c in range(max_c + 1):
+            if (r, c) not in cellset and (r, c) not in outside:
+                result.add((r, c))
+    return result
+
+
+def rect_cells(w, h):
+    """Full w×h rectangle."""
+    return {(r, c) for r in range(h) for c in range(w)}
+
+
+def hourglass_cells(w, h):
+    """Two full-width rectangles joined by a 1-column-wide neck."""
+    band = max(1, h // 3)
+    mid_col = w // 2
+    cells = set()
+    for r in range(band):
+        for c in range(w):
+            cells.add((r, c))
+    for r in range(h - band, h):
+        for c in range(w):
+            cells.add((r, c))
+    for r in range(band, h - band):
+        cells.add((r, mid_col))
+    return normalize_cells(cells)
+
+
+def _generate_blob(box, seed, disk_radius, target_fill, erosion_prob, roundness_bias):
+    """Seed a disk, accrete boundary cells (weighted toward present-neighbour
+    count for roundness), erode some boundary cells for lumpiness, fill holes,
+    keep the largest 4-connected component. Deterministic via seed."""
+    rng = random.Random(seed)
+    center = box // 2
+    cells = set()
+    for r in range(box):
+        for c in range(box):
+            if (r - center) ** 2 + (c - center) ** 2 <= disk_radius ** 2:
+                cells.add((r, c))
+    if not cells:
+        cells.add((center, center))
+    target = int(box * box * target_fill)
+
+    def present_neighbours(cell, s):
+        r, c = cell
+        return sum(1 for dr, dc in _DIRS4 if (r + dr, c + dc) in s)
+
+    guard = 0
+    while len(cells) < target and guard < box * box * 20:
+        guard += 1
+        frontier = set()
+        for (r, c) in cells:
+            for dr, dc in _DIRS4:
+                n = (r + dr, c + dc)
+                if 0 <= n[0] < box and 0 <= n[1] < box and n not in cells:
+                    frontier.add(n)
+        if not frontier:
+            break
+        frontier = sorted(frontier)
+        weights = [present_neighbours(f, cells) ** roundness_bias for f in frontier]
+        cells.add(rng.choices(frontier, weights=weights)[0])
+
+    boundary = sorted(
+        cell for cell in cells
+        if any((cell[0] + dr, cell[1] + dc) not in cells for dr, dc in _DIRS4)
+    )
+    rng.shuffle(boundary)
+    for cell in boundary:
+        if rng.random() < erosion_prob:
+            trial = cells - {cell}
+            if trial and is_connected(trial):
+                cells = trial
+
+    cells = fill_interior_holes(cells)
+    cells = largest_component(cells)
+    return normalize_cells(cells)
+
+
+def blob_cells(size=8, seed=0):
+    """~size×size, roundish random connected shape."""
+    return _generate_blob(
+        box=size, seed=seed, disk_radius=size * 0.28,
+        target_fill=0.68, erosion_prob=0.15, roundness_bias=3.0)
+
+
+def inkblot_cells(size=13, seed=0):
+    """~size×size, larger and lumpier than blob."""
+    return _generate_blob(
+        box=size, seed=seed, disk_radius=size * 0.2,
+        target_fill=0.72, erosion_prob=0.35, roundness_bias=1.3)
+
+
+def walls_cells(n, seed=0):
+    """Full n×n with straight wall segments carved out; walls scale with n."""
+    rng = random.Random(seed)
+    cells = rect_cells(n, n)
+    num_walls = max(2, (n - 5) // 2 + 2)
+    max_len = min(6, n - 2)
+    placed = 0
+    guard = 0
+    while placed < num_walls and guard < num_walls * 50:
+        guard += 1
+        length = rng.randint(3, max(3, max_len))
+        if rng.random() < 0.5:
+            r = rng.randint(0, n - 1)
+            c0 = rng.randint(0, n - length)
+            seg = {(r, c0 + i) for i in range(length)}
+        else:
+            c = rng.randint(0, n - 1)
+            r0 = rng.randint(0, n - length)
+            seg = {(r0 + i, c) for i in range(length)}
+        trial = cells - seg
+        if len(trial) >= 2 and is_connected(trial):
+            cells = trial
+            placed += 1
+    return normalize_cells(cells)
+
+
+# ===================== Graph-based Carve Generator (masked boards) =====================
+# Python port of LevelGenerator.tryGenerate (Kotlin). Greedily builds flows over
+# the cell set, only extending into cells whose removal keeps the remaining
+# unmarked set connected, so the board is fully covered by construction.
+
+def articulation_points(nodes, adjacency):
+    """Cut vertices of the subgraph induced by `nodes` (iterative Tarjan). A cell
+    is a cut vertex iff removing it disconnects the (connected) node set — so
+    `cell not in articulation_points(nodes)` == "removing cell keeps connected"."""
+    if len(nodes) <= 2:
+        return set()
+    disc = {}
+    low = {}
+    ap = set()
+    timer = 0
+    for root in nodes:
+        if root in disc:
+            continue
+        root_children = 0
+        parent = {root: None}
+        disc[root] = low[root] = timer
+        timer += 1
+        stack = [(root, iter(adjacency[root]))]
+        while stack:
+            node, it = stack[-1]
+            descended = False
+            for nb in it:
+                if nb not in nodes:
+                    continue
+                if nb not in disc:
+                    parent[nb] = node
+                    disc[nb] = low[nb] = timer
+                    timer += 1
+                    stack.append((nb, iter(adjacency[nb])))
+                    if node == root:
+                        root_children += 1
+                    descended = True
+                    break
+                elif nb != parent[node]:
+                    low[node] = min(low[node], disc[nb])
+            if not descended:
+                stack.pop()
+                if stack:
+                    par = stack[-1][0]
+                    low[par] = min(low[par], low[node])
+                    if parent[par] is not None and low[node] >= disc[par]:
+                        ap.add(par)
+        if root_children > 1:
+            ap.add(root)
+    return ap
+
+
+def _connected_after_removal(unmarked, adjacency, candidate):
+    remaining = unmarked - {candidate}
+    if len(remaining) <= 1:
+        return True
+    start = next(iter(remaining))
+    seen = {start}
+    stack = [start]
+    while stack:
+        cur = stack.pop()
+        for nb in adjacency[cur]:
+            if nb in remaining and nb not in seen:
+                seen.add(nb)
+                stack.append(nb)
+    return len(seen) == len(remaining)
+
+
+def _pick_start(unmarked, adjacency, rng, cut_points=None):
+    """Prefer a start cell whose removal keeps the unmarked set connected, so a
+    flow never immediately strands a region."""
+    if cut_points is None:
+        cut_points = articulation_points(unmarked, adjacency)
+    candidates = sorted(unmarked)
+    rng.shuffle(candidates)
+    for cand in candidates:
+        if cand not in cut_points:
+            return cand
+    return candidates[0]
+
+
+def carve_try(cells, adjacency, num_flows, rng):
+    """One carve attempt. Returns list of paths (each a list of cells) or None."""
+    unmarked = set(cells)
+    paths = []
+    for flow_index in range(num_flows):
+        if not unmarked:
+            break
+        is_last = flow_index == num_flows - 1
+        start = _pick_start(unmarked, adjacency, rng)
+        path = [start]
+        unmarked.discard(start)
+
+        if is_last:
+            max_len = len(unmarked) + 1
+            min_len = max_len
+        else:
+            min_len = 3
+            max_len = len(unmarked) - (num_flows - flow_index - 1) * 2
+
+        while len(path) < max_len:
+            current = path[-1]
+            neighbors = [n for n in adjacency[current] if n in unmarked]
+            rng.shuffle(neighbors)
+            valid = [n for n in neighbors
+                     if _connected_after_removal(unmarked, adjacency, n)]
+            if not valid:
+                break
+            nxt = valid[0]
+            path.append(nxt)
+            unmarked.discard(nxt)
+            if not is_last and len(path) >= min_len and rng.random() < 0.3:
+                break
+
+        if len(path) < 2:
+            return None
+        paths.append(path)
+
+    if unmarked:
+        return None
+    return paths
+
+
+def carve_cover(cells, adjacency, rng, early_stop_prob=0.25):
+    """Path-cover with a dynamic number of flows: keep carving connectivity-
+    preserving paths until every cell is used. Higher early_stop_prob yields
+    more (shorter) flows. Retries a stranded start a few times before giving up.
+    Returns list of paths or None if a cell cannot be covered.
+
+    `remaining` is kept connected as an invariant, so "removing a cell keeps the
+    set connected" reduces to "the cell is not an articulation point". We compute
+    all articulation points once per step (O(V+E)) and take the first valid
+    neighbour, instead of a BFS per candidate."""
+    unmarked = set(cells)
+    paths = []
+    while unmarked:
+        chosen = None
+        for _retry in range(8):
+            remaining = set(unmarked)
+            cut = articulation_points(remaining, adjacency)
+            start = _pick_start(remaining, adjacency, rng, cut)
+            path = [start]
+            remaining.discard(start)
+            while remaining:
+                current = path[-1]
+                cut = articulation_points(remaining, adjacency)
+                neighbors = [n for n in adjacency[current] if n in remaining]
+                rng.shuffle(neighbors)
+                nxt = next((n for n in neighbors if n not in cut), None)
+                if nxt is None:
+                    break
+                path.append(nxt)
+                remaining.discard(nxt)
+                if len(path) >= 3 and rng.random() < early_stop_prob:
+                    break
+            if len(path) >= 2:
+                chosen = path
+                unmarked = remaining
+                break
+        if chosen is None:
+            return None
+        paths.append(chosen)
+    return paths
+
+
 # ===================== Solver Validation =====================
 
 SOLVER_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -401,9 +769,13 @@ def compile_solver():
     return True
 
 
-def validate_unique_solution(level):
+def validate_unique_solution(level, timeout=60):
     rows, cols = level["rows"], level["cols"]
-    grid = [[0] * cols for _ in range(rows)]
+    mask = {(r, c) for r, c in level["cells"]} if "cells" in level else None
+    grid = [
+        [0 if (mask is None or (r, c) in mask) else -1 for c in range(cols)]
+        for r in range(rows)
+    ]
     for ep in level["endpoints"]:
         color_num = ep["color"] + 1
         for r, c in ep["cells"]:
@@ -416,7 +788,7 @@ def validate_unique_solution(level):
     try:
         result = subprocess.run(
             [SOLVER_BIN],
-            input=input_str, capture_output=True, text=True, timeout=60
+            input=input_str, capture_output=True, text=True, timeout=timeout
         )
     except subprocess.TimeoutExpired:
         return False
@@ -436,10 +808,33 @@ def validate_unique_solution(level):
 
 # ===================== Pack Generation =====================
 
+def carve_to_level(cells, paths, level_id):
+    endpoints = [
+        {"color": i, "cells": [list(path[0]), list(path[-1])]}
+        for i, path in enumerate(paths)
+    ]
+    rows = max(r for r, c in cells) + 1
+    cols = max(c for r, c in cells) + 1
+    return {
+        "id": level_id,
+        "rows": rows,
+        "cols": cols,
+        "cells": sorted([list(cell) for cell in cells]),
+        "endpoints": endpoints,
+        "optimalMoves": len(endpoints),
+    }
+
+
 def generate_rect_pack(name, w, h, num_levels, flow_range, base_seed):
-    budget = min(20, max(h, 6))
+    # Cap the MITM loop budget: beyond ~12 the precomputed path tables make each
+    # `make` call dramatically slower with no quality gain (9× slower at 15×15).
+    budget = min(12, max(h, 6))
     mitm = Mitm(lr_price=2, t_price=1)
     mitm.prepare(budget)
+
+    # On large boards the ZDD solver can take minutes on the rare hard instance;
+    # cap validation low and just move on — there are plenty of candidates.
+    val_timeout = 10 if h >= 11 else 60
 
     levels = []
     seed = base_seed
@@ -452,7 +847,7 @@ def generate_rect_pack(name, w, h, num_levels, flow_range, base_seed):
         if grid is not None:
             lid = f"{name.replace(' ', '_')}_{len(levels)+1:03d}"
             level = grid_to_level(grid, lid, w, h)
-            if level is not None and validate_unique_solution(level):
+            if level is not None and validate_unique_solution(level, val_timeout):
                 levels.append(level)
                 sys.stdout.write(f"\r  {len(levels)}/{num_levels}")
                 sys.stdout.flush()
@@ -462,35 +857,179 @@ def generate_rect_pack(name, w, h, num_levels, flow_range, base_seed):
     return levels
 
 
+def generate_tower_pack(name, w, heights, base_seed):
+    """Pure (non-square) rectangles of width w with per-level heights. No cells
+    key emitted — the loader defaults to a full rectangle from rows/cols."""
+    num_levels = len(heights)
+    levels = []
+    seed = base_seed
+    mitms = {}
+    attempts = 0
+    max_attempts = num_levels * 500
+    while len(levels) < num_levels and attempts < max_attempts:
+        attempts += 1
+        h = heights[len(levels)]
+        if h not in mitms:
+            m = Mitm(lr_price=2, t_price=1)
+            m.prepare(min(12, max(h, 6)))
+            mitms[h] = m
+        random.seed(seed)
+        seed += 1
+        grid = make(w, h, mitms[h], max(3, (w + h) // 4), w + h)
+        if grid is None:
+            continue
+        lid = f"{name}_{len(levels)+1:03d}"
+        level = grid_to_level(grid, lid, w, h)
+        if level is not None and validate_unique_solution(level):
+            levels.append(level)
+            sys.stdout.write(f"\r  {len(levels)}/{num_levels}")
+            sys.stdout.flush()
+    print()
+    return levels
+
+
+def generate_masked_pack(name, shape_fn, num_levels, base_seed,
+                         early_stop=0.5, attempts_per_level=600):
+    """Generate masked (non-rectangular) levels via the carve path-cover, keeping
+    only uniquely-solvable ones. shape_fn(level_index, seed) -> set of cells."""
+    levels = []
+    seed = base_seed
+    attempts = 0
+    max_attempts = num_levels * attempts_per_level
+    while len(levels) < num_levels and attempts < max_attempts:
+        attempts += 1
+        cells = shape_fn(len(levels), seed)
+        seed += 1
+        if len(cells) < 6 or not is_connected(cells):
+            continue
+        adjacency = compute_4_adjacency(cells)
+        paths = carve_cover(cells, adjacency, random.Random(seed), early_stop)
+        if not paths:
+            continue
+        lid = f"{name}_{len(levels)+1:03d}"
+        level = carve_to_level(cells, paths, lid)
+        if validate_unique_solution(level):
+            levels.append(level)
+            sys.stdout.write(f"\r  {len(levels)}/{num_levels} (attempts {attempts})")
+            sys.stdout.flush()
+    print()
+    return levels
+
+
+def square_flow_range(n):
+    # Larger boards need more flows (endpoints) to stay uniquely solvable and to
+    # keep the solver fast; small boards keep their original sparser ranges.
+    if n <= 7:
+        return (max(3, n // 2), n + 3)
+    if n <= 10:
+        return (n, 2 * n - 2)
+    return (n + 2, 2 * n - 2)
+
+
+# (filename_stem, display_name, shape_label, builder) — builder returns levels.
+def build_registry():
+    reg = []
+
+    # Squares: 5×5 … 14×14 (5/6/7 are the existing packs, unchanged).
+    square_seeds = {5: 10000, 6: 20000, 7: 30000}
+    for n in range(8, 15):
+        square_seeds[n] = n * 10000
+    for n in range(5, 15):
+        reg.append((
+            f"{n}x{n}", f"{n}×{n}", "rectangular",
+            (lambda n=n: {
+                "name": f"{n}×{n}", "shape": "rectangular",
+                "levels": generate_rect_pack(
+                    f"{n}×{n}", n, n, 30, square_flow_range(n), square_seeds[n]),
+            })
+        ))
+
+    # Tower: width 6, heights 8..12 (6 levels each => 30).
+    heights = [8] * 6 + [9] * 6 + [10] * 6 + [11] * 6 + [12] * 6
+    reg.append((
+        "tower", "Tower", "tower",
+        lambda: {
+            "name": "Tower", "shape": "tower",
+            "levels": generate_tower_pack("Tower", 6, heights, 40000),
+        }
+    ))
+
+    # Hourglass: bounding sizes spread from 9×11 to 13×15.
+    hg_sizes = []
+    for i in range(30):
+        w = 9 + (i * 5) // 30      # 9..13
+        h = 11 + (i * 5) // 30     # 11..15
+        hg_sizes.append((w, h))
+
+    def hourglass_shape(idx, seed):
+        w, h = hg_sizes[idx]
+        return hourglass_cells(w, h)
+
+    reg.append((
+        "hourglass", "Hourglass", "hourglass",
+        lambda: {
+            "name": "Hourglass", "shape": "hourglass",
+            "levels": generate_masked_pack(
+                "Hourglass", hourglass_shape, 30, 50000, early_stop=0.6),
+        }
+    ))
+
+    # Blob: ~8×8 random round shapes (shape varies with seed).
+    reg.append((
+        "blob", "Blob", "blob",
+        lambda: {
+            "name": "Blob", "shape": "blob",
+            "levels": generate_masked_pack(
+                "Blob", lambda idx, seed: blob_cells(8, seed), 30, 60000,
+                early_stop=0.5),
+        }
+    ))
+
+    # Inkblot: ~13×13 larger, lumpier random shapes.
+    reg.append((
+        "inkblot", "Inkblot", "inkblot",
+        lambda: {
+            "name": "Inkblot", "shape": "inkblot",
+            "levels": generate_masked_pack(
+                "Inkblot", lambda idx, seed: inkblot_cells(13, seed), 30, 70000,
+                early_stop=0.6, attempts_per_level=1200),
+        }
+    ))
+
+    # Walls: mixed base sizes 7..12 with carved wall segments.
+    def walls_shape(idx, seed):
+        n = 7 + (idx * 6) // 30    # 7..12
+        return walls_cells(n, seed)
+
+    reg.append((
+        "walls", "Walls", "walls",
+        lambda: {
+            "name": "Walls", "shape": "walls",
+            "levels": generate_masked_pack(
+                "Walls", walls_shape, 30, 80000, early_stop=0.5),
+        }
+    ))
+
+    return reg
+
+
 def main():
     out_dir = sys.argv[1] if len(sys.argv) > 1 else "."
+    selected = set(sys.argv[2:])  # optional filename stems to (re)generate
 
     if not compile_solver():
         print("Error: Could not compile NumberLink solver", file=sys.stderr)
         sys.exit(1)
 
-    packs = [
-        {"name": "5×5", "type": "rect", "w": 5, "h": 5,
-         "levels": 30, "flow_range": (3, 7), "seed": 10000},
-        {"name": "6×6", "type": "rect", "w": 6, "h": 6,
-         "levels": 30, "flow_range": (4, 9), "seed": 20000},
-        {"name": "7×7", "type": "rect", "w": 7, "h": 7,
-         "levels": 30, "flow_range": (4, 10), "seed": 30000},
-    ]
-
-    filenames = ["5x5.json", "6x6.json", "7x7.json"]
-
-    for pack_info, filename in zip(packs, filenames):
-        print(f"Generating {pack_info['name']}...")
-        levels = generate_rect_pack(
-            pack_info["name"], pack_info["w"], pack_info["h"],
-            pack_info["levels"], pack_info["flow_range"], pack_info["seed"])
-        pack_data = {"name": pack_info["name"], "shape": "rectangular", "levels": levels}
-
-        path = f"{out_dir}/{filename}"
+    for stem, display, _shape, builder in build_registry():
+        if selected and stem not in selected:
+            continue
+        print(f"Generating {display}...")
+        pack_data = builder()
+        path = f"{out_dir}/{stem}.json"
         with open(path, "w") as f:
             json.dump(pack_data, f, indent=2)
-        print(f"  -> {len(levels)} levels written to {path}")
+        print(f"  -> {len(pack_data['levels'])} levels written to {path}")
 
 
 if __name__ == "__main__":

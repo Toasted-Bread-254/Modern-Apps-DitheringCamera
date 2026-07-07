@@ -101,11 +101,22 @@ class NumberLink {
 	    { return keys_[(CellPosition)y * width_ + x]; }
 
 	double Solve(const CellKey cell_key = 0) {
-		if (cell_key == 0) solved_ = false;
+		if (cell_key == 0) {
+			solved_ = false;
+			// Holes (table_ == -1) are permanently "interior": no incident
+			// edges, no coverage requirement. Mark their mate as -1 so they
+			// are never required to connect. Done here (not in Initialize)
+			// because the table is populated after Initialize().
+			for (CellKey k = 0; k < size_; k++) {
+				if (table_[k] == -1) mates_[k] = -1;
+			}
+		}
 		// See the newly fixed cells
 		if (0 < cell_key) {
 			for (CellKey hidden = start_[cell_key - 1];
 			    hidden < start_[cell_key]; hidden++) {
+				// Holes have no coverage requirement
+				if (table_[hidden] == -1) continue;
 				if (table_[hidden] == 0) {
 					// Return if the empty cell has an end
 					if (mates_[hidden] != -1 && mates_[hidden] != hidden) return 0.0;
@@ -137,9 +148,16 @@ class NumberLink {
 	double Connect(const CellKey cell_key) {
 		double solution_count = 0.0;
 		Distance x = cell_x_[cell_key], y = cell_y_[cell_key];
+		// Holes have no incident edges: take only the "connect nothing" branch
+		if (table_[cell_key] == -1) {
+			return Solve(cell_key + 1);
+		}
 		CellKey left_cell_key = -1, up_cell_key = -1;
 		if (0 < x) left_cell_key = GetCellKey(x - 1, y);
 		if (0 < y) up_cell_key = GetCellKey(x, y - 1);
+		// Never link to a hole neighbour: treat it as absent
+		if (0 <= left_cell_key && table_[left_cell_key] == -1) left_cell_key = -1;
+		if (0 <= up_cell_key && table_[up_cell_key] == -1) up_cell_key = -1;
 		size_t revert_point = mate_stack_.size();
 		// Connect the cell with nothing
 		solution_count += Solve(cell_key + 1);
