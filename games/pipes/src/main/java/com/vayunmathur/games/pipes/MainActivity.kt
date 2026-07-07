@@ -32,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -90,6 +91,9 @@ sealed interface Route : NavKey {
 
     @Serializable
     data object GameCenter : Route
+
+    @Serializable
+    data object Settings : Route
 }
 
 @Composable
@@ -115,6 +119,9 @@ fun Navigation(viewModel: PipesViewModel) {
                     onBack = { backStack.pop() }
                 )
             }
+            entry<Route.Settings> {
+                SettingsScreen(backStack, viewModel)
+            }
         }
 
         newAchievement?.let {
@@ -133,6 +140,9 @@ fun PackScreen(backStack: NavBackStack<Route>, viewModel: PipesViewModel, onOpen
         TopAppBar(
             title = { Text(stringResource(R.string.pack_selector)) },
             actions = {
+                IconButton(onClick = { backStack.add(Route.Settings) }) {
+                    Icon(painterResource(id = android.R.drawable.ic_menu_manage), "Settings")
+                }
                 IconButton(onClick = onOpenGameCenter) {
                     Icon(painterResource(id = android.R.drawable.btn_star_big_on), "Achievements")
                 }
@@ -240,6 +250,7 @@ fun GameScreen(backStack: NavBackStack<Route>, viewModel: PipesViewModel, packIn
     val pack = LevelPack.PACKS[packIndex]
     val uiState by viewModel.uiState.collectAsState()
     val levelStats by viewModel.levelStats.collectAsState()
+    val colorblind by viewModel.colorblind.collectAsState()
 
     LaunchedEffect(packIndex, levelIndex) {
         viewModel.loadLevel(packIndex, levelIndex)
@@ -300,7 +311,8 @@ fun GameScreen(backStack: NavBackStack<Route>, viewModel: PipesViewModel, packIn
                     onStartDraw = viewModel::startDraw,
                     onExtendPath = viewModel::extendPath,
                     onCommitDraw = viewModel::commitDraw,
-                    isLevelWon = isLevelWon
+                    isLevelWon = isLevelWon,
+                    colorblind = colorblind
                 )
 
                 Row(
@@ -324,6 +336,46 @@ fun GameScreen(backStack: NavBackStack<Route>, viewModel: PipesViewModel, packIn
                 }
 
 
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(backStack: NavBackStack<Route>, viewModel: PipesViewModel) {
+    val colorblind by viewModel.colorblind.collectAsState()
+    Scaffold(topBar = {
+        TopAppBar(
+            { Text(stringResource(R.string.settings)) },
+            navigationIcon = { IconNavigation(backStack) }
+        )
+    }) { paddingValues ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp)
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.colorblind_mode),
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        stringResource(R.string.colorblind_mode_desc),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+                Switch(checked = colorblind, onCheckedChange = { viewModel.setColorblind(it) })
             }
         }
     }

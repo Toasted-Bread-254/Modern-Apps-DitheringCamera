@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 
 enum class Direction { UP, DOWN, LEFT, RIGHT }
 
@@ -55,6 +56,25 @@ fun DrawScope.drawPipeSegment(
 
 fun DrawScope.drawEndpointBall(cellRect: Rect, color: Color) {
     drawCircle(color = color, radius = cellRect.width * 0.35f, center = cellRect.center)
+}
+
+/** Colorblind aid: draw the flow's identifying letter centered in the cell. */
+fun DrawScope.drawColorLabel(cellRect: Rect, colorIndex: Int) {
+    val letter = ('A' + (colorIndex % 26)).toString()
+    val onColor = PIPE_COLORS[colorIndex % PIPE_COLORS.size]
+    // Pick black/white text for contrast against the flow color.
+    val luminance = 0.299f * onColor.red + 0.587f * onColor.green + 0.114f * onColor.blue
+    val textColor = if (luminance > 0.6f) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+    val paint = android.graphics.Paint().apply {
+        isAntiAlias = true
+        this.color = textColor
+        textAlign = android.graphics.Paint.Align.CENTER
+        textSize = cellRect.width * 0.5f
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
+    val cx = cellRect.center.x
+    val cy = cellRect.center.y - (paint.descent() + paint.ascent()) / 2f
+    drawContext.canvas.nativeCanvas.drawText(letter, cx, cy, paint)
 }
 
 private fun areOpposite(a: Direction, b: Direction): Boolean =

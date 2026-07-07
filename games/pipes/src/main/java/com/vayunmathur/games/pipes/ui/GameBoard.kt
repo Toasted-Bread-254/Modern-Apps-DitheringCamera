@@ -24,6 +24,7 @@ fun GameBoard(
     onExtendPath: (CellPos) -> Unit,
     onCommitDraw: () -> Unit,
     isLevelWon: Boolean,
+    colorblind: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val screenWidth = LocalWindowInfo.current.containerDpSize.width
@@ -118,6 +119,7 @@ fun GameBoard(
             for (cell in ep.cells) {
                 val rect = cellRects[cell] ?: continue
                 drawEndpointBall(rect, color)
+                if (colorblind) drawColorLabel(rect, ep.colorIndex)
             }
         }
     }

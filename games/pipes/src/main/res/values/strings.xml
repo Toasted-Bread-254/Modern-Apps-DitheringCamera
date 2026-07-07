@@ -9,4 +9,7 @@
     <string name="previous_level">Previous Level</string>
     <string name="next_level">Next Level</string>
     <string name="completed">Completed</string>
+    <string name="settings">Settings</string>
+    <string name="colorblind_mode">Colorblind mode</string>
+    <string name="colorblind_mode_desc">Label each flow with a letter (A–Z)</string>
 </resources>

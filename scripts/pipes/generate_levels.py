@@ -334,11 +334,20 @@ def make(w, h, mitm, min_numbers=0, max_numbers=1000):
     return None
 
 
-def too_many_short_paths(path_lengths, num_pairs):
-    """At most 1 path with ≤ 4 cells (≤ 3 edges), or 2 if ≥ 6 pairs."""
-    short = sum(1 for l in path_lengths if l <= 4)
-    max_short = 2 if num_pairs >= 6 else 1
-    return short > max_short
+def short_pair_violation(path_lengths):
+    """Reject too-easy puzzles based on flow (path) length in cells. The number
+    of empty squares between a pair's endpoints is (length - 2). Rules:
+      - no adjacent endpoints        -> no flow of length <= 2 (0 between)
+      - <= 1 pair with 1 between      -> at most one flow of length 3
+      - <= 2 pairs with <= 2 between  -> at most two flows of length <= 4
+    """
+    if any(l <= 2 for l in path_lengths):
+        return True
+    if sum(1 for l in path_lengths if l == 3) > 1:
+        return True
+    if sum(1 for l in path_lengths if l <= 4) > 2:
+        return True
+    return False
 
 
 def grid_to_level(grid, level_id, w, h):
@@ -368,7 +377,7 @@ def grid_to_level(grid, level_id, w, h):
     if not endpoints:
         return None
 
-    if too_many_short_paths(path_lengths, len(endpoints)):
+    if short_pair_violation(path_lengths):
         return None
 
     return {
@@ -888,10 +897,18 @@ def generate_tower_pack(name, w, heights, base_seed):
     return levels
 
 
+def flow_ceiling(cells):
+    """Max flows (endpoint pairs) allowed for a board of this size, so puzzles
+    stay sparse with longer flows instead of a swarm of tiny 2-cell pairs.
+    ~cells/5 keeps the average flow length around 5+."""
+    return max(4, round(len(cells) / 5))
+
+
 def generate_masked_pack(name, shape_fn, num_levels, base_seed,
-                         early_stop=0.5, attempts_per_level=600):
+                         early_stop=0.0, attempts_per_level=800):
     """Generate masked (non-rectangular) levels via the carve path-cover, keeping
-    only uniquely-solvable ones. shape_fn(level_index, seed) -> set of cells."""
+    only uniquely-solvable ones with at most flow_ceiling(cells) flows.
+    shape_fn(level_index, seed) -> set of cells."""
     levels = []
     seed = base_seed
     attempts = 0
@@ -904,11 +921,13 @@ def generate_masked_pack(name, shape_fn, num_levels, base_seed,
             continue
         adjacency = compute_4_adjacency(cells)
         paths = carve_cover(cells, adjacency, random.Random(seed), early_stop)
-        if not paths:
+        if not paths or len(paths) > flow_ceiling(cells):
+            continue
+        if short_pair_violation([len(p) for p in paths]):
             continue
         lid = f"{name}_{len(levels)+1:03d}"
         level = carve_to_level(cells, paths, lid)
-        if validate_unique_solution(level):
+        if validate_unique_solution(level, 10):
             levels.append(level)
             sys.stdout.write(f"\r  {len(levels)}/{num_levels} (attempts {attempts})")
             sys.stdout.flush()
@@ -954,12 +973,10 @@ def build_registry():
         }
     ))
 
-    # Hourglass: bounding sizes spread from 9×11 to 13×15.
-    hg_sizes = []
-    for i in range(30):
-        w = 9 + (i * 5) // 30      # 9..13
-        h = 11 + (i * 5) // 30     # 11..15
-        hg_sizes.append((w, h))
+    # Hourglass: small bounding sizes (≤ ~59 cells) so a few long flows still
+    # solve uniquely; larger boards force too many pairs / lose uniqueness.
+    hg_feasible = [(8, 10), (9, 10), (8, 11), (9, 11)]
+    hg_sizes = [hg_feasible[i % len(hg_feasible)] for i in range(30)]
 
     def hourglass_shape(idx, seed):
         w, h = hg_sizes[idx]
@@ -970,43 +987,46 @@ def build_registry():
         lambda: {
             "name": "Hourglass", "shape": "hourglass",
             "levels": generate_masked_pack(
-                "Hourglass", hourglass_shape, 30, 50000, early_stop=0.6),
+                "Hourglass", hourglass_shape, 30, 50000),
         }
     ))
 
-    # Blob: ~8×8 random round shapes (shape varies with seed).
+    # Blob: small round shapes (shape varies with seed).
+    def blob_shape(idx, seed):
+        return blob_cells(7 + (idx * 2) // 30, seed)   # 7..8
+
     reg.append((
         "blob", "Blob", "blob",
         lambda: {
             "name": "Blob", "shape": "blob",
-            "levels": generate_masked_pack(
-                "Blob", lambda idx, seed: blob_cells(8, seed), 30, 60000,
-                early_stop=0.5),
+            "levels": generate_masked_pack("Blob", blob_shape, 30, 60000),
         }
     ))
 
-    # Inkblot: ~13×13 larger, lumpier random shapes.
+    # Inkblot: small lumpier random shapes. Kept at 8 — larger inkblots can't
+    # satisfy the sparse short-pair rule while staying uniquely solvable.
+    def inkblot_shape(idx, seed):
+        return inkblot_cells(8, seed)
+
     reg.append((
         "inkblot", "Inkblot", "inkblot",
         lambda: {
             "name": "Inkblot", "shape": "inkblot",
             "levels": generate_masked_pack(
-                "Inkblot", lambda idx, seed: inkblot_cells(13, seed), 30, 70000,
-                early_stop=0.6, attempts_per_level=1200),
+                "Inkblot", inkblot_shape, 30, 70000, attempts_per_level=2000),
         }
     ))
 
-    # Walls: mixed base sizes 7..12 with carved wall segments.
+    # Walls: small base sizes 7..8 with carved wall segments.
     def walls_shape(idx, seed):
-        n = 7 + (idx * 6) // 30    # 7..12
+        n = 7 + (idx * 2) // 30    # 7..8
         return walls_cells(n, seed)
 
     reg.append((
         "walls", "Walls", "walls",
         lambda: {
             "name": "Walls", "shape": "walls",
-            "levels": generate_masked_pack(
-                "Walls", walls_shape, 30, 80000, early_stop=0.5),
+            "levels": generate_masked_pack("Walls", walls_shape, 30, 80000),
         }
     ))
 
