@@ -90,7 +90,7 @@ class EmailWidget : GlanceAppWidget() {
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             }),
                             backgroundColor = null,
-                            contentColor = ColorProvider(Color.White)
+                            contentColor = GlanceTheme.colors.onSurface
                         )
                     },
                 )

@@ -163,7 +163,7 @@ fun Content(context: Context, positionedEvents: Map<LocalDate, List<Instance>>) 
                             Column(GlanceModifier.padding(4.dp).fillMaxWidth()) {
                                 Text(
                                     instance.eventTitle,
-                                    style = TextStyle(fontWeight = FontWeight.Bold)
+                                    style = TextStyle(fontWeight = FontWeight.Bold, color = GlanceTheme.colors.onPrimaryContainer)
                                 )
                                 Text(
                                     dateRangeString(

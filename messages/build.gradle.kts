@@ -11,6 +11,7 @@ import org.gradle.process.ExecOperations
 
 plugins {
     id("common-conventions-app")
+    id("common-conventions-metadata")
     id("com.google.devtools.ksp")
 }
 

@@ -129,7 +129,7 @@ afterEvaluate {
     lines += """"$adb" shell am instrument -w "$runner""""
     lines += """rm -rf "$out""""
     lines += """mkdir -p "$out""""
-    lines += """"$adb" pull "$deviceDir/." "$out""""
+    lines += """"$adb" pull "$deviceDir/." "$out" || true"""
     // Also pull the rendered 512x512 Play Store icon into the module's src/main.
     lines += """"$adb" pull "$iconDeviceFile" "$srcMainIcon" || true"""
     lines += """"$adb" shell cmd uimode night no || true"""

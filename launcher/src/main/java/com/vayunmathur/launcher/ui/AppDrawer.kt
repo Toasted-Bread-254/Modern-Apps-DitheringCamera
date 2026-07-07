@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -128,7 +127,7 @@ fun AppDrawer(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        containerColor = Color(0xFFD8D9E4)
+        containerColor = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             if (isFullyExpanded) {
@@ -179,8 +178,8 @@ fun AppDrawer(
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(Color(0xFFD8D9E4))
+                                        .fillMaxWidth()
+                                            .background(MaterialTheme.colorScheme.surfaceContainer)
                                             .padding(horizontal = 16.dp, vertical = 8.dp)
                                     )
                                 }
@@ -198,7 +197,7 @@ fun AppDrawer(
                                                     icon = app.icon,
                                                     onClick = { onAppClick(app) },
                                                     onLongClick = { showMenu = true },
-                                                    labelColor = Color(0xFF30323A),
+                                                    labelColor = MaterialTheme.colorScheme.onSurface,
                                                     modifier = Modifier.padding(vertical = 12.dp)
                                                 )
                                                 DropdownMenu(

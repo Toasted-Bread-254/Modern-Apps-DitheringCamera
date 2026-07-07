@@ -157,7 +157,7 @@ fun StopwatchPage(backStack: NavBackStack<Route>, clockViewModel: ClockViewModel
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF1C1C1E) // Darker background for the box
+                color = MaterialTheme.colorScheme.surfaceContainer
             ) {
                 Column {
                     // Table Header
