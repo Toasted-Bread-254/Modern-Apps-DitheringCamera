@@ -7,6 +7,9 @@ android {
     defaultConfig {
         applicationId = "com.vayunmathur.office"
     }
+    // Ship the real sample documents (metadata_data/assets) inside the instrumented
+    // test APK so the screenshot generator can open them via ACTION_VIEW on device.
+    sourceSets.getByName("androidTest").assets.srcDir(rootProject.file("metadata_data/assets"))
 }
 
 dependencies {
