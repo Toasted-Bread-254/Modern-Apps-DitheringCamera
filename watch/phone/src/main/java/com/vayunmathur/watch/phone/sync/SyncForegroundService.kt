@@ -19,8 +19,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -60,6 +62,17 @@ class SyncForegroundService : Service() {
             client.batches.collect { records ->
                 processBatch(records)
                 syncedCount.value += records.size
+            }
+        }
+
+        // The watch only streams on subscribe or on a Data read, so poll it while
+        // connected to keep pulling newly-recorded rows.
+        scope.launch {
+            while (isActive) {
+                delay(POLL_INTERVAL_MS)
+                if (connectionState.value == ConnectionState.Connected) {
+                    client.requestSync()
+                }
             }
         }
     }
@@ -129,6 +142,8 @@ class SyncForegroundService : Service() {
         private const val NOTIFICATION_ID = 1
         // Rolling buffer window (~3 days) used for daily/overnight derivations.
         private const val BUFFER_WINDOW_MS = 3L * 24 * 60 * 60 * 1000
+        // How often to poll the connected watch for newly-recorded rows.
+        private const val POLL_INTERVAL_MS = 20_000L
 
         val connectionState = MutableStateFlow(ConnectionState.Disconnected)
         val syncedCount = MutableStateFlow(0)

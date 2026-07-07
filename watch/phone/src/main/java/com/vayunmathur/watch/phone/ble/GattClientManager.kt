@@ -188,6 +188,19 @@ class GattClientManager(private val context: Context) {
         )
     }
 
+    /**
+     * Polls the watch for new data. The watch only streams on subscribe or on a
+     * read of the Data characteristic, so reading it here makes the watch re-stream
+     * any rows accumulated (and not yet acked) since the last sync.
+     */
+    fun requestSync() {
+        val g = gatt ?: return
+        val service = g.getService(BleConstants.SERVICE_UUID) ?: return
+        val data = service.getCharacteristic(BleConstants.DATA_CHARACTERISTIC_UUID) ?: return
+        reassembly.reset()
+        g.readCharacteristic(data)
+    }
+
     private fun finishBatch(gatt: BluetoothGatt) {
         val bytes = reassembly.toByteArray()
         reassembly.reset()
