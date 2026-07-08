@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.DynamicTheme
 import com.vayunmathur.pdf.ui.CapturePdfScreen
 import com.vayunmathur.pdf.ui.PdfViewerScreen
+import com.vayunmathur.pdf.ui.SafePdfViewerScreen
 import com.vayunmathur.pdf.util.PdfViewModel
 
 class MainActivity : ComponentActivity() {
@@ -68,6 +69,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val startedWithIntent = remember { intentData != null }
             var data by rememberSaveable { mutableStateOf(intentData) }
+            var safeData: Uri? by rememberSaveable { mutableStateOf(null) }
             var password: String? by rememberSaveable { mutableStateOf(null) }
             var isCapturing by rememberSaveable { mutableStateOf(false) }
 
@@ -77,6 +79,10 @@ class MainActivity : ComponentActivity() {
 
             val filePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                 uri?.let { data = it }
+            }
+
+            val safeFilePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                uri?.let { safeData = it }
             }
 
             LaunchedEffect(data, password) {
@@ -91,9 +97,15 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    if (data == null && !isCapturing) {
+                    if (safeData != null) {
+                        SafePdfViewerScreen(
+                            uri = safeData!!,
+                            onBack = { safeData = null }
+                        )
+                    } else if (data == null && !isCapturing) {
                         InitialScreen(
                             onOpenPdf = { filePickerLauncher.launch(arrayOf("application/pdf")) },
+                            onOpenPdfSafe = { safeFilePickerLauncher.launch(arrayOf("application/pdf")) },
                             onCapturePdf = { isCapturing = true }
                         )
                     } else if (isCapturing) {
@@ -142,11 +154,14 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun InitialScreen(onOpenPdf: () -> Unit, onCapturePdf: () -> Unit) {
+fun InitialScreen(onOpenPdf: () -> Unit, onOpenPdfSafe: () -> Unit, onCapturePdf: () -> Unit) {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Button(onClick = onOpenPdf, Modifier.padding(16.dp)) {
                 Text(stringResource(R.string.open_pdf))
+            }
+            Button(onClick = onOpenPdfSafe, Modifier.padding(16.dp)) {
+                Text(stringResource(R.string.open_pdf_safe))
             }
             Button(onClick = onCapturePdf, Modifier.padding(16.dp)) {
                 Text(stringResource(R.string.capture_pdf))

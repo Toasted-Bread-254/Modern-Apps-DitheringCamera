@@ -9,6 +9,9 @@
     <string name="ok">OK</string>
     <string name="incorrect_password">Incorrect password. Please try again.</string>
     <string name="open_pdf">Open PDF</string>
+    <string name="open_pdf_safe">Open PDF (safe)</string>
+    <string name="safe_pdf_viewer_title">PDF Viewer (safe)</string>
+    <string name="safe_pdf_error">This PDF could not be opened by the safe viewer. It may be encrypted or use unsupported features.</string>
     <string name="capture_pdf">Capture PDF</string>
     <string name="capture_pdf_title">Capture PDF</string>
     <string name="request_camera_permission">Request Camera Permission</string>
