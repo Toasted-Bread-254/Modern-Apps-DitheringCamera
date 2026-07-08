@@ -12,4 +12,5 @@
     <string name="map_time">Aeg</string>
     <string name="map_back">Tagasi</string>
     <string name="map_attribution">© OpenStreetMap · © CARTO</string>
+    <string name="weather_widget_description">Ilmateave ja kellaaeg ühe vaatena - klõpsa ja vaata ennustust</string>
 </resources>
