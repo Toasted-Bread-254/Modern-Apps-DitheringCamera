@@ -93,6 +93,10 @@ class DataStoreUtils private constructor(context: Context) {
         return dataStore.data.mapNotNull { it[doublePreferencesKey(string)] }
     }
 
+    fun getDouble(name: String): Double? {
+        return getWithFallback(doublePreferencesKey(name))
+    }
+
     suspend fun setDouble(string: String, progress: Double) {
         dataStore.edit {
             it[doublePreferencesKey(string)] = progress
