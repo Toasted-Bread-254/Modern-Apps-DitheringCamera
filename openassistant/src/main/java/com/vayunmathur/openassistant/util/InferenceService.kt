@@ -263,10 +263,17 @@ class InferenceService : Service() {
                 putInt("dim", dim)
                 putString("status", "ready")
             })
-            "text" -> sendEmbedding(job.receiver, SiglipEmbedder.textEmbedding(context, job.userText))
+            "text" -> {
+                val t0 = System.currentTimeMillis()
+                val emb = SiglipEmbedder.textEmbedding(context, job.userText)
+                Log.i("InferenceService", "Text embed (${emb?.size ?: 0}d) in ${System.currentTimeMillis() - t0}ms ok=${emb != null}")
+                sendEmbedding(job.receiver, emb)
+            }
             "image" -> {
                 val path = job.imagePath
+                val t0 = System.currentTimeMillis()
                 val emb = if (path != null) SiglipEmbedder.imageEmbedding(context, File(path)) else null
+                Log.i("InferenceService", "Image embed (${emb?.size ?: 0}d) in ${System.currentTimeMillis() - t0}ms ok=${emb != null} path=$path")
                 sendEmbedding(job.receiver, emb)
                 // The temp copy from copyUriToFile is no longer needed.
                 if (path != null) runCatching { File(path).delete() }
@@ -277,7 +284,12 @@ class InferenceService : Service() {
 
     private fun sendEmbedding(receiver: ResultReceiver, emb: FloatArray?) {
         if (emb == null) {
-            receiver.send(-1, Bundle().apply { putString("error", "Embedding failed") })
+            // Provider is up but this specific item couldn't be embedded; mark it
+            // per_item so the client skips just this one rather than pausing.
+            receiver.send(-1, Bundle().apply {
+                putString("error", "Embedding failed")
+                putBoolean("per_item", true)
+            })
         } else {
             receiver.send(0, Bundle().apply {
                 putByteArray("embedding", SiglipEmbedder.floatsToBytes(emb))

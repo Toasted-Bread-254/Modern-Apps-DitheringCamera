@@ -73,6 +73,8 @@ object SiglipEmbedder {
     @Volatile private var visionSession: OrtSession? = null
     @Volatile private var textSession: OrtSession? = null
     @Volatile private var tokenizer: SentencePieceTokenizer? = null
+    @Volatile private var visionOutputName: String? = null
+    @Volatile private var textOutputName: String? = null
     @Volatile private var initTried = false
     @Volatile private var initOk = false
 
@@ -121,9 +123,14 @@ object SiglipEmbedder {
                 visionSession = env.createSession(modelFile(app, VISION_FILE).absolutePath, opts)
                 textSession = env.createSession(modelFile(app, TEXT_FILE).absolutePath, opts)
                 tokenizer = tok
-                cachedDim = visionSession?.let { readOutputDim(it) } ?: 0
+                // These sub-model exports emit BOTH `last_hidden_state` and the
+                // pooled embedding (`pooler_output`); we must read the pooled one,
+                // not output index 0, or the vectors are meaningless.
+                visionOutputName = bestOutputName(visionSession!!)
+                textOutputName = bestOutputName(textSession!!)
+                cachedDim = visionSession?.let { readOutputDim(it, visionOutputName!!) } ?: 0
                 initOk = true
-                Log.i(TAG, "SigLIP2 embedder ready (dim=$cachedDim)")
+                Log.i(TAG, "SigLIP2 embedder ready (dim=$cachedDim, visionOut=$visionOutputName, textOut=$textOutputName)")
                 true
             } catch (e: Throwable) {
                 Log.e(TAG, "Failed to initialise SigLIP2 embedder", e)
@@ -133,9 +140,25 @@ object SiglipEmbedder {
         }
     }
 
-    private fun readOutputDim(session: OrtSession): Int {
+    /**
+     * Pick the output that holds the pooled embedding. SigLIP2's vision/text
+     * sub-model exports emit `last_hidden_state` (rank-3) plus the pooled
+     * `pooler_output` (rank-2 `[1, dim]`) — the latter is the retrieval vector.
+     * Prefer a name hinting "pool"/"embed", else the first rank-2 output, else
+     * output 0.
+     */
+    private fun bestOutputName(session: OrtSession): String {
+        val info = session.outputInfo
+        info.keys.firstOrNull { it.contains("pool", ignoreCase = true) }?.let { return it }
+        info.keys.firstOrNull { it.contains("embed", ignoreCase = true) }?.let { return it }
+        info.entries.firstOrNull { (it.value.info as? ai.onnxruntime.TensorInfo)?.shape?.size == 2 }
+            ?.let { return it.key }
+        return info.keys.first()
+    }
+
+    private fun readOutputDim(session: OrtSession, outputName: String): Int {
         return try {
-            val info = session.outputInfo.values.first().info as ai.onnxruntime.TensorInfo
+            val info = session.outputInfo[outputName]!!.info as ai.onnxruntime.TensorInfo
             info.shape.last().toInt()
         } catch (_: Exception) {
             0
@@ -163,13 +186,14 @@ object SiglipEmbedder {
         return try {
             synchronized(lock) {
                 val inputName = session.inputNames.iterator().next()
+                val outName = visionOutputName ?: bestOutputName(session)
                 OnnxTensor.createTensor(
                     env,
                     FloatBuffer.wrap(input),
                     longArrayOf(1, 3, IMAGE_SIZE.toLong(), IMAGE_SIZE.toLong()),
                 ).use { tensor ->
                     session.run(mapOf(inputName to tensor)).use { result ->
-                        val out = result.get(0) as OnnxTensor
+                        val out = result.get(outName).get() as OnnxTensor
                         val vec = FloatArray(out.info.shape.last().toInt())
                         out.floatBuffer.get(vec)
                         l2Normalize(vec)
@@ -206,7 +230,15 @@ object SiglipEmbedder {
                                     env, LongBuffer.wrap(mask), longArrayOf(1, ids.size.toLong())
                                 )
                             }
+                            lname.contains("position") -> {
+                                // Sequential positions 0..seqLen-1.
+                                val pos = LongArray(ids.size) { it.toLong() }
+                                tensors[name] = OnnxTensor.createTensor(
+                                    env, LongBuffer.wrap(pos), longArrayOf(1, ids.size.toLong())
+                                )
+                            }
                             else -> {
+                                // input_ids
                                 tensors[name] = OnnxTensor.createTensor(
                                     env, LongBuffer.wrap(longIds), longArrayOf(1, ids.size.toLong())
                                 )
@@ -214,7 +246,8 @@ object SiglipEmbedder {
                         }
                     }
                     session.run(tensors).use { result ->
-                        val out = result.get(0) as OnnxTensor
+                        val outName = textOutputName ?: bestOutputName(session)
+                        val out = result.get(outName).get() as OnnxTensor
                         val vec = FloatArray(out.info.shape.last().toInt())
                         out.floatBuffer.get(vec)
                         l2Normalize(vec)
@@ -239,6 +272,8 @@ object SiglipEmbedder {
         visionSession = null
         textSession = null
         tokenizer = null
+        visionOutputName = null
+        textOutputName = null
         cachedDim = 0
         initOk = false
         initTried = false
