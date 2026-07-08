@@ -27,6 +27,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -61,6 +62,9 @@ import com.vayunmathur.games.chess.util.ChessViewModel
 import com.vayunmathur.games.chess.util.ChessUiState
 import com.vayunmathur.games.chess.util.GameMode
 import com.vayunmathur.games.chess.util.GameResult
+import com.vayunmathur.games.chess.util.PuzzleViewModel
+import com.vayunmathur.games.chess.util.PuzzleStatus
+import com.vayunmathur.games.chess.util.PuzzleDifficulty
 import com.vayunmathur.games.chess.util.StockfishEngine
 import com.vayunmathur.games.chess.data.Piece
 import com.vayunmathur.games.chess.data.PieceColor
@@ -74,6 +78,8 @@ import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.util.NavKey
 import com.vayunmathur.library.util.rememberNavBackStack
 import com.vayunmathur.library.util.MainNavigation
+import com.vayunmathur.library.util.BottomBarItem
+import com.vayunmathur.library.util.BottomNavBar
 import com.vayunmathur.library.ui.GameCenterScreen
 import com.vayunmathur.library.ui.AchievementNotification
 import androidx.compose.runtime.produceState
@@ -104,7 +110,27 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Box(Modifier.fillMaxSize()) {
-                    MainNavigation(backStack) {
+                    val pages: List<BottomBarItem<out Route>> = listOf(
+                        BottomBarItem(
+                            stringResource(R.string.tab_play),
+                            Route.Game,
+                            com.vayunmathur.library.R.drawable.outline_play_arrow_24
+                        ),
+                        BottomBarItem(
+                            stringResource(R.string.tab_puzzles),
+                            Route.Puzzles,
+                            R.drawable.chess_knight_fill1_24px
+                        )
+                    )
+                    MainNavigation(
+                        backStack,
+                        bottomBar = {
+                            val cur = backStack.last()
+                            if (cur is Route.Game || cur is Route.Puzzles) {
+                                BottomNavBar(backStack, pages, cur)
+                            }
+                        }
+                    ) {
                         entry<Route.Game> {
                             val viewModel: ChessViewModel = viewModel()
                             var showNewGameDialog by remember { mutableStateOf(true) }
@@ -130,6 +156,10 @@ class MainActivity : ComponentActivity() {
                                     }
                                 )
                             }
+                        }
+                        entry<Route.Puzzles> {
+                            val puzzleViewModel: PuzzleViewModel = viewModel()
+                            PuzzleScreen(puzzleViewModel)
                         }
                         entry<Route.GameCenter> {
                             GameCenterScreen(
@@ -308,8 +338,11 @@ fun ChessGame(
             CapturedPiecesRow(uiState.board.capturedByBlack)
             Spacer(modifier = Modifier.height(16.dp))
             MovesList(moves = uiState.board.moves, turn = uiState.turn)
-            ChessBoard(
-                viewModel = viewModel,
+            BoardGrid(
+                board = uiState.board,
+                selectedPiece = uiState.selectedPiece,
+                isFlipped = uiState.isBoardFlipped,
+                turn = uiState.turn,
                 onSquareClick = onSquareClick
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -399,15 +432,13 @@ private val lightSquareColor = Color(0xFFBBBBBB)
 private val darkSquareColor = Color.Gray
 
 @Composable
-fun ChessBoard(
-    viewModel: ChessViewModel,
+fun BoardGrid(
+    board: com.vayunmathur.games.chess.data.Board,
+    selectedPiece: Position?,
+    isFlipped: Boolean,
+    turn: PieceColor,
     onSquareClick: (Position) -> Unit
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val board = uiState.board
-    val selectedPiece = uiState.selectedPiece
-    val turn = uiState.turn
-    val isFlipped = uiState.isBoardFlipped
     val isKingInCheck = board.isKingInCheck(turn)
     Column(
         Modifier
@@ -484,7 +515,104 @@ sealed interface Route: NavKey {
     @Serializable
     data object Game: Route
     @Serializable
+    data object Puzzles: Route
+    @Serializable
     data object GameCenter: Route
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PuzzleScreen(viewModel: PuzzleViewModel) {
+    val uiState by viewModel.uiState.collectAsState()
+
+    LaunchedEffect(Unit) {
+        if (uiState.puzzle == null) viewModel.loadRandom()
+    }
+
+    if (uiState.board.promotionPosition != null) {
+        PawnPromotionDialog(uiState.playerColor, onPromote = viewModel::onPromote)
+    }
+
+    Scaffold(
+        topBar = { TopAppBar(title = { Text(stringResource(R.string.tab_puzzles)) }) }
+    ) { innerPadding ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 16.dp),
+            Arrangement.Center,
+            Alignment.CenterHorizontally
+        ) {
+            SingleChoiceSegmentedButtonRow {
+                val labels = listOf(
+                    stringResource(R.string.puzzle_difficulty_easy),
+                    stringResource(R.string.puzzle_difficulty_medium),
+                    stringResource(R.string.puzzle_difficulty_hard)
+                )
+                PuzzleDifficulty.entries.forEachIndexed { idx, diff ->
+                    SegmentedButton(
+                        shape = SegmentedButtonDefaults.itemShape(idx, PuzzleDifficulty.entries.size),
+                        onClick = { if (uiState.difficulty != diff) viewModel.loadRandom(diff) },
+                        selected = uiState.difficulty == diff,
+                        label = { Text(labels[idx], style = MaterialTheme.typography.labelSmall) }
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+
+            Text(
+                stringResource(R.string.puzzle_rating, uiState.rating),
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                if (uiState.playerColor == PieceColor.WHITE)
+                    stringResource(R.string.puzzle_white_to_move)
+                else stringResource(R.string.puzzle_black_to_move),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(8.dp))
+
+            BoardGrid(
+                board = uiState.board,
+                selectedPiece = uiState.selectedPiece,
+                isFlipped = uiState.isBoardFlipped,
+                turn = uiState.playerColor,
+                onSquareClick = viewModel::onSquareClick
+            )
+            Spacer(Modifier.height(16.dp))
+
+            val statusText = when (uiState.status) {
+                PuzzleStatus.Loading -> stringResource(R.string.puzzle_loading)
+                PuzzleStatus.Solving -> stringResource(R.string.puzzle_your_move)
+                PuzzleStatus.Solved -> stringResource(R.string.puzzle_solved)
+                PuzzleStatus.Failed -> stringResource(R.string.puzzle_failed)
+                PuzzleStatus.ShowingSolution -> stringResource(R.string.puzzle_show_solution)
+            }
+            Text(
+                statusText,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(16.dp))
+
+            if (uiState.status == PuzzleStatus.Failed) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { viewModel.retry() }) {
+                        Text(stringResource(R.string.puzzle_retry))
+                    }
+                    OutlinedButton(onClick = { viewModel.showSolution() }) {
+                        Text(stringResource(R.string.puzzle_show_solution))
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            Button(onClick = { viewModel.loadRandom() }) {
+                Text(stringResource(R.string.puzzle_next))
+            }
+        }
+    }
 }
 
 @Composable
