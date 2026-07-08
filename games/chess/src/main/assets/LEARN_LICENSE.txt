@@ -1,0 +1,15 @@
+Learn mode lesson data
+======================
+
+The chess "Learn" lessons bundled in `learn.json` are derived from the Lichess
+open-source project "lila":
+
+    https://github.com/lichess-org/lila  (ui/learn, translation/source)
+
+lila is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+The lesson positions, scenarios, and English instruction strings in `learn.json`
+are taken from lila and therefore remain under the AGPL-3.0. Any distribution of
+this app that includes `learn.json` must comply with the AGPL-3.0, including
+making the corresponding source available.
+
+Regenerate with: scripts/chess/extract_learn.py

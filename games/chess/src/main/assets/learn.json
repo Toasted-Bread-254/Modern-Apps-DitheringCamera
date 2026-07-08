@@ -1,0 +1,1554 @@
+{
+ "categories": [
+  {
+   "key": "chessPieces",
+   "name": "Chess pieces",
+   "stages": [
+    {
+     "key": "rook",
+     "title": "The rook",
+     "subtitle": "It moves in straight lines",
+     "intro": "The rook is a powerful piece. Are you ready to command it?",
+     "complete": "Congratulations! You have successfully mastered the rook.",
+     "levels": [
+      {
+       "goal": "Click on the rook\nto bring it to the star!",
+       "fen": "8/8/8/8/8/8/4R3/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 1,
+       "apples": "e7",
+       "shapes": [
+        {
+         "orig": "e2",
+         "dest": "e7",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Grab all the stars!",
+       "fen": "8/2R5/8/8/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 2,
+       "apples": "c5 g5",
+       "shapes": [
+        {
+         "orig": "c7",
+         "dest": "c5",
+         "brush": "green"
+        },
+        {
+         "orig": "c5",
+         "dest": "g5",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "The fewer moves you make,\nthe more points you win!",
+       "fen": "8/8/8/8/3R4/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 3,
+       "apples": "a4 g3 g4"
+      },
+      {
+       "goal": "The fewer moves you make,\nthe more points you win!",
+       "fen": "7R/8/8/8/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 5,
+       "apples": "f8 g1 g7 g8 h7"
+      },
+      {
+       "goal": "Use two rooks\nto speed things up!",
+       "fen": "8/1R6/8/8/3R4/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 4,
+       "apples": "a4 g3 g7 h4"
+      },
+      {
+       "goal": "Use two rooks\nto speed things up!",
+       "fen": "8/8/8/8/8/5R2/8/R7 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 7,
+       "apples": "b7 d1 d5 f2 f7 g4 g7"
+      }
+     ]
+    },
+    {
+     "key": "bishop",
+     "title": "The bishop",
+     "subtitle": "It moves diagonally",
+     "intro": "Next we will learn how to manoeuvre a bishop!",
+     "complete": "Congratulations! You can command a bishop.",
+     "levels": [
+      {
+       "goal": "Grab all the stars!",
+       "fen": "8/8/8/8/8/5B2/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 2,
+       "apples": "d5 g8",
+       "shapes": [
+        {
+         "orig": "f3",
+         "dest": "d5",
+         "brush": "green"
+        },
+        {
+         "orig": "d5",
+         "dest": "g8",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "The fewer moves you make,\nthe more points you win!",
+       "fen": "8/8/8/8/8/1B6/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 6,
+       "apples": "a2 b1 b5 d1 d3 e2"
+      },
+      {
+       "goal": "Grab all the stars!",
+       "fen": "8/8/8/8/3B4/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 6,
+       "apples": "a1 b6 c1 e3 g7 h6"
+      },
+      {
+       "goal": "Grab all the stars!",
+       "fen": "8/8/8/8/2B5/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 6,
+       "apples": "a4 b1 b3 c2 d3 e2"
+      },
+      {
+       "goal": "One light-squared bishop,\none dark-squared bishop.\nYou need both!",
+       "fen": "8/8/8/8/8/8/8/2B2B2 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 6,
+       "apples": "d3 d4 d5 e3 e4 e5"
+      },
+      {
+       "goal": "One light-squared bishop,\none dark-squared bishop.\nYou need both!",
+       "fen": "8/3B4/8/8/8/2B5/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 11,
+       "apples": "a3 c2 e7 f5 f6 g8 h4 h7"
+      }
+     ]
+    },
+    {
+     "key": "queen",
+     "title": "The queen",
+     "subtitle": "Queen = rook + bishop",
+     "intro": "The most powerful chess piece enters. Her majesty the queen!",
+     "complete": "Congratulations! Queens have no secrets for you.",
+     "levels": [
+      {
+       "goal": "Grab all the stars!",
+       "fen": "8/8/8/8/8/8/4Q3/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 2,
+       "apples": "e5 b8",
+       "shapes": [
+        {
+         "orig": "e2",
+         "dest": "e5",
+         "brush": "green"
+        },
+        {
+         "orig": "e5",
+         "dest": "b8",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Grab all the stars!",
+       "fen": "8/8/8/8/3Q4/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 4,
+       "apples": "a3 f2 f8 h3"
+      },
+      {
+       "goal": "Grab all the stars!",
+       "fen": "8/8/8/8/2Q5/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 6,
+       "apples": "a3 d6 f1 f8 g3 h6"
+      },
+      {
+       "goal": "Grab all the stars!",
+       "fen": "8/6Q1/8/8/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 7,
+       "apples": "a2 b5 d3 g1 g8 h2 h5"
+      },
+      {
+       "goal": "Grab all the stars!",
+       "fen": "8/8/8/8/8/8/8/4Q3 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 9,
+       "apples": "a6 d1 f2 f6 g6 g8 h1 h4"
+      }
+     ]
+    },
+    {
+     "key": "king",
+     "title": "The king",
+     "subtitle": "The most important piece",
+     "intro": "You are the king. If you fall in battle, the game is lost.",
+     "complete": "You can now command the commander!",
+     "levels": [
+      {
+       "goal": "The king is slow.",
+       "fen": "8/8/8/8/8/3K4/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 3,
+       "apples": "e6",
+       "emptyApples": true,
+       "shapes": [
+        {
+         "orig": "d3",
+         "dest": "d4",
+         "brush": "green"
+        },
+        {
+         "orig": "d4",
+         "dest": "d5",
+         "brush": "green"
+        },
+        {
+         "orig": "d5",
+         "dest": "e6",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Grab all the stars!",
+       "fen": "8/8/8/8/8/8/8/4K3 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 4,
+       "apples": "c2 d3 e2 e3",
+       "emptyApples": true
+      },
+      {
+       "goal": "Last one!",
+       "fen": "8/8/8/4K3/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 8,
+       "apples": "b5 c5 d6 e3 f3 g4",
+       "emptyApples": true
+      }
+     ]
+    },
+    {
+     "key": "knight",
+     "title": "The knight",
+     "subtitle": "It moves in an L shape",
+     "intro": "Here's a challenge for you. The knight is... a tricky piece.",
+     "complete": "Congratulations! You have mastered the knight.",
+     "levels": [
+      {
+       "goal": "Knights have a fancy way\nof jumping around!",
+       "fen": "8/8/8/8/4N3/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 2,
+       "apples": "c5 d7",
+       "shapes": [
+        {
+         "orig": "e4",
+         "dest": "c5",
+         "brush": "green"
+        },
+        {
+         "orig": "c5",
+         "dest": "d7",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Grab all the stars!",
+       "fen": "8/8/8/8/8/8/8/1N6 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 8,
+       "apples": "c3 d4 e2 f3 f7 g5 h8"
+      },
+      {
+       "goal": "Grab all the stars!",
+       "fen": "8/2N5/8/8/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 5,
+       "apples": "b6 d5 d7 e6 f4"
+      },
+      {
+       "goal": "Knights can jump over obstacles!\nEscape and vanquish the stars!",
+       "fen": "8/8/8/8/5N2/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 9,
+       "apples": "e3 e4 e5 f3 f5 g3 g4 g5"
+      },
+      {
+       "goal": "Grab all the stars!",
+       "fen": "8/8/8/8/8/3N4/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 6,
+       "apples": "c3 e2 e4 f2 f4 g6"
+      },
+      {
+       "goal": "Grab all the stars!",
+       "fen": "8/2N5/8/8/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 9,
+       "apples": "b4 b5 c6 c8 d4 d5 e3 e7 f5"
+      }
+     ]
+    },
+    {
+     "key": "pawn",
+     "title": "The pawn",
+     "subtitle": "It moves forward only",
+     "intro": "Pawns are weak, but they pack a lot of potential.",
+     "complete": "Congratulations! Pawns have no secrets for you.",
+     "levels": [
+      {
+       "goal": "Pawns move one square only.\nBut when they reach the other side of the board, they become a stronger piece!",
+       "fen": "8/8/8/P7/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 4,
+       "apples": "f3",
+       "explainPromotion": true,
+       "shapes": [
+        {
+         "orig": "a5",
+         "dest": "a6",
+         "brush": "green"
+        },
+        {
+         "orig": "a6",
+         "dest": "a7",
+         "brush": "green"
+        },
+        {
+         "orig": "a7",
+         "dest": "a8",
+         "brush": "green"
+        },
+        {
+         "orig": "a8",
+         "dest": "f3",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Most of the time promoting to a queen is the best.\nBut sometimes a knight can come in handy!",
+       "fen": "8/8/8/5P2/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 8,
+       "apples": "b6 c4 d7 e5 a8"
+      },
+      {
+       "goal": "Pawns move forward,\nbut capture diagonally!",
+       "fen": "8/8/8/8/8/4P3/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 4,
+       "apples": "c6 d5 d7",
+       "shapes": [
+        {
+         "orig": "e3",
+         "dest": "e4",
+         "brush": "green"
+        },
+        {
+         "orig": "e4",
+         "dest": "d5",
+         "brush": "green"
+        },
+        {
+         "orig": "d5",
+         "dest": "c6",
+         "brush": "green"
+        },
+        {
+         "orig": "c6",
+         "dest": "d7",
+         "brush": "green"
+        }
+       ],
+       "failIfPieceOffPath": [
+        "e3",
+        "e4",
+        "c6",
+        "d5",
+        "d7"
+       ]
+      },
+      {
+       "goal": "Capture, then promote!",
+       "fen": "8/8/8/8/8/1P6/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 8,
+       "apples": "b4 b6 c4 c6 c7 d6"
+      },
+      {
+       "goal": "Capture, then promote!",
+       "fen": "8/8/8/8/8/3P4/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 8,
+       "apples": "c4 b5 b6 d5 d7 e6 c8",
+       "failIfWhitePawnOn": [
+        "b5",
+        "d4",
+        "d6",
+        "c7"
+       ]
+      },
+      {
+       "goal": "Use all the pawns!\nNo need to promote.",
+       "fen": "8/8/8/8/8/P1PP3P/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 7,
+       "apples": "b5 c5 d4 e5 g4"
+      },
+      {
+       "goal": "A pawn on the second rank can move 2 squares at once!",
+       "fen": "8/8/8/8/8/8/4P3/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 3,
+       "apples": "d6",
+       "shapes": [
+        {
+         "orig": "e2",
+         "dest": "e4",
+         "brush": "green"
+        }
+       ],
+       "failIfWhitePawnOn": [
+        "e3"
+       ]
+      },
+      {
+       "goal": "Grab all the stars!\nNo need to promote.",
+       "fen": "8/8/8/8/8/8/2PPPP2/8 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 9,
+       "apples": "c5 d5 e5 f5 d3 e4"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "fundamentals",
+   "name": "Fundamentals",
+   "stages": [
+    {
+     "key": "capture",
+     "title": "Capture",
+     "subtitle": "Take the enemy pieces",
+     "intro": "Identify the opponent's undefended pieces, and capture them!",
+     "complete": "Congratulations! You know how to fight with chess pieces!",
+     "levels": [
+      {
+       "goal": "Take the black pieces!",
+       "fen": "8/2p2p2/8/8/8/2R5/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "captureAll",
+       "nbMoves": 2,
+       "captures": 2,
+       "detectCapture": "unprotected",
+       "pointsForCapture": true,
+       "captureColor": "black",
+       "shapes": [
+        {
+         "orig": "c3",
+         "dest": "c7",
+         "brush": "green"
+        },
+        {
+         "orig": "c7",
+         "dest": "f7",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Take the black pieces!\nAnd don't lose yours.",
+       "fen": "8/2r2p2/8/8/5Q2/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "captureAll",
+       "nbMoves": 2,
+       "captures": 2,
+       "detectCapture": "unprotected",
+       "pointsForCapture": true,
+       "captureColor": "black",
+       "shapes": [
+        {
+         "orig": "f4",
+         "dest": "c7",
+         "brush": "green"
+        },
+        {
+         "orig": "f4",
+         "dest": "f7",
+         "brush": "red"
+        },
+        {
+         "orig": "c7",
+         "dest": "f7",
+         "brush": "yellow"
+        }
+       ]
+      },
+      {
+       "goal": "Take the black pieces!\nAnd don't lose yours.",
+       "fen": "8/5r2/8/1r3p2/8/3B4/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "captureAll",
+       "nbMoves": 5,
+       "captures": 3,
+       "detectCapture": "unprotected",
+       "pointsForCapture": true,
+       "captureColor": "black"
+      },
+      {
+       "goal": "Take the black pieces!\nAnd don't lose yours.",
+       "fen": "8/5b2/5p2/3n2p1/8/6Q1/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "captureAll",
+       "nbMoves": 7,
+       "captures": 4,
+       "detectCapture": "unprotected",
+       "pointsForCapture": true,
+       "captureColor": "black"
+      },
+      {
+       "goal": "Take the black pieces!\nAnd don't lose yours.",
+       "fen": "8/3b4/2p2q2/8/3p1N2/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "captureAll",
+       "nbMoves": 6,
+       "captures": 4,
+       "detectCapture": "unprotected",
+       "pointsForCapture": true,
+       "captureColor": "black"
+      }
+     ]
+    },
+    {
+     "key": "protection",
+     "title": "Protection",
+     "subtitle": "Keep your pieces safe",
+     "intro": "Identify the pieces your opponent attacks, and defend them!",
+     "complete": "Congratulations! A piece you don't lose is a piece you win!",
+     "levels": [
+      {
+       "goal": "You're under attack!\nEscape the threat!",
+       "fen": "8/8/8/4bb2/8/8/P2P4/R2K4 w - - 0 1",
+       "color": "white",
+       "goalType": "protection",
+       "nbMoves": 1,
+       "detectCapture": "unprotected",
+       "shapes": [
+        {
+         "orig": "e5",
+         "dest": "a1",
+         "brush": "red"
+        },
+        {
+         "orig": "a1",
+         "dest": "c1",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "You're under attack!\nEscape the threat!",
+       "fen": "8/8/2q2N2/8/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "protection",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      },
+      {
+       "goal": "There is no escape,\nbut you can defend!",
+       "fen": "8/N2q4/8/8/8/8/6R1/8 w - - 0 1",
+       "color": "white",
+       "goalType": "protection",
+       "nbMoves": 1,
+       "detectCapture": "unprotected",
+       "scenario": [
+        "g2a2"
+       ]
+      },
+      {
+       "goal": "There is no escape,\nbut you can defend!",
+       "fen": "8/8/1Bq5/8/2P5/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "protection",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      },
+      {
+       "goal": "There is no escape,\nbut you can defend!",
+       "fen": "1r6/8/5b2/8/8/5N2/P2P4/R1B5 w - - 0 1",
+       "color": "white",
+       "goalType": "protection",
+       "nbMoves": 1,
+       "detectCapture": "unprotected",
+       "shapes": [
+        {
+         "orig": "f6",
+         "dest": "a1",
+         "brush": "red"
+        },
+        {
+         "orig": "d2",
+         "dest": "d4",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Don't let them take\nany undefended piece!",
+       "fen": "8/1b6/8/8/8/3P2P1/5NRP/r7 w - - 0 1",
+       "color": "white",
+       "goalType": "protection",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      },
+      {
+       "goal": "Don't let them take\nany undefended piece!",
+       "fen": "rr6/3q4/4n3/4P1B1/7P/P7/1B1N1PP1/R5K1 w - - 0 1",
+       "color": "white",
+       "goalType": "protection",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      },
+      {
+       "goal": "Don't let them take\nany undefended piece!",
+       "fen": "8/3q4/8/1N3R2/8/2PB4/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "protection",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      }
+     ]
+    },
+    {
+     "key": "combat",
+     "title": "Combat",
+     "subtitle": "Capture and defend pieces",
+     "intro": "A good warrior knows both attack and defence!",
+     "complete": "Congratulations! You know how to fight with chess pieces!",
+     "levels": [
+      {
+       "goal": "Take the black pieces!\nAnd don't lose yours.",
+       "fen": "8/8/8/8/P2r4/6B1/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "captureAll",
+       "nbMoves": 3,
+       "captures": 1,
+       "detectCapture": "unprotected",
+       "pointsForCapture": true,
+       "captureColor": "black",
+       "shapes": [
+        {
+         "orig": "a4",
+         "dest": "a5",
+         "brush": "green"
+        },
+        {
+         "orig": "g3",
+         "dest": "f2",
+         "brush": "green"
+        },
+        {
+         "orig": "f2",
+         "dest": "d4",
+         "brush": "green"
+        },
+        {
+         "orig": "d4",
+         "dest": "a4",
+         "brush": "yellow"
+        }
+       ]
+      },
+      {
+       "goal": "Take the black pieces!\nAnd don't lose yours.",
+       "fen": "2r5/8/3b4/2P5/8/1P6/2B5/8 w - - 0 1",
+       "color": "white",
+       "goalType": "captureAll",
+       "nbMoves": 4,
+       "captures": 2,
+       "detectCapture": "unprotected",
+       "pointsForCapture": true,
+       "captureColor": "black"
+      },
+      {
+       "goal": "Take the black pieces!\nAnd don't lose yours.",
+       "fen": "1r6/8/5n2/3P4/4P1P1/1Q6/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "captureAll",
+       "nbMoves": 4,
+       "captures": 2,
+       "detectCapture": "unprotected",
+       "pointsForCapture": true,
+       "captureColor": "black"
+      },
+      {
+       "goal": "Take the black pieces!\nAnd don't lose yours.",
+       "fen": "2r5/8/3N4/5b2/8/8/PPP5/8 w - - 0 1",
+       "color": "white",
+       "goalType": "captureAll",
+       "nbMoves": 4,
+       "captures": 2,
+       "detectCapture": "unprotected",
+       "pointsForCapture": true,
+       "captureColor": "black"
+      },
+      {
+       "goal": "Take the black pieces!\nAnd don't lose yours.",
+       "fen": "8/6q1/8/4P1P1/8/4B3/r2P2N1/8 w - - 0 1",
+       "color": "white",
+       "goalType": "captureAll",
+       "nbMoves": 8,
+       "captures": 2,
+       "detectCapture": "unprotected",
+       "pointsForCapture": true,
+       "captureColor": "black"
+      }
+     ]
+    },
+    {
+     "key": "check1",
+     "title": "Check in one",
+     "subtitle": "Attack the opponent's king",
+     "intro": "To check your opponent, attack their king. They must defend it!",
+     "complete": "Congratulations! You checked your opponent, forcing them to defend their king!",
+     "levels": [
+      {
+       "goal": "Aim at the opponent's king\nin one move!",
+       "fen": "4k3/8/2b5/8/8/8/8/R7 w - - 0 1",
+       "color": "white",
+       "goalType": "check",
+       "nbMoves": 1,
+       "detectCapture": "unprotected",
+       "shapes": [
+        {
+         "orig": "a1",
+         "dest": "e1",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Aim at the opponent's king\nin one move!",
+       "fen": "8/8/4k3/3n4/8/1Q6/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "check",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      },
+      {
+       "goal": "Aim at the opponent's king\nin one move!",
+       "fen": "3qk3/1pp5/3p4/4p3/8/3B4/6r1/8 w - - 0 1",
+       "color": "white",
+       "goalType": "check",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      },
+      {
+       "goal": "Aim at the opponent's king\nin one move!",
+       "fen": "2r2q2/2n5/8/4k3/8/2N1P3/3P2B1/8 w - - 0 1",
+       "color": "white",
+       "goalType": "check",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      },
+      {
+       "goal": "Aim at the opponent's king\nin one move!",
+       "fen": "8/2b1q2n/1ppk4/2N5/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "check",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      },
+      {
+       "goal": "Aim at the opponent's king\nin one move!",
+       "fen": "6R1/1k3r2/8/4Q3/8/2n5/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "check",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      },
+      {
+       "goal": "Aim at the opponent's king\nin one move!",
+       "fen": "7r/4k3/8/3n4/4N3/8/2R5/4Q3 w - - 0 1",
+       "color": "white",
+       "goalType": "check",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      }
+     ]
+    },
+    {
+     "key": "outOfCheck",
+     "title": "Out of check",
+     "subtitle": "Defend your king",
+     "intro": "You are in check! You must escape or block the attack.",
+     "complete": "Congratulations! Your king must never be taken, so make sure you can defend against a check!",
+     "levels": [
+      {
+       "goal": "Escape with the king!",
+       "fen": "8/8/8/4q3/8/8/8/4K3 w - - 0 1",
+       "color": "white",
+       "goalType": "escapeCheck",
+       "nbMoves": 1,
+       "offerIllegalMove": true,
+       "shapes": [
+        {
+         "orig": "e5",
+         "dest": "e1",
+         "brush": "red"
+        },
+        {
+         "orig": "e1",
+         "dest": "f1",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Escape with the king!",
+       "fen": "8/2n5/5b2/8/2K5/8/2q5/8 w - - 0 1",
+       "color": "white",
+       "goalType": "escapeCheck",
+       "nbMoves": 1,
+       "offerIllegalMove": true
+      },
+      {
+       "goal": "The king cannot escape,\nbut you can block the attack!",
+       "fen": "8/7r/6r1/8/R7/7K/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "escapeCheck",
+       "nbMoves": 1,
+       "offerIllegalMove": true
+      },
+      {
+       "goal": "You can get out of check\nby taking the attacking piece.",
+       "fen": "8/8/8/3b4/8/4N3/KBn5/1R6 w - - 0 1",
+       "color": "white",
+       "goalType": "escapeCheck",
+       "nbMoves": 1,
+       "offerIllegalMove": true
+      },
+      {
+       "goal": "This knight is checking\nthrough your defences!",
+       "fen": "4q3/8/8/8/8/5nb1/3PPP2/3QKBNr w - - 0 1",
+       "color": "white",
+       "goalType": "escapeCheck",
+       "nbMoves": 1,
+       "offerIllegalMove": true
+      },
+      {
+       "goal": "Escape with the king\nor block the attack!",
+       "fen": "8/8/7p/2q5/5n2/1N1KP2r/3R4/8 w - - 0 1",
+       "color": "white",
+       "goalType": "escapeCheck",
+       "nbMoves": 1,
+       "offerIllegalMove": true
+      },
+      {
+       "goal": "Escape with the king\nor block the attack!",
+       "fen": "8/6b1/8/8/q4P2/2KN4/3P4/8 w - - 0 1",
+       "color": "white",
+       "goalType": "escapeCheck",
+       "nbMoves": 1,
+       "offerIllegalMove": true
+      }
+     ]
+    },
+    {
+     "key": "checkmate1",
+     "title": "Mate in one",
+     "subtitle": "Defeat the opponent's king",
+     "intro": "You win when your opponent cannot defend against a check.",
+     "complete": "Congratulations! That is how you win chess games!",
+     "levels": [
+      {
+       "goal": "Attack your opponent's king\nin a way that cannot be defended!",
+       "fen": "3qk3/3ppp2/8/8/2B5/5Q2/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "mate",
+       "nbMoves": 1,
+       "detectCapture": "unprotected",
+       "shapes": [
+        {
+         "orig": "f3",
+         "dest": "f7",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Attack your opponent's king\nin a way that cannot be defended!",
+       "fen": "6rk/6pp/7P/6N1/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "mate",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      },
+      {
+       "goal": "Attack your opponent's king\nin a way that cannot be defended!",
+       "fen": "R7/8/7k/2r5/5n2/8/6Q1/8 w - - 0 1",
+       "color": "white",
+       "goalType": "mate",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      },
+      {
+       "goal": "Attack your opponent's king\nin a way that cannot be defended!",
+       "fen": "2rb4/2k5/5N2/1Q6/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "mate",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      },
+      {
+       "goal": "Attack your opponent's king\nin a way that cannot be defended!",
+       "fen": "1r2kb2/ppB1p3/2P2p2/2p1N3/B7/8/8/3R4 w - - 0 1",
+       "color": "white",
+       "goalType": "mate",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      },
+      {
+       "goal": "Attack your opponent's king\nin a way that cannot be defended!",
+       "fen": "8/pk1N4/n7/b7/6B1/1r3b2/8/1RR5 w - - 0 1",
+       "color": "white",
+       "goalType": "mate",
+       "nbMoves": 1,
+       "detectCapture": "unprotected",
+       "scenario": [
+        "g4f3"
+       ]
+      },
+      {
+       "goal": "Attack your opponent's king\nin a way that cannot be defended!",
+       "fen": "r1b5/ppp5/2N2kpN/5q2/8/Q7/8/4B3 w - - 0 1",
+       "color": "white",
+       "goalType": "mate",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "intermediate",
+   "name": "Intermediate",
+   "stages": [
+    {
+     "key": "setup",
+     "title": "Board setup",
+     "subtitle": "How the game starts",
+     "intro": "The two armies face each other, ready for the battle.",
+     "complete": "Congratulations! You know how to set up the chess board.",
+     "levels": [
+      {
+       "goal": "This is the initial position\nof every game of chess!\nMake any move to continue.",
+       "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1",
+       "color": "white",
+       "goalType": "info",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      },
+      {
+       "goal": "First place the rooks!\nThey go in the corners.",
+       "fen": "r6r/pppppppp/8/8/8/8/8/2RR4 w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 2,
+       "apples": "a1 h1",
+       "shapes": [
+        {
+         "orig": "c1",
+         "dest": "a1",
+         "brush": "green"
+        },
+        {
+         "orig": "d1",
+         "dest": "h1",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Then place the knights!\nThey go next to the rooks.",
+       "fen": "rn4nr/pppppppp/8/8/8/8/2NN4/R6R w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 4,
+       "apples": "b1 g1"
+      },
+      {
+       "goal": "Place the bishops!\nThey go next to the knights.",
+       "fen": "rnb2bnr/pppppppp/8/8/4BB2/8/8/RN4NR w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 4,
+       "apples": "c1 f1"
+      },
+      {
+       "goal": "Place the queen!\nShe goes on her own colour.",
+       "fen": "rnbq1bnr/pppppppp/8/8/5Q2/8/8/RNB2BNR w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 2,
+       "apples": "d1"
+      },
+      {
+       "goal": "Place the king!\nRight next to his queen.",
+       "fen": "rnbqkbnr/pppppppp/8/8/5K2/8/8/RNBQ1BNR w - - 0 1",
+       "color": "white",
+       "goalType": "apples",
+       "nbMoves": 3,
+       "apples": "e1"
+      },
+      {
+       "goal": "Pawns form the front line.\nMake any move to continue.",
+       "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1",
+       "color": "white",
+       "goalType": "info",
+       "nbMoves": 1,
+       "detectCapture": "unprotected"
+      }
+     ]
+    },
+    {
+     "key": "castling",
+     "title": "Castling",
+     "subtitle": "The special king move",
+     "intro": "Bring your king to safety, and deploy your rook for attack!",
+     "complete": "Congratulations! You should almost always castle in a game.",
+     "levels": [
+      {
+       "goal": "Move your king two squares\nto castle king-side!",
+       "fen": "rnbqkbnr/pppppppp/8/8/2B5/4PN2/PPPP1PPP/RNBQK2R w KQkq - 0 1",
+       "color": "white",
+       "goalType": "castle",
+       "nbMoves": 1,
+       "detectCapture": "unprotected",
+       "castleSide": "king",
+       "shapes": [
+        {
+         "orig": "e1",
+         "dest": "g1",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Move your king two squares\nto castle queen-side!",
+       "fen": "rnbqkbnr/pppppppp/8/8/4P3/1PN5/PBPPQPPP/R3KBNR w KQkq - 0 1",
+       "color": "white",
+       "goalType": "castle",
+       "nbMoves": 1,
+       "detectCapture": "unprotected",
+       "castleSide": "queen",
+       "shapes": [
+        {
+         "orig": "e1",
+         "dest": "c1",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "The knight is in the way!\nMove it, then castle king-side.",
+       "fen": "rnbqkbnr/pppppppp/8/8/8/4P3/PPPPBPPP/RNBQK1NR w KQkq - 0 1",
+       "color": "white",
+       "goalType": "castle",
+       "nbMoves": 2,
+       "detectCapture": "unprotected",
+       "castleSide": "king",
+       "shapes": [
+        {
+         "orig": "e1",
+         "dest": "g1",
+         "brush": "green"
+        },
+        {
+         "orig": "g1",
+         "dest": "f3",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Castle king-side!\nYou need to move out pieces first.",
+       "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+       "color": "white",
+       "goalType": "castle",
+       "nbMoves": 4,
+       "detectCapture": "unprotected",
+       "castleSide": "king",
+       "shapes": [
+        {
+         "orig": "e1",
+         "dest": "g1",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Castle queen-side!\nYou need to move out pieces first.",
+       "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+       "color": "white",
+       "goalType": "castle",
+       "nbMoves": 6,
+       "detectCapture": "unprotected",
+       "castleSide": "queen",
+       "shapes": [
+        {
+         "orig": "e1",
+         "dest": "c1",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "You cannot castle if\nthe king has already moved\nor the rook has already moved.",
+       "fen": "rnbqkbnr/pppppppp/8/8/3P4/1PN1PN2/PBPQBPPP/R3K1R1 w Qkq - 0 1",
+       "color": "white",
+       "goalType": "castle",
+       "nbMoves": 1,
+       "detectCapture": "unprotected",
+       "castleSide": "queen",
+       "shapes": [
+        {
+         "orig": "e1",
+         "dest": "g1",
+         "brush": "red"
+        },
+        {
+         "orig": "e1",
+         "dest": "c1",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "You cannot castle if\nthe king is attacked on the way.\nBlock the check then castle!",
+       "fen": "rn1qkbnr/ppp1pppp/3p4/8/2b5/4PN2/PPPP1PPP/RNBQK2R w KQkq - 0 1",
+       "color": "white",
+       "goalType": "castle",
+       "nbMoves": 2,
+       "castleSide": "king",
+       "shapes": [
+        {
+         "orig": "c4",
+         "dest": "f1",
+         "brush": "red"
+        },
+        {
+         "orig": "e1",
+         "brush": "green"
+        },
+        {
+         "orig": "f1",
+         "brush": "green"
+        },
+        {
+         "orig": "g1",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Find a way to\ncastle king-side!",
+       "fen": "rnb2rk1/pppppppp/8/8/8/4Nb1n/PPPP1P1P/RNB1KB1R w KQkq - 0 1",
+       "color": "white",
+       "goalType": "castle",
+       "nbMoves": 2,
+       "castleSide": "king",
+       "shapes": [
+        {
+         "orig": "e1",
+         "dest": "g1",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Find a way to\ncastle queen-side!",
+       "fen": "1r1k2nr/p2ppppp/7b/7b/4P3/2nP4/P1P2P2/RN2K3 w Q - 0 1",
+       "color": "white",
+       "goalType": "castle",
+       "nbMoves": 4,
+       "castleSide": "queen",
+       "shapes": [
+        {
+         "orig": "e1",
+         "dest": "c1",
+         "brush": "green"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "key": "enpassant",
+     "title": "En passant rights",
+     "subtitle": "The special pawn move",
+     "intro": "When the opponent's pawn moves two squares, you can still take it as if it had only moved one square.",
+     "complete": "Congratulations! You can now take en passant.",
+     "levels": [
+      {
+       "goal": "Black just moved the pawn\nby two squares!\nTake it en passant.",
+       "fen": "rnbqkbnr/pppppppp/8/2P5/8/8/PP1PPPPP/RNBQKBNR b KQkq - 0 1",
+       "color": "white",
+       "goalType": "scenario",
+       "nbMoves": 1,
+       "captures": 1,
+       "scenario": [
+        "d7d5",
+        "c5d6"
+       ]
+      },
+      {
+       "goal": "En passant only works\nimmediately after the opponent\nmoved the pawn.",
+       "fen": "rnbqkbnr/ppp1pppp/8/2Pp3P/8/8/PP1PPPP1/RNBQKBNR b KQkq - 0 1",
+       "color": "white",
+       "goalType": "scenario",
+       "nbMoves": 1,
+       "captures": 1,
+       "scenario": [
+        "g7g5",
+        "h5g6"
+       ]
+      },
+      {
+       "goal": "En passant only works\nif your pawn is on the 5th rank.",
+       "fen": "rnbqkbnr/pppppppp/P7/2P5/8/8/PP1PPPP1/RNBQKBNR b KQkq - 0 1",
+       "color": "white",
+       "goalType": "scenario",
+       "nbMoves": 1,
+       "captures": 1,
+       "scenario": [
+        "b7b5",
+        "c5b6"
+       ]
+      },
+      {
+       "goal": "Take all the pawns en passant!",
+       "fen": "rnbqkbnr/pppppppp/8/2PPP2P/8/8/PP1P1PP1/RNBQKBNR b KQkq - 0 1",
+       "color": "white",
+       "goalType": "scenario",
+       "nbMoves": 4,
+       "captures": 4,
+       "scenario": [
+        "b7b5",
+        "c5b6",
+        "f7f5",
+        "e5f6",
+        "c7c5",
+        "d5c6",
+        "g7g5",
+        "h5g6"
+       ]
+      }
+     ]
+    },
+    {
+     "key": "stalemate",
+     "title": "Stalemate",
+     "subtitle": "The game is a draw",
+     "intro": "When a player is not in check and does not have a legal move, it's a stalemate. The game is drawn: no one wins, no one loses.",
+     "complete": "Congratulations! Better be stalemated than checkmated!",
+     "levels": [
+      {
+       "goal": "",
+       "fen": "k7/8/8/6B1/8/1R6/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "scenario",
+       "nbMoves": 1,
+       "nextButton": true,
+       "scenario": [
+        "g5e3"
+       ],
+       "shapes": [
+        {
+         "orig": "g5",
+         "dest": "e3",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "",
+       "fen": "8/7p/4N2k/8/8/3N4/8/1K6 w - - 0 1",
+       "color": "white",
+       "goalType": "scenario",
+       "nbMoves": 1,
+       "nextButton": true,
+       "scenario": [
+        "d3f4"
+       ]
+      },
+      {
+       "goal": "",
+       "fen": "4k3/6p1/5p2/p4P2/PpB2N2/1K6/8/3R4 w - - 0 1",
+       "color": "white",
+       "goalType": "scenario",
+       "nbMoves": 1,
+       "nextButton": true,
+       "scenario": [
+        "f4g6"
+       ]
+      },
+      {
+       "goal": "",
+       "fen": "8/6pk/6np/7K/8/3B4/8/1R6 w - - 0 1",
+       "color": "white",
+       "goalType": "scenario",
+       "nbMoves": 1,
+       "nextButton": true,
+       "scenario": [
+        "b1b8"
+       ]
+      },
+      {
+       "goal": "",
+       "fen": "7R/pk6/p1pP4/K7/3BB2p/7p/1r5P/8 w - - 0 1",
+       "color": "white",
+       "goalType": "scenario",
+       "nbMoves": 1,
+       "nextButton": true,
+       "scenario": [
+        "d4b2"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "key": "advanced",
+   "name": "Advanced",
+   "stages": [
+    {
+     "key": "value",
+     "title": "Piece value",
+     "subtitle": "Evaluate piece strength",
+     "intro": "Pieces with high mobility have a higher value!\nQueen = 9\nRook = 5\nBishop = 3\nKnight = 3\nPawn = 1\nThe king is priceless! Losing it means losing the game.",
+     "complete": "Congratulations! You know the value of material!\nQueen = 9\nRook = 5\nBishop = 3\nKnight = 3\nPawn = 1",
+     "levels": [
+      {
+       "goal": "Take the piece\nwith the highest value!\nQueen > Bishop",
+       "fen": "8/8/2qrbnp1/3P4/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "scenario",
+       "nbMoves": 1,
+       "captures": 1,
+       "showPieceValues": true,
+       "pointsForCapture": true,
+       "scenario": [
+        "d5c6"
+       ],
+       "shapes": [
+        {
+         "orig": "d5",
+         "dest": "c6",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Take the piece with the highest value!\nDo not exchange\na higher valued piece for a less valuable one.",
+       "fen": "8/8/4b3/1p6/6r1/8/4Q3/8 w - - 0 1",
+       "color": "white",
+       "goalType": "scenario",
+       "nbMoves": 1,
+       "captures": 1,
+       "detectCapture": "all",
+       "showPieceValues": true,
+       "pointsForCapture": true,
+       "scenario": [
+        "e2e6"
+       ]
+      },
+      {
+       "goal": "Take the piece\nwith the highest value!\nMake sure your move is legal!",
+       "fen": "5b2/8/6N1/2q5/3Kn3/2rp4/3B4/8 w - - 0 1",
+       "color": "white",
+       "goalType": "scenario",
+       "nbMoves": 1,
+       "captures": 1,
+       "detectCapture": "unprotected",
+       "offerIllegalMove": true,
+       "showPieceValues": true,
+       "pointsForCapture": true,
+       "scenario": [
+        "d4e4"
+       ]
+      },
+      {
+       "goal": "Take the piece\nwith the highest value!",
+       "fen": "1k4q1/pp6/8/3B4/2P5/1P1p2P1/P3Kr1P/3n4 w - - 0 1",
+       "color": "white",
+       "goalType": "scenario",
+       "nbMoves": 1,
+       "captures": 1,
+       "offerIllegalMove": true,
+       "showPieceValues": true,
+       "pointsForCapture": true,
+       "scenario": [
+        "e2d1"
+       ]
+      },
+      {
+       "goal": "Take the piece\nwith the highest value!",
+       "fen": "7k/3bqp1p/7r/5N2/6K1/6n1/PPP5/R1B5 w - - 0 1",
+       "color": "white",
+       "goalType": "scenario",
+       "nbMoves": 1,
+       "captures": 1,
+       "detectCapture": "unprotected",
+       "offerIllegalMove": true,
+       "showPieceValues": true,
+       "pointsForCapture": true,
+       "scenario": [
+        "c1h6"
+       ]
+      }
+     ]
+    },
+    {
+     "key": "check2",
+     "title": "Check in two",
+     "subtitle": "Two moves to give a check",
+     "intro": "Find the right combination of two moves that checks the opponent's king!",
+     "complete": "Congratulations! You checked your opponent, forcing them to defend their king!",
+     "levels": [
+      {
+       "goal": "Threaten the opponent's king\nin two moves!",
+       "fen": "2k5/2pb4/8/2R5/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "checkIn",
+       "nbMoves": 2,
+       "detectCapture": "unprotected",
+       "n": 2,
+       "shapes": [
+        {
+         "orig": "c5",
+         "dest": "a5",
+         "brush": "green"
+        },
+        {
+         "orig": "a5",
+         "dest": "a8",
+         "brush": "green"
+        }
+       ]
+      },
+      {
+       "goal": "Threaten the opponent's king\nin two moves!",
+       "fen": "8/8/5k2/8/8/1N6/5b2/8 w - - 0 1",
+       "color": "white",
+       "goalType": "checkIn",
+       "nbMoves": 2,
+       "detectCapture": "unprotected",
+       "n": 2
+      },
+      {
+       "goal": "Threaten the opponent's king\nin two moves!",
+       "fen": "6k1/2r3pp/8/1N6/8/8/4B3/8 w - - 0 1",
+       "color": "white",
+       "goalType": "checkIn",
+       "nbMoves": 2,
+       "detectCapture": "unprotected",
+       "n": 2
+      },
+      {
+       "goal": "Threaten the opponent's king\nin two moves!",
+       "fen": "r3k3/7b/8/4B3/8/8/4N3/4R3 w - - 0 1",
+       "color": "white",
+       "goalType": "checkIn",
+       "nbMoves": 2,
+       "detectCapture": "unprotected",
+       "n": 2
+      },
+      {
+       "goal": "Threaten the opponent's king\nin two moves!",
+       "fen": "r1bqkb1r/pppp1p1p/2n2np1/4p3/2B5/4PN2/PPPP1PPP/RNBQK2R w KQkq - 0 1",
+       "color": "white",
+       "goalType": "checkIn",
+       "nbMoves": 2,
+       "detectCapture": "unprotected",
+       "n": 2
+      },
+      {
+       "goal": "Threaten the opponent's king\nin two moves!",
+       "fen": "8/8/8/2k5/q7/4N3/3B4/8 w - - 0 1",
+       "color": "white",
+       "goalType": "checkIn",
+       "nbMoves": 2,
+       "detectCapture": "unprotected",
+       "n": 2
+      },
+      {
+       "goal": "Threaten the opponent's king\nin two moves!",
+       "fen": "r6r/1Q2nk2/1B3p2/8/8/8/8/8 w - - 0 1",
+       "color": "white",
+       "goalType": "checkIn",
+       "nbMoves": 2,
+       "detectCapture": "unprotected",
+       "n": 2
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
