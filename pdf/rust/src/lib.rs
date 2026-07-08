@@ -68,6 +68,7 @@ fn page_count(handle: i64) -> i32 {
 
 fn close_document(handle: i64) {
     registry().lock().unwrap().remove(&handle);
+    index_cache().lock().unwrap().remove(&handle);
 }
 
 /// Serialize page `index` (0-based) of the document behind `handle` into the
@@ -522,6 +523,7 @@ fn interpret_page(doc: &Document, page_id: ObjectId) -> Result<PageData, String>
         GraphicsState::default(),
         &mut prims,
         0,
+        false,
     );
     render_annotations(doc, page_id, &mut prims);
 
@@ -543,6 +545,7 @@ fn interpret_content(
     init: GraphicsState,
     prims: &mut Vec<Prim>,
     depth: u32,
+    text_only: bool,
 ) {
     let fonts = resources
         .map(|r| fonts_from_resources(doc, r))
@@ -699,14 +702,16 @@ fn interpret_content(
                                 .ok()
                                 .and_then(|o| o.as_name().ok());
                             if subtype == Some(b"Image") {
-                                if let Some(img) = extract_image(doc, stream, gs.fill) {
-                                    prims.push(Prim::Image {
-                                        ctm: gs.ctm,
-                                        w: img.w,
-                                        h: img.h,
-                                        format: img.format,
-                                        data: img.data,
-                                    });
+                                if !text_only {
+                                    if let Some(img) = extract_image(doc, stream, gs.fill) {
+                                        prims.push(Prim::Image {
+                                            ctm: gs.ctm,
+                                            w: img.w,
+                                            h: img.h,
+                                            format: img.format,
+                                            data: img.data,
+                                        });
+                                    }
                                 }
                             } else if subtype == Some(b"Form") && depth < 10 {
                                 let form_matrix = stream
@@ -734,6 +739,7 @@ fn interpret_content(
                                             sub_gs,
                                             prims,
                                             depth + 1,
+                                            text_only,
                                         );
                                     }
                                 }
@@ -1047,7 +1053,7 @@ fn render_annotation(doc: &Document, dict: &lopdf::Dictionary, prims: &mut Vec<P
 
     let mut gs = GraphicsState::default();
     gs.ctm = appearance_matrix(rect, bbox, matrix);
-    interpret_content(doc, &ops, res.as_ref(), gs, prims, 1);
+    interpret_content(doc, &ops, res.as_ref(), gs, prims, 1, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -1972,6 +1978,125 @@ fn list_outline(handle: i64) -> Option<Vec<u8>> {
         let len = b.len().min(u16::MAX as usize);
         buf.extend_from_slice(&(len as u16).to_le_bytes());
         buf.extend_from_slice(&b[..len]);
+    }
+    Some(buf)
+}
+
+// ---------------------------------------------------------------------------
+// Full-text search
+// ---------------------------------------------------------------------------
+
+/// Cached searchable text for one page: the concatenated (lowercased) glyph
+/// text plus a span per text primitive mapping byte ranges back to positions.
+struct PageIndex {
+    text: String,
+    /// (start_byte, end_byte, x, y, size, char_count)
+    spans: Vec<(usize, usize, f32, f32, f32, usize)>,
+}
+
+/// Process-wide cache of built text indices, keyed by document handle, so a
+/// document's pages are interpreted for text only once.
+fn index_cache() -> &'static Mutex<HashMap<i64, std::sync::Arc<Vec<PageIndex>>>> {
+    static CACHE: OnceLock<Mutex<HashMap<i64, std::sync::Arc<Vec<PageIndex>>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Build the text index for every page (text-only interpretation, no images).
+fn build_index(doc: &Document) -> Vec<PageIndex> {
+    let mut out = Vec::new();
+    for (_, page_id) in doc.get_pages() {
+        let content = match doc.get_and_decode_page_content(page_id) {
+            Ok(c) => c,
+            Err(_) => {
+                out.push(PageIndex { text: String::new(), spans: Vec::new() });
+                continue;
+            }
+        };
+        let res = resources_dict(doc, page_id);
+        let mut prims = Vec::new();
+        interpret_content(
+            doc,
+            &content.operations,
+            res.as_ref(),
+            GraphicsState::default(),
+            &mut prims,
+            0,
+            true,
+        );
+        let mut text = String::new();
+        let mut spans = Vec::new();
+        for p in &prims {
+            if let Prim::Text { x, y, size, text: t, .. } = p {
+                let start = text.len();
+                text.push_str(&t.to_lowercase());
+                spans.push((start, text.len(), *x, *y, *size, t.chars().count()));
+            }
+        }
+        out.push(PageIndex { text, spans });
+    }
+    out
+}
+
+/// Return the cached text index for `handle`, building it on first use.
+fn ensure_index(handle: i64) -> Option<std::sync::Arc<Vec<PageIndex>>> {
+    if let Some(idx) = index_cache().lock().unwrap().get(&handle) {
+        return Some(idx.clone());
+    }
+    let built = {
+        let reg = registry().lock().unwrap();
+        let doc = reg.get(&handle)?;
+        std::sync::Arc::new(build_index(doc))
+    };
+    index_cache().lock().unwrap().insert(handle, built.clone());
+    Some(built)
+}
+
+/// Find `needle` (case-insensitive) across all pages, returning serialized
+/// matches: u32 count, then per match `i32 pageIndex, f32 x0,y0,x1,y1` (page
+/// space). Uses a cached per-page text index so repeated searches are instant.
+fn search_document(handle: i64, needle: &str) -> Option<Vec<u8>> {
+    let index = ensure_index(handle)?;
+    let needle = needle.to_lowercase();
+
+    let mut matches: Vec<(i32, f32, f32, f32, f32)> = Vec::new();
+    if !needle.is_empty() {
+        'pages: for (pi, page) in index.iter().enumerate() {
+            let mut from = 0;
+            while let Some(rel) = page.text[from..].find(&needle) {
+                let ms = from + rel;
+                let me = ms + needle.len();
+                let mut minx = f32::MAX;
+                let mut miny = f32::MAX;
+                let mut maxx = f32::MIN;
+                let mut maxy = f32::MIN;
+                let mut any = false;
+                for (s, e, x, y, size, clen) in &page.spans {
+                    if *s < me && *e > ms {
+                        any = true;
+                        minx = minx.min(*x);
+                        miny = miny.min(*y);
+                        maxx = maxx.max(*x + *size * 0.5 * (*clen).max(1) as f32);
+                        maxy = maxy.max(*y + *size);
+                    }
+                }
+                if any {
+                    matches.push((pi as i32, minx, miny, maxx, maxy));
+                }
+                from = me;
+                if matches.len() > 2000 {
+                    break 'pages;
+                }
+            }
+        }
+    }
+
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&(matches.len() as u32).to_le_bytes());
+    for (page, x0, y0, x1, y1) in matches {
+        buf.extend_from_slice(&page.to_le_bytes());
+        for v in [x0, y0, x1, y1] {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
     }
     Some(buf)
 }
@@ -3761,6 +3886,29 @@ mod jni_bindings {
         handle: jlong,
     ) -> jbyteArray {
         bytes_or_null(&env, list_outline(handle as i64))
+    }
+
+    /// `PdfNative.searchDocument(long, String) -> byte[]`. Serialized matches.
+    #[no_mangle]
+    pub extern "system" fn Java_com_vayunmathur_pdf_util_PdfNative_searchDocument<'local>(
+        mut env: JNIEnv<'local>,
+        _class: JClass<'local>,
+        handle: jlong,
+        query: JString<'local>,
+    ) -> jbyteArray {
+        let q = jstr(&mut env, &query);
+        bytes_or_null(&env, search_document(handle as i64, &q))
+    }
+
+    /// `PdfNative.buildSearchIndex(long)`. Prebuilds the text index so the first
+    /// search is instant; safe to call on a background thread.
+    #[no_mangle]
+    pub extern "system" fn Java_com_vayunmathur_pdf_util_PdfNative_buildSearchIndex<'local>(
+        _env: JNIEnv<'local>,
+        _class: JClass<'local>,
+        handle: jlong,
+    ) {
+        let _ = ensure_index(handle as i64);
     }
 }
 

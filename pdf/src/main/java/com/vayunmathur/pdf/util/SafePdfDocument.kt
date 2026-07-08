@@ -116,6 +116,18 @@ class SafePdfDocument private constructor(
         PdfNative.listOutline(handle)?.let { SafePdfParser.parseOutline(it) } ?: emptyList()
     }
 
+    /** Case-insensitive full-text search across all pages. */
+    suspend fun search(query: String): List<SafeSearchMatch> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) emptyList()
+        else PdfNative.searchDocument(handle, query)?.let { SafePdfParser.parseSearchMatches(it) }
+            ?: emptyList()
+    }
+
+    /** Prebuild the search text index so the first query is instant. */
+    suspend fun prewarmSearch() = withContext(Dispatchers.IO) {
+        PdfNative.buildSearchIndex(handle)
+    }
+
     companion object {
         /**
          * Open [uri] as a safe PDF, or return `null` when the native lib is

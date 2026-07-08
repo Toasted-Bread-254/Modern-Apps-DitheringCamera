@@ -91,4 +91,10 @@ object PdfNative {
 
     /** Serialized document outline (bookmarks), or null. */
     external fun listOutline(handle: Long): ByteArray?
+
+    /** Serialized case-insensitive search matches across all pages. */
+    external fun searchDocument(handle: Long, query: String): ByteArray?
+
+    /** Prebuild the search text index (call off the main thread). */
+    external fun buildSearchIndex(handle: Long)
 }

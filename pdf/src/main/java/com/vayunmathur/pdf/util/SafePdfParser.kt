@@ -121,6 +121,18 @@ object SafePdfParser {
         return out
     }
 
+    /** Decode the search-match buffer from `searchDocument`. */
+    fun parseSearchMatches(bytes: ByteArray): List<SafeSearchMatch> {
+        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val count = buf.int
+        val out = ArrayList<SafeSearchMatch>(count.coerceAtLeast(0))
+        repeat(count) {
+            val page = buf.int
+            out.add(SafeSearchMatch(page, buf.float, buf.float, buf.float, buf.float))
+        }
+        return out
+    }
+
     private fun readString(buf: ByteBuffer): String {
         val len = buf.short.toInt() and 0xFFFF
         val b = ByteArray(len)

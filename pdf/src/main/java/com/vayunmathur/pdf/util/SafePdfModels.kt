@@ -83,3 +83,12 @@ data class SafeOutlineItem(
     val page: Int,
     val title: String,
 )
+
+/** A search hit: page index + bounding rect in page space. */
+data class SafeSearchMatch(
+    val page: Int,
+    val x0: Float,
+    val y0: Float,
+    val x1: Float,
+    val y1: Float,
+)
