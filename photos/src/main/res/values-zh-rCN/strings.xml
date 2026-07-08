@@ -46,4 +46,5 @@
     <plurals name="people_in_photo">
         <item quantity="other">%1$d 位人物</item>
     </plurals>
+    <string name="photo_widget_description">轮换展示来自图库的照片 — 点按即可随机显示</string>
 </resources>
