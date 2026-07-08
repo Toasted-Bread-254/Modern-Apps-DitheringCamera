@@ -17,18 +17,18 @@ import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,7 +42,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -66,11 +65,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Fill
@@ -82,6 +83,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.IconDelete
 import com.vayunmathur.library.ui.IconEdit
@@ -111,6 +115,19 @@ private sealed interface LoadState {
 
 /** Editing tools. */
 private enum class EditTool { SELECT, TEXT, HIGHLIGHT, DRAW, RECT, IMAGE }
+
+/**
+ * An in-progress inline text edit. [origin] is the top of the text box in page
+ * space; [annotId] is set when editing an existing FreeText, null for a new one.
+ */
+private data class TextSession(
+    val page: Int,
+    val origin: Offset,
+    val size: Float,
+    val color: Int,
+    val annotId: Long?,
+    val value: TextFieldValue,
+)
 
 /**
  * Read-only + overlay-editing PDF viewer that never touches the system PDF
@@ -199,12 +216,29 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
         }
     }
 
-    // Text-entry dialog target: (pageIndex, pagePoint) for a new text box, or an
-    // existing annotation being edited.
-    var addTextAt by remember { mutableStateOf<Pair<Int, Offset>?>(null) }
-    var editTextTarget by remember { mutableStateOf<Triple<Int, Long, String>?>(null) }
+    // Inline text-editing session (draws a live text field on the page).
+    var textSession by remember { mutableStateOf<TextSession?>(null) }
     // Image-stamp target awaiting a picked image.
     var imageTarget by remember { mutableStateOf<Pair<Int, Offset>?>(null) }
+
+    // Persist a finished text session as a FreeText annotation.
+    val commitText: (TextSession?) -> Unit = commit@{ s ->
+        if (s == null) return@commit
+        val doc = document ?: return@commit
+        val txt = s.value.text.trim()
+        scope.launch {
+            when {
+                s.annotId != null && txt.isEmpty() -> doc.deleteAnnotation(s.page, s.annotId)
+                s.annotId != null -> doc.editText(s.page, s.annotId, txt)
+                txt.isNotEmpty() -> doc.addText(
+                    s.page, s.origin.x, s.origin.y - s.size * 1.3f, s.origin.x + 220f, s.origin.y,
+                    s.color, s.size, txt,
+                )
+                else -> return@launch
+            }
+            markEdited()
+        }
+    }
 
     val saveLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf")
@@ -348,8 +382,13 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                             }
                         }
                     } else {
-                        IconButton({ searching = true }) { IconSearch() }
-                        IconButton({ editMode = !editMode; selected = null }) {
+                        if (!editMode) {
+                            IconButton({ searching = true }) { IconSearch() }
+                        }
+                        IconButton({
+                            commitText(textSession); textSession = null
+                            editMode = !editMode; selected = null
+                        }) {
                             if (editMode) IconVisible() else IconEdit()
                         }
                         if (dirty) {
@@ -372,8 +411,9 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                                     )
                                 }
                             }
+                        } else {
+                            IconButton({ shareAction() }) { IconShare() }
                         }
-                        IconButton({ shareAction() }) { IconShare() }
                     }
                 },
             )
@@ -438,8 +478,10 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                             scope = scope,
                             onSelect = { annotId -> selected = annotId?.let { index to it } },
                             onEdited = markEdited,
-                            onRequestAddText = { pt -> addTextAt = index to pt },
-                            onRequestEditText = { id, txt -> editTextTarget = Triple(index, id, txt) },
+                            textSession = textSession?.takeIf { it.page == index },
+                            onStartText = { s -> commitText(textSession); textSession = s },
+                            onTextChange = { v -> textSession = textSession?.copy(value = v) },
+                            onCommitText = { commitText(textSession); textSession = null },
                             onRequestImage = { pt -> imageTarget = index to pt; imageLauncher.launch("image/*") },
                         )
                     }
@@ -447,47 +489,6 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
             }
         }
     }
-    }
-
-    // New-text dialog.
-    addTextAt?.let { (index, pt) ->
-        TextInputDialog(
-            title = "Add text",
-            initial = "",
-            onDismiss = { addTextAt = null },
-            onConfirm = { text ->
-                addTextAt = null
-                val doc = document
-                if (doc != null && text.isNotEmpty()) {
-                    scope.launch {
-                        val size = 14f
-                        doc.addText(
-                            index, pt.x, pt.y - size * 1.3f, pt.x + 220f, pt.y, color.toArgb(), size, text
-                        )
-                        markEdited()
-                    }
-                }
-            },
-        )
-    }
-
-    // Edit-existing-text dialog.
-    editTextTarget?.let { (index, id, initial) ->
-        TextInputDialog(
-            title = "Edit text",
-            initial = initial,
-            onDismiss = { editTextTarget = null },
-            onConfirm = { text ->
-                editTextTarget = null
-                val doc = document
-                if (doc != null) {
-                    scope.launch {
-                        doc.editText(index, id, text)
-                        markEdited()
-                    }
-                }
-            },
-        )
     }
 }
 
@@ -505,8 +506,10 @@ private fun SafePdfPageItem(
     scope: CoroutineScope,
     onSelect: (Long?) -> Unit,
     onEdited: () -> Unit,
-    onRequestAddText: (Offset) -> Unit,
-    onRequestEditText: (Long, String) -> Unit,
+    textSession: TextSession?,
+    onStartText: (TextSession) -> Unit,
+    onTextChange: (TextFieldValue) -> Unit,
+    onCommitText: () -> Unit,
     onRequestImage: (Offset) -> Unit,
 ) {
     val page by produceState<SafePdfPage?>(null, document, index, version) {
@@ -573,8 +576,7 @@ private fun SafePdfPageItem(
                 scope = scope,
                 onSelect = onSelect,
                 onEdited = onEdited,
-                onRequestAddText = onRequestAddText,
-                onRequestEditText = onRequestEditText,
+                onStartText = onStartText,
                 onRequestImage = onRequestImage,
             )
             FormFieldOverlay(
@@ -586,6 +588,30 @@ private fun SafePdfPageItem(
                 scope = scope,
                 onEdited = onEdited,
             )
+
+            // Inline text editing: a live text field drawn on the page.
+            if (textSession != null) {
+                val density = LocalDensity.current
+                val focus = remember(textSession.annotId, textSession.origin) { FocusRequester() }
+                LaunchedEffect(textSession.annotId, textSession.origin) { focus.requestFocus() }
+                val leftDp = with(density) { (textSession.origin.x * scale).toDp() }
+                val topDp = with(density) { (ch - textSession.origin.y * scale).toDp() }
+                BasicTextField(
+                    value = textSession.value,
+                    onValueChange = onTextChange,
+                    modifier = Modifier
+                        .offset(x = leftDp, y = topDp)
+                        .widthIn(min = 48.dp)
+                        .focusRequester(focus)
+                        .onFocusChanged { if (!it.isFocused) onCommitText() }
+                        .background(Color(0x33448AFF)),
+                    textStyle = TextStyle(
+                        color = Color(textSession.color),
+                        fontSize = with(density) { (textSession.size * scale).toSp() },
+                    ),
+                    cursorBrush = SolidColor(Color(textSession.color)),
+                )
+            }
         }
     }
 }
@@ -606,8 +632,7 @@ private fun EditOverlay(
     scope: CoroutineScope,
     onSelect: (Long?) -> Unit,
     onEdited: () -> Unit,
-    onRequestAddText: (Offset) -> Unit,
-    onRequestEditText: (Long, String) -> Unit,
+    onStartText: (TextSession) -> Unit,
     onRequestImage: (Offset) -> Unit,
 ) {
     // In-progress drag shape in screen space.
@@ -661,12 +686,34 @@ private fun EditOverlay(
 
             if (!dragging) {
                 when (tool) {
-                    EditTool.TEXT -> onRequestAddText(toPage(start))
+                    EditTool.TEXT -> {
+                        val p = toPage(start)
+                        onStartText(
+                            TextSession(
+                                page = index,
+                                origin = p,
+                                size = 14f,
+                                color = color.toArgb(),
+                                annotId = null,
+                                value = TextFieldValue("Text", TextRange(0, 4)),
+                            )
+                        )
+                    }
                     EditTool.IMAGE -> onRequestImage(toPage(start))
                     EditTool.SELECT -> {
                         val hit = annotAt(start)
                         if (hit != null && hit.id == selected && hit.subtype == 1) {
-                            onRequestEditText(hit.id, hit.contents)
+                            val sz = ((hit.y1 - hit.y0) / 1.3f).coerceIn(6f, 72f)
+                            onStartText(
+                                TextSession(
+                                    page = index,
+                                    origin = Offset(hit.x0, hit.y1),
+                                    size = sz,
+                                    color = hit.color,
+                                    annotId = hit.id,
+                                    value = TextFieldValue(hit.contents, TextRange(0, hit.contents.length)),
+                                )
+                            )
                         } else {
                             onSelect(hit?.id)
                         }
@@ -858,25 +905,6 @@ private fun toolButton(label: String, selected: Boolean, onClick: () -> Unit) {
             else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-}
-
-@Composable
-private fun TextInputDialog(
-    title: String,
-    initial: String,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
-) {
-    var text by remember { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = false)
-        },
-        confirmButton = { TextButton({ onConfirm(text) }) { Text(stringResource(R.string.ok)) } },
-        dismissButton = { TextButton(onDismiss) { Text("Cancel") } },
-    )
 }
 
 /**
