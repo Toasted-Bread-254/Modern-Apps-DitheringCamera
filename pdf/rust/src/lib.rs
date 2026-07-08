@@ -178,6 +178,12 @@ fn deref<'a>(doc: &'a Document, obj: &'a Object) -> Option<&'a Object> {
     }
 }
 
+/// Decoded stream bytes, falling back to the raw content when the stream has no
+/// `/Filter` (lopdf's `decompressed_content` errors instead of returning raw).
+fn stream_data(s: &lopdf::Stream) -> Vec<u8> {
+    s.decompressed_content().unwrap_or_else(|_| s.content.clone())
+}
+
 // ---------------------------------------------------------------------------
 // Fonts + ToUnicode
 // ---------------------------------------------------------------------------
@@ -272,7 +278,7 @@ fn font_info(doc: &Document, font: &lopdf::Dictionary) -> FontInfo {
         .ok()
         .and_then(|o| deref(doc, o))
         .and_then(|o| match o {
-            Object::Stream(s) => s.decompressed_content().ok(),
+            Object::Stream(s) => Some(stream_data(s)),
             _ => None,
         })
         .map(|data| cmap::parse(&data));
@@ -727,8 +733,7 @@ fn interpret_content(
                                     .and_then(|o| deref(doc, o))
                                     .and_then(|o| o.as_dict().ok())
                                     .cloned();
-                                if let Ok(bytes) = stream.decompressed_content() {
-                                    if let Ok(sub) = Content::decode(&bytes) {
+                                if let Ok(sub) = Content::decode(&stream_data(stream)) {
                                         let mut sub_gs = gs.clone();
                                         sub_gs.ctm = mat_mul(&form_matrix, &gs.ctm);
                                         let res_ref = form_res.as_ref().or(resources);
@@ -741,7 +746,6 @@ fn interpret_content(
                                             depth + 1,
                                             text_only,
                                         );
-                                    }
                                 }
                             }
                         }
@@ -1042,10 +1046,7 @@ fn render_annotation(doc: &Document, dict: &lopdf::Dictionary, prims: &mut Vec<P
         .and_then(|o| o.as_dict().ok())
         .cloned();
 
-    let bytes = match normal.decompressed_content() {
-        Ok(b) => b,
-        Err(_) => return,
-    };
+    let bytes = stream_data(normal);
     let ops = match Content::decode(&bytes) {
         Ok(c) => c.operations,
         Err(_) => return,
@@ -2556,7 +2557,7 @@ fn extract_image(doc: &Document, stream: &lopdf::Stream, fill_argb: u32) -> Opti
     } else {
         dict.get(b"BitsPerComponent").ok().and_then(num).unwrap_or(8.0) as u32
     };
-    let samples = stream.decompressed_content().ok()?;
+    let samples = stream_data(stream);
     let mut rgba = vec![0u8; (w * h * 4) as usize];
     let smask = read_smask(doc, dict, w, h);
 
@@ -2686,7 +2687,7 @@ fn read_smask(doc: &Document, dict: &lopdf::Dictionary, w: u32, h: u32) -> Optio
     if sw == 0 || sh == 0 {
         return None;
     }
-    let data = s.decompressed_content().ok()?;
+    let data = stream_data(s);
     let (w, h) = (w as usize, h as usize);
     let mut alpha = vec![255u8; w * h];
     for y in 0..h {
@@ -2711,10 +2712,7 @@ fn ttf_code_map(doc: &Document, font: &lopdf::Dictionary) -> HashMap<u32, char> 
         .and_then(|d| d.get(b"FontFile2").ok())
         .and_then(|o| deref(doc, o));
     match ff {
-        Some(Object::Stream(s)) => match s.decompressed_content() {
-            Ok(bytes) => ttf::code_to_unicode(&bytes),
-            Err(_) => HashMap::new(),
-        },
+        Some(Object::Stream(s)) => ttf::code_to_unicode(&stream_data(s)),
         _ => HashMap::new(),
     }
 }
@@ -4116,5 +4114,61 @@ mod tests {
         assert_eq!(height, 300.0);
         close_document(handle);
         assert_eq!(page_count(handle), 0);
+    }
+}
+
+#[cfg(test)]
+mod edit_render_tests {
+    use super::*;
+    use lopdf::{dictionary, Stream};
+
+    fn one_page_pdf() -> Vec<u8> {
+        let mut doc = Document::with_version("1.5");
+        let content = lopdf::content::Content {
+            operations: vec![lopdf::content::Operation::new("re", vec![0.into(), 0.into(), 10.into(), 10.into()])],
+        };
+        let cid = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+        let pages_id = doc.new_object_id();
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            "Contents" => cid, "Resources" => dictionary! {},
+        });
+        doc.objects.insert(pages_id, Object::Dictionary(dictionary! {
+            "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1,
+        }));
+        let cat = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", cat);
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+        bytes
+    }
+
+    #[test]
+    fn added_rect_annotation_renders() {
+        let bytes = one_page_pdf();
+        let handle = open_document(&bytes);
+        assert_ne!(handle, 0);
+        let id = add_square(handle, 0, [100.0, 100.0, 300.0, 250.0], 0xFFFF0000, 2.0);
+        assert!(id.is_some() && id != Some(0), "add_square failed: {id:?}");
+
+        let buf = render_page(handle, 0).expect("render");
+        // Count stroke primitives (tag 3).
+        let count = u32::from_le_bytes(buf[8..12].try_into().unwrap());
+        let mut strokes = 0;
+        let mut pos = 12;
+        for _ in 0..count {
+            let tag = buf[pos]; pos += 1;
+            match tag {
+                1 => { pos += 14; let l = u16::from_le_bytes(buf[pos-2..pos].try_into().unwrap()) as usize; pos += l; }
+                2 => { pos += 5; let n = u16::from_le_bytes(buf[pos-2..pos].try_into().unwrap()) as usize; pos += n*8; }
+                3 => { strokes += 1; pos += 9; let n = u16::from_le_bytes(buf[pos-2..pos].try_into().unwrap()) as usize; pos += n*8; }
+                4 => { pos += 24; let a=u32::from_le_bytes(buf[pos-4..pos].try_into().unwrap()) as usize; pos += a; }
+                _ => panic!("bad tag {tag}"),
+            }
+        }
+        println!("prims={count} strokes={strokes}");
+        assert!(strokes >= 1, "expected the annotation stroke to render, got {strokes}");
+        close_document(handle);
     }
 }
