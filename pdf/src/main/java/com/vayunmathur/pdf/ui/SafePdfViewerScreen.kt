@@ -9,6 +9,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
@@ -27,6 +29,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
@@ -378,6 +381,8 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                 ) {
                     items((0 until state.document.pageCount).toList()) { index ->
                         val pageHighlights = matches.filter { it.first == index }.map { it.second }
+                        val current = matches.getOrNull(matchIndex)
+                        val currentHighlight = if (current?.first == index) current.second else null
                         SafePdfPageItem(
                             document = state.document,
                             index = index,
@@ -387,6 +392,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                             color = color,
                             selected = selected?.takeIf { it.first == index }?.second,
                             highlights = pageHighlights,
+                            currentHighlight = currentHighlight,
                             scope = scope,
                             onSelect = { annotId -> selected = annotId?.let { index to it } },
                             onEdited = { version++ },
@@ -453,6 +459,7 @@ private fun SafePdfPageItem(
     color: Color,
     selected: Long?,
     highlights: List<Rect>,
+    currentHighlight: Rect?,
     scope: CoroutineScope,
     onSelect: (Long?) -> Unit,
     onEdited: () -> Unit,
@@ -498,8 +505,9 @@ private fun SafePdfPageItem(
         if (highlights.isNotEmpty()) {
             Canvas(Modifier.fillMaxSize()) {
                 for (r in highlights) {
+                    val isCurrent = r == currentHighlight
                     drawRect(
-                        color = Color(0x66FFEB3B),
+                        color = if (isCurrent) Color(0xAAFF9800) else Color(0x66FFEB3B),
                         topLeft = Offset(r.left * scale, ch - r.top * scale),
                         size = Size((r.right - r.left) * scale, (r.top - r.bottom) * scale),
                     )
@@ -572,53 +580,68 @@ private fun EditOverlay(
         return annotations.lastOrNull { p.x in it.x0..it.x1 && p.y in it.y0..it.y1 }
     }
 
-    val tapMod = Modifier.pointerInput(tool, annotations) {
-        detectTapGestures(
-            onTap = { pos ->
-                when (tool) {
-                    EditTool.TEXT -> onRequestAddText(toPage(pos))
-                    EditTool.IMAGE -> onRequestImage(toPage(pos))
-                    EditTool.SELECT -> onSelect(annotAt(pos)?.id)
-                    else -> {}
-                }
-            },
-            onDoubleTap = { pos ->
-                if (tool == EditTool.SELECT) {
-                    val a = annotAt(pos)
-                    if (a != null && a.subtype == 1) onRequestEditText(a.id, a.contents)
-                }
-            },
-        )
-    }
-
-    val dragMod = Modifier.pointerInput(tool, selected, annotations) {
-        detectDragGestures(
-            onDragStart = { start ->
+    val gestures = Modifier.pointerInput(tool, selected, annotations) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val start = down.position
+            val blockScroll =
+                tool == EditTool.HIGHLIGHT || tool == EditTool.RECT || tool == EditTool.DRAW
+            if (blockScroll) {
+                down.consume()
                 dragStart = start
                 dragCurrent = start
-                moveDelta = Offset.Zero
                 if (tool == EditTool.DRAW) inkPoints = listOf(start)
-            },
-            onDrag = { change, delta ->
-                change.consume()
-                dragCurrent = change.position
-                if (tool == EditTool.DRAW) inkPoints = inkPoints + change.position
-                if (tool == EditTool.SELECT) moveDelta += delta
-            },
-            onDragEnd = {
+            }
+            if (tool == EditTool.SELECT) moveDelta = Offset.Zero
+
+            var dragging = false
+            var lastPos = start
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                if (!change.pressed) break
+                val pos = change.position
+                if (!dragging && (pos - start).getDistance() > viewConfiguration.touchSlop) {
+                    dragging = true
+                    if (tool == EditTool.SELECT) onSelect(annotAt(start)?.id)
+                }
+                if (dragging) {
+                    change.consume()
+                    when (tool) {
+                        EditTool.HIGHLIGHT, EditTool.RECT -> dragCurrent = pos
+                        EditTool.DRAW -> { dragCurrent = pos; inkPoints = inkPoints + pos }
+                        EditTool.SELECT -> moveDelta += (pos - lastPos)
+                        else -> {}
+                    }
+                }
+                lastPos = pos
+            }
+
+            if (!dragging) {
+                when (tool) {
+                    EditTool.TEXT -> onRequestAddText(toPage(start))
+                    EditTool.IMAGE -> onRequestImage(toPage(start))
+                    EditTool.SELECT -> {
+                        val hit = annotAt(start)
+                        if (hit != null && hit.id == selected && hit.subtype == 1) {
+                            onRequestEditText(hit.id, hit.contents)
+                        } else {
+                            onSelect(hit?.id)
+                        }
+                    }
+                    else -> {}
+                }
+            } else {
                 val s = dragStart
                 val e = dragCurrent
-                dragStart = null
-                dragCurrent = null
-                if (s == null || e == null) return@detectDragGestures
                 when (tool) {
-                    EditTool.HIGHLIGHT -> {
+                    EditTool.HIGHLIGHT -> if (s != null && e != null) {
                         val a = toPage(s); val b = toPage(e)
                         scope.launch {
                             document.addHighlight(index, a.x, a.y, b.x, b.y, color.toArgb()); onEdited()
                         }
                     }
-                    EditTool.RECT -> {
+                    EditTool.RECT -> if (s != null && e != null) {
                         val a = toPage(s); val b = toPage(e)
                         scope.launch {
                             document.addRect(index, a.x, a.y, b.x, b.y, color.toArgb(), 1.5f); onEdited()
@@ -626,15 +649,12 @@ private fun EditOverlay(
                     }
                     EditTool.DRAW -> {
                         val pts = inkPoints
-                        inkPoints = emptyList()
                         if (pts.size >= 2) {
                             val flat = FloatArray(pts.size * 2)
                             pts.forEachIndexed { i, o ->
                                 val pp = toPage(o); flat[i * 2] = pp.x; flat[i * 2 + 1] = pp.y
                             }
-                            scope.launch {
-                                document.addInk(index, color.toArgb(), 2f, flat); onEdited()
-                            }
+                            scope.launch { document.addInk(index, color.toArgb(), 2f, flat); onEdited() }
                         }
                     }
                     EditTool.SELECT -> {
@@ -650,15 +670,18 @@ private fun EditOverlay(
                                 onEdited()
                             }
                         }
-                        moveDelta = Offset.Zero
                     }
                     else -> {}
                 }
-            },
-        )
+            }
+            dragStart = null
+            dragCurrent = null
+            if (tool == EditTool.DRAW) inkPoints = emptyList()
+            moveDelta = Offset.Zero
+        }
     }
 
-    Canvas(Modifier.fillMaxSize().then(tapMod).then(dragMod)) {
+    Canvas(Modifier.fillMaxSize().then(gestures)) {
         // Selection highlight.
         val sel = annotations.firstOrNull { it.id == selected }
         if (sel != null) {
@@ -754,13 +777,7 @@ private fun EditToolbar(
     canDelete: Boolean,
     onDelete: () -> Unit,
 ) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    BottomAppBar {
         toolButton("Sel", tool == EditTool.SELECT) { onTool(EditTool.SELECT) }
         toolButton("Text", tool == EditTool.TEXT) { onTool(EditTool.TEXT) }
         toolButton("HL", tool == EditTool.HIGHLIGHT) { onTool(EditTool.HIGHLIGHT) }
@@ -792,7 +809,7 @@ private fun EditToolbar(
 
 @Composable
 private fun toolButton(label: String, selected: Boolean, onClick: () -> Unit) {
-    TextButton(onClick) {
+    TextButton(onClick, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) {
         Text(
             label,
             color = if (selected) MaterialTheme.colorScheme.primary
