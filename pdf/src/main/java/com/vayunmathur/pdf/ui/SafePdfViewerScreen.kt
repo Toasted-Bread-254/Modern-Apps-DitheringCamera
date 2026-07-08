@@ -33,6 +33,8 @@ import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -81,7 +83,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.vayunmathur.library.ui.IconCheck
 import com.vayunmathur.library.ui.IconDelete
 import com.vayunmathur.library.ui.IconEdit
 import com.vayunmathur.library.ui.IconMenu
@@ -89,6 +90,7 @@ import com.vayunmathur.library.ui.IconNavigation
 import com.vayunmathur.library.ui.IconSave
 import com.vayunmathur.library.ui.IconSearch
 import com.vayunmathur.library.ui.IconShare
+import com.vayunmathur.library.ui.IconVisible
 import com.vayunmathur.pdf.util.SafeOutlineItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -134,11 +136,16 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
     LaunchedEffect(document) { document?.prewarmSearch() }
 
     var editMode by remember { mutableStateOf(false) }
+    var showSaveMenu by remember { mutableStateOf(false) }
+    // Set once any edit is made; keeps the Save control visible thereafter.
+    var dirty by remember { mutableStateOf(false) }
     var tool by remember { mutableStateOf(EditTool.SELECT) }
     var color by remember { mutableStateOf(Color.Red) }
     // Bumped after any edit to force affected pages to re-render.
     var version by remember { mutableIntStateOf(0) }
     var selected by remember { mutableStateOf<Pair<Int, Long>?>(null) }
+    // Re-render affected pages and record that an edit was made.
+    val markEdited = { version++; dirty = true }
 
     // Search state.
     val listState = rememberLazyListState()
@@ -231,7 +238,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                 doc.addImageStamp(
                     index, pt.x, pt.y - h, pt.x + w, pt.y, jpeg.width, jpeg.height, jpeg.bytes
                 )
-                version++
+                markEdited()
             }
         }
     }
@@ -243,6 +250,25 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_pdf)))
+    }
+
+    // "Save": overwrite the original file in place.
+    val saveInPlace: () -> Unit = {
+        val doc = document
+        if (doc != null) {
+            scope.launch {
+                val bytes = doc.save()
+                val ok = bytes != null && runCatching {
+                    context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } != null
+                }.getOrDefault(false)
+                android.widget.Toast.makeText(
+                    context,
+                    if (ok) context.getString(R.string.pdf_saved)
+                    else context.getString(R.string.pdf_save_error),
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
     }
 
     ModalNavigationDrawer(
@@ -324,11 +350,27 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                     } else {
                         IconButton({ searching = true }) { IconSearch() }
                         IconButton({ editMode = !editMode; selected = null }) {
-                            if (editMode) IconCheck() else IconEdit()
+                            if (editMode) IconVisible() else IconEdit()
                         }
-                        if (editMode) {
-                            IconButton({ saveLauncher.launch(uri.lastPathSegment ?: "edited.pdf") }) {
-                                IconSave()
+                        if (dirty) {
+                            Box {
+                                IconButton({ showSaveMenu = true }) { IconSave() }
+                                DropdownMenu(
+                                    expanded = showSaveMenu,
+                                    onDismissRequest = { showSaveMenu = false },
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Save") },
+                                        onClick = { showSaveMenu = false; saveInPlace() },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Save as\u2026") },
+                                        onClick = {
+                                            showSaveMenu = false
+                                            saveLauncher.launch(uri.lastPathSegment ?: "edited.pdf")
+                                        },
+                                    )
+                                }
                             }
                         }
                         IconButton({ shareAction() }) { IconShare() }
@@ -351,7 +393,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                             scope.launch {
                                 doc.deleteAnnotation(sel.first, sel.second)
                                 selected = null
-                                version++
+                                markEdited()
                             }
                         }
                     },
@@ -395,7 +437,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                             currentHighlight = currentHighlight,
                             scope = scope,
                             onSelect = { annotId -> selected = annotId?.let { index to it } },
-                            onEdited = { version++ },
+                            onEdited = markEdited,
                             onRequestAddText = { pt -> addTextAt = index to pt },
                             onRequestEditText = { id, txt -> editTextTarget = Triple(index, id, txt) },
                             onRequestImage = { pt -> imageTarget = index to pt; imageLauncher.launch("image/*") },
@@ -422,7 +464,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                         doc.addText(
                             index, pt.x, pt.y - size * 1.3f, pt.x + 220f, pt.y, color.toArgb(), size, text
                         )
-                        version++
+                        markEdited()
                     }
                 }
             },
@@ -441,7 +483,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                 if (doc != null) {
                     scope.launch {
                         doc.editText(index, id, text)
-                        version++
+                        markEdited()
                     }
                 }
             },
