@@ -189,6 +189,9 @@ struct FontInfo {
     /// `code -> unicode char` from the simple-font encoding (base + Differences),
     /// used when `/ToUnicode` is absent or lacks the code.
     encoding: HashMap<u32, char>,
+    /// `code -> unicode char` recovered from an embedded TrueType `cmap`, for
+    /// re-encoded subset fonts without `/ToUnicode`. Preferred over `encoding`.
+    cmap_uni: HashMap<u32, char>,
     /// `code (or CID) -> glyph width` in text-space units (glyph units / 1000).
     widths: HashMap<u32, f64>,
     /// Fallback width (glyph units / 1000) for codes absent from `widths`.
@@ -247,6 +250,11 @@ impl FontInfo {
                 return;
             }
         }
+        // Embedded-cmap recovery for re-encoded subset fonts.
+        if let Some(c) = self.cmap_uni.get(&code) {
+            out.push(*c);
+            return;
+        }
         if let Some(c) = self.encoding.get(&code) {
             out.push(*c);
             return;
@@ -299,11 +307,17 @@ fn font_info(doc: &Document, font: &lopdf::Dictionary) -> FontInfo {
     } else {
         encoding::build(doc, font)
     };
+    let cmap_uni = if two_byte {
+        HashMap::new()
+    } else {
+        ttf_code_map(doc, font)
+    };
 
     FontInfo {
         two_byte,
         to_unicode,
         encoding,
+        cmap_uni,
         widths,
         default_width,
     }
@@ -2217,6 +2231,184 @@ fn read_smask(doc: &Document, dict: &lopdf::Dictionary, w: u32, h: u32) -> Optio
     Some(alpha)
 }
 
+/// Build a `code -> unicode char` map from an embedded simple TrueType font's
+/// `/FontFile2` cmap, used to recover text from re-encoded subset fonts that
+/// lack a `/ToUnicode` map. Empty if unavailable.
+fn ttf_code_map(doc: &Document, font: &lopdf::Dictionary) -> HashMap<u32, char> {
+    let ff = font
+        .get(b"FontDescriptor")
+        .ok()
+        .and_then(|o| deref(doc, o))
+        .and_then(|o| o.as_dict().ok())
+        .and_then(|d| d.get(b"FontFile2").ok())
+        .and_then(|o| deref(doc, o));
+    match ff {
+        Some(Object::Stream(s)) => match s.decompressed_content() {
+            Ok(bytes) => ttf::code_to_unicode(&bytes),
+            Err(_) => HashMap::new(),
+        },
+        _ => HashMap::new(),
+    }
+}
+
+/// Minimal TrueType `cmap` parser: recovers a character-code → Unicode map by
+/// composing a code→glyph subtable (Mac 1,0 or Symbol 3,0) with the reverse of
+/// a Unicode subtable (3,1 / 0,3 / 3,10). All reads are bounds-checked so
+/// malformed font data can never panic.
+mod ttf {
+    use std::collections::HashMap;
+
+    fn u16b(b: &[u8], o: usize) -> u16 {
+        ((*b.get(o).unwrap_or(&0) as u16) << 8) | *b.get(o + 1).unwrap_or(&0) as u16
+    }
+    fn u32b(b: &[u8], o: usize) -> u32 {
+        ((u16b(b, o) as u32) << 16) | u16b(b, o + 2) as u32
+    }
+
+    fn table_offset(b: &[u8], tag: &[u8; 4]) -> Option<usize> {
+        let num = u16b(b, 4) as usize;
+        for i in 0..num {
+            let rec = 12 + i * 16;
+            if b.get(rec..rec + 4)? == tag {
+                return Some(u32b(b, rec + 8) as usize);
+            }
+        }
+        None
+    }
+
+    /// Parse a subtable at `off` into (code, glyphId) pairs.
+    fn parse_subtable(b: &[u8], off: usize) -> Vec<(u32, u16)> {
+        let mut out = Vec::new();
+        match u16b(b, off) {
+            0 => {
+                // Byte encoding: 256 single-byte glyph ids.
+                for c in 0..256u32 {
+                    let g = *b.get(off + 6 + c as usize).unwrap_or(&0) as u16;
+                    if g != 0 {
+                        out.push((c, g));
+                    }
+                }
+            }
+            6 => {
+                let first = u16b(b, off + 6) as u32;
+                let count = u16b(b, off + 8) as usize;
+                for i in 0..count {
+                    let g = u16b(b, off + 10 + i * 2);
+                    if g != 0 {
+                        out.push((first + i as u32, g));
+                    }
+                }
+            }
+            4 => {
+                let segx2 = u16b(b, off + 6) as usize;
+                let seg = segx2 / 2;
+                let end_o = off + 14;
+                let start_o = end_o + segx2 + 2;
+                let delta_o = start_o + segx2;
+                let range_o = delta_o + segx2;
+                for i in 0..seg {
+                    let end = u16b(b, end_o + i * 2);
+                    let start = u16b(b, start_o + i * 2);
+                    let delta = u16b(b, delta_o + i * 2);
+                    let range = u16b(b, range_o + i * 2);
+                    if start > end {
+                        continue;
+                    }
+                    for c in start..=end {
+                        if c == 0xFFFF {
+                            break;
+                        }
+                        let gid = if range == 0 {
+                            (c.wrapping_add(delta)) & 0xFFFF
+                        } else {
+                            let addr = range_o + i * 2 + range as usize + 2 * (c - start) as usize;
+                            let g = u16b(b, addr);
+                            if g == 0 {
+                                0
+                            } else {
+                                (g.wrapping_add(delta)) & 0xFFFF
+                            }
+                        };
+                        if gid != 0 {
+                            out.push((c as u32, gid));
+                        }
+                    }
+                }
+            }
+            12 => {
+                let ngroups = u32b(b, off + 12) as usize;
+                for i in 0..ngroups {
+                    let g = off + 16 + i * 12;
+                    let sc = u32b(b, g);
+                    let ec = u32b(b, g + 4);
+                    let sg = u32b(b, g + 8);
+                    if sc > ec || ec - sc > 65535 {
+                        continue;
+                    }
+                    for c in sc..=ec {
+                        out.push((c, (sg + (c - sc)) as u16));
+                    }
+                }
+            }
+            _ => {}
+        }
+        out
+    }
+
+    pub fn code_to_unicode(b: &[u8]) -> HashMap<u32, char> {
+        let mut result = HashMap::new();
+        let cmap = match table_offset(b, b"cmap") {
+            Some(o) => o,
+            None => return result,
+        };
+        let n = u16b(b, cmap + 2) as usize;
+
+        let mut uni_sub: Option<usize> = None;
+        let mut mac_sub: Option<usize> = None;
+        let mut sym_sub: Option<usize> = None;
+        for i in 0..n {
+            let r = cmap + 4 + i * 8;
+            let pid = u16b(b, r);
+            let eid = u16b(b, r + 2);
+            let so = cmap + u32b(b, r + 4) as usize;
+            match (pid, eid) {
+                (3, 1) | (0, 3) | (3, 10) | (0, 4) => uni_sub = Some(so),
+                (1, 0) => mac_sub = Some(so),
+                (3, 0) => sym_sub = Some(so),
+                _ => {}
+            }
+        }
+
+        // glyph -> unicode (from the Unicode subtable).
+        let gid_to_uni: HashMap<u16, u32> = match uni_sub {
+            Some(o) => {
+                let mut m = HashMap::new();
+                for (uni, gid) in parse_subtable(b, o) {
+                    m.entry(gid).or_insert(uni);
+                }
+                m
+            }
+            None => return result,
+        };
+
+        // code -> glyph (from Mac and/or Symbol subtables), then -> unicode.
+        for sub in [mac_sub, sym_sub].into_iter().flatten() {
+            for (code, gid) in parse_subtable(b, sub) {
+                if let Some(&uni) = gid_to_uni.get(&gid) {
+                    if let Some(c) = char::from_u32(uni) {
+                        result.entry(code).or_insert(c);
+                        // Symbol (3,0) codes are often mapped at 0xF000+code.
+                        if code >= 0xF000 {
+                            result.entry(code - 0xF000).or_insert(c);
+                        }
+                    }
+                }
+            }
+        }
+        result
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Simple-font encodings (base encoding + /Differences)
 // ---------------------------------------------------------------------------
@@ -2546,6 +2738,7 @@ mod cmap {
                             i += 1;
                         }
                     }
+                    i += 1; // skip endbfchar
                 }
                 Token::Keyword(k) if k == "beginbfrange" => {
                     i += 1;
@@ -2586,10 +2779,10 @@ mod cmap {
                             _ => i += 1,
                         }
                     }
+                    i += 1; // skip endbfrange
                 }
                 _ => i += 1,
             }
-            i += 1;
         }
         map
     }
@@ -2709,12 +2902,13 @@ mod cmap {
         }
 
         #[test]
-        fn parses_bfrange_array() {
-            let cmap = b"1 beginbfrange\n<0001> <0003> [<0058> <0059> <005A>]\nendbfrange";
+        fn parses_bfrange_after_preamble() {
+            // A realistic ToUnicode with a dict/codespace preamble before the
+            // bfrange block (regression for a token double-increment bug).
+            let cmap = b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n<< /Registry (TTX+0) /Ordering (T1) /Supplement 0 >> def\n1 begincodespacerange\n<0000><FFFF>\nendcodespacerange\n2 beginbfrange\n<0033><0033><0050>\n<0055><0055><0072>\nendbfrange\nendcmap";
             let map = parse(cmap);
-            assert_eq!(map.get(&0x01).map(String::as_str), Some("X"));
-            assert_eq!(map.get(&0x02).map(String::as_str), Some("Y"));
-            assert_eq!(map.get(&0x03).map(String::as_str), Some("Z"));
+            assert_eq!(map.get(&0x33).map(String::as_str), Some("P"));
+            assert_eq!(map.get(&0x55).map(String::as_str), Some("r"));
         }
     }
 }
@@ -3315,6 +3509,7 @@ mod tests {
             two_byte: false,
             to_unicode: None,
             encoding: HashMap::new(),
+            cmap_uni: HashMap::new(),
             // 'A' (0x41) and 'B' (0x42) each 500 glyph units => 0.5.
             widths: HashMap::from([(0x41, 0.5), (0x42, 0.5)]),
             default_width: 0.5,
@@ -3354,6 +3549,7 @@ mod tests {
             two_byte: false,
             to_unicode: None,
             encoding: HashMap::new(),
+            cmap_uni: HashMap::new(),
             widths: HashMap::new(),
             default_width: 0.5,
         };
