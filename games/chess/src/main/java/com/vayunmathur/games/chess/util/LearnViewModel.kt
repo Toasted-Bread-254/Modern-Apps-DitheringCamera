@@ -187,37 +187,63 @@ class LearnViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val moving = board.pieces[from.row][from.col] ?: return
-        val promo = promotionFor(moving, to)
-        val newBoard = board.movePiece(from, to, promo)
-        val newMoves = state.nbMoves + 1
-        val newApples = state.apples - to
 
-        if (to in state.apples) {
-            stageScore += applePoints
-        } else if (level.pointsForCapture) {
-            val captured = board.pieces[to.row][to.col]
-            if (captured != null && captured.color != state.playerColor) {
-                stageScore += if (level.showPieceValues) pieceValue(captured.type) else capturePoints
-            }
-        }
-
-        // A move that hangs a piece (per detectCapture) fails — and the opponent is
-        // shown grabbing the hanging piece, like Lichess.
-        val capture = detectCaptureMove(level, newBoard, state.playerColor)
-        if (capture != null) {
-            punishAndFail(newBoard, newApples, newMoves, capture)
+        // Pawn reaching the last rank: let the player pick the promotion piece
+        // (some lessons need underpromotion). The dialog then calls onPromote.
+        if (moving.type == PieceType.PAWN && (to.row == 0 || to.row == 7)) {
+            val promoBoard = board.movePiece(from, to)
+            _uiState.update { it.copy(board = promoBoard, selectedPiece = null) }
             return
         }
 
-        val failed = isFailingMove(level, newBoard, state.playerColor, newMoves)
+        val newBoard = board.movePiece(from, to)
+        val newMoves = state.nbMoves + 1
+        val newApples = state.apples - to
+        addMovePoints(level, state.apples, to, board, state.playerColor)
+        finishPlayerMove(level, newBoard, newApples, newMoves, to, state.playerColor)
+    }
+
+    /** Finalizes a pending pawn promotion chosen by the player, then evaluates the move. */
+    fun onPromote(pieceType: PieceType) {
+        val state = _uiState.value
+        val level = state.level ?: return
+        val promoPos = state.board.promotionPosition ?: return
+        val newBoard = state.board.promotePawn(promoPos, pieceType)
+        val newMoves = state.nbMoves + 1
+        val newApples = state.apples - promoPos
+        addMovePoints(level, state.apples, promoPos, state.board, state.playerColor)
+        finishPlayerMove(level, newBoard, newApples, newMoves, promoPos, state.playerColor)
+    }
+
+    private fun addMovePoints(level: LearnLevel, apples: Set<Position>, to: Position, preMove: Board, player: PieceColor) {
+        if (to in apples) {
+            stageScore += applePoints
+        } else if (level.pointsForCapture) {
+            val captured = preMove.pieces[to.row][to.col]
+            if (captured != null && captured.color != player) {
+                stageScore += if (level.showPieceValues) pieceValue(captured.type) else capturePoints
+            }
+        }
+    }
+
+    private fun finishPlayerMove(level: LearnLevel, newBoard: Board, apples: Set<Position>, moves: Int, to: Position, player: PieceColor) {
+        // A move that hangs a piece (per detectCapture) fails — and the opponent is
+        // shown grabbing the hanging piece, like Lichess.
+        val capture = detectCaptureMove(level, newBoard, player)
+        if (capture != null) {
+            punishAndFail(newBoard, apples, moves, capture)
+            return
+        }
+
+        val failed = isFailingMove(level, newBoard, player, moves)
         val outcome = when {
             failed -> LearnStatus.Failed
-            isSuccess(level, newBoard, newApples, newMoves, state.playerColor) -> LearnStatus.Completed
+            isSuccess(level, newBoard, apples, moves, player) -> LearnStatus.Completed
             else -> LearnStatus.Playing
         }
 
         // On multi-move levels keep the moved piece selected so it's quick to move again.
-        applyOutcome(newBoard, newApples, newMoves, outcome, keepSelected = to)
+        applyOutcome(newBoard, apples, moves, outcome, keepSelected = to)
     }
 
     private fun handleScenarioMove(from: Position, to: Position) {

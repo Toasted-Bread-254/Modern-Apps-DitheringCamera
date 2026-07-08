@@ -758,6 +758,11 @@ fun LearnStageScreen(
 
         if (showIntro) StageIntroDialog(stage, onStart = { showIntro = false })
 
+        // Pawn promotion picker (supports underpromotion lessons).
+        if (ui.board.promotionPosition != null) {
+            PawnPromotionDialog(ui.playerColor, onPromote = viewModel::onPromote)
+        }
+
         // Stage-complete overlay after the final level (Lichess "Stage N complete").
         if (ui.status == LearnStatus.Completed && isLast) {
             val next = com.vayunmathur.games.chess.data.LearnRepository.nextStage(stage.key)
