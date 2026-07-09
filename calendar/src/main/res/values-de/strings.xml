@@ -72,4 +72,6 @@
     <string name="twelve_am">00:00</string>
     <string name="twelve_pm">12:00</string>
     <string name="monthly_type">Monatlicher Typ</string>
+    <string name="add_reminder">Erinnerung hinzufügen</string>
+    <string name="calendar_widget_description">Zukünftige Termine im Überblick - tippe um Kalender zu öffnen</string>
 </resources>
