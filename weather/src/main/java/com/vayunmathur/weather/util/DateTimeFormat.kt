@@ -100,6 +100,25 @@ fun formatSelectedHourLabel(isoTime: String, use24Hour: Boolean): String {
 }
 
 /**
+ * "3 PM · Wed" (or "15:00 · Wed") for a UTC instant ISO string (e.g.
+ * `2026-07-01T18:00Z`, or an offset/naive-UTC variant), rendered in [zone].
+ * Used by the map to localize model UTC steps to the viewer's — or the
+ * zoomed-in region's — time zone. Echoes the input on parse failure.
+ */
+fun formatInstantInZone(utcIso: String, zone: TimeZone, use24Hour: Boolean): String {
+    val epochSec = parseUtcIsoToEpochSec(utcIso) ?: return utcIso
+    val ldt = Instant.fromEpochSeconds(epochSec).toLocalDateTime(zone)
+    val hour = ldt.time.format(if (use24Hour) HourOfDayWithZero else HourAmPm)
+    val weekday = ldt.date.format(WeekdayShort)
+    return "$hour · $weekday"
+}
+
+/** Parse a UTC ISO string with a trailing `Z`, an explicit offset, or none. */
+private fun parseUtcIsoToEpochSec(iso: String): Long? =
+    runCatching { Instant.parse(iso).epochSeconds }.getOrNull()
+        ?: runCatching { LocalDateTime.parse(iso.removeSuffix("Z")).toInstant(UtcOffset.ZERO).epochSeconds }.getOrNull()
+
+/**
  * Open-Meteo returns local-time ISO strings with no offset (e.g.
  * `2024-05-30T05:42`). Combine with `utc_offset_seconds` from the response to
  * recover a true epoch, falling back to explicit-offset / `Z` strings.
