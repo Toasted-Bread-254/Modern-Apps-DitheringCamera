@@ -24,6 +24,19 @@ data class ForecastResponse(
     @SerialName("minutely_15") val minutely15: Minutely15? = null,
 )
 
+/**
+ * Minimal Open-Meteo `/v1/forecast` response used only to resolve the IANA
+ * time zone (and its current abbreviation) for a coordinate via
+ * `timezone=auto`. Requested with a single trivial variable since the endpoint
+ * rejects requests with no weather variables.
+ */
+@Serializable
+data class RegionTimezone(
+    val timezone: String? = null,
+    @SerialName("timezone_abbreviation") val abbreviation: String? = null,
+    @SerialName("utc_offset_seconds") val utcOffsetSeconds: Int = 0,
+)
+
 @Serializable
 data class Minutely15(
     val time: List<String> = emptyList(),

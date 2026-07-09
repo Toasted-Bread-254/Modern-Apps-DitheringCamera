@@ -102,6 +102,24 @@ object WeatherApi {
     }
 
     /**
+     * Resolve the IANA time zone for a coordinate via Open-Meteo's
+     * `timezone=auto`. Requests a single trivial variable (the endpoint rejects
+     * variable-less requests) and reads only the timezone fields. Used by the
+     * map to label the zoomed-in region's local time. Throws on failure.
+     */
+    suspend fun timezoneAt(latitude: Double, longitude: Double): RegionTimezone {
+        val url = buildString {
+            append(FORECAST_BASE)
+            append("?latitude=").append(latitude)
+            append("&longitude=").append(longitude)
+            append("&current=temperature_2m")
+            append("&timezone=auto")
+            append("&forecast_days=1")
+        }
+        return NetworkClient.getJson(url)
+    }
+
+    /**
      * Air quality + pollen for a coordinate. Best-effort: the air-quality
      * service has gaps outside Europe/North America, so callers should treat
      * the whole response as optional.
