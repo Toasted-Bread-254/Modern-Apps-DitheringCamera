@@ -39,6 +39,23 @@ object PdfNative {
     /** Release the document behind [handle]. Safe to call with 0. */
     external fun closeDocument(handle: Long)
 
+    // --- Compose / merge ("cut and glue") ---------------------------------
+
+    /** Create a new empty document; returns its handle. */
+    external fun createEmptyDocument(): Long
+
+    /** Append all pages of the PDF [data] to [handle]; returns pages added. */
+    external fun appendPdf(handle: Long, data: ByteArray): Int
+
+    /** Append a JPEG [jpeg] ([w]x[h]) as a new page; returns 1 on success. */
+    external fun appendImagePage(handle: Long, jpeg: ByteArray, w: Int, h: Int): Int
+
+    /** Move the page at [from] to index [to]. */
+    external fun movePage(handle: Long, from: Int, to: Int): Boolean
+
+    /** Remove the page at [index] from the page order. */
+    external fun removePage(handle: Long, index: Int): Boolean
+
     // --- Editing: annotations, forms, save ---------------------------------
 
     /** Serialized annotations on [page] for the overlay/hit-testing. */

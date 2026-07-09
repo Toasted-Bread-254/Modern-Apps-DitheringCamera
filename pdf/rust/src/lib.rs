@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use lopdf::content::Content;
-use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
+use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
 
 // ---------------------------------------------------------------------------
 // Document registry
@@ -69,6 +69,232 @@ fn page_count(handle: i64) -> i32 {
 fn close_document(handle: i64) {
     registry().lock().unwrap().remove(&handle);
     index_cache().lock().unwrap().remove(&handle);
+}
+
+// ---------------------------------------------------------------------------
+// Compose / merge ("cut and glue")
+// ---------------------------------------------------------------------------
+
+/// Create a new empty PDF document and return its handle.
+fn create_empty_document() -> i64 {
+    let mut doc = Document::with_version("1.7");
+    let pages_id = doc.add_object(dictionary! {
+        "Type" => "Pages",
+        "Kids" => Object::Array(vec![]),
+        "Count" => 0,
+    });
+    let catalog_id = doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    doc.trailer.set("Root", catalog_id);
+    let handle = next_handle();
+    registry().lock().unwrap().insert(handle, doc);
+    handle
+}
+
+/// The document's `/Pages` root object id.
+fn pages_root(doc: &Document) -> Option<ObjectId> {
+    let root = doc.trailer.get(b"Root").ok().and_then(|o| o.as_reference().ok())?;
+    let cat = doc.get_dictionary(root).ok()?;
+    cat.get(b"Pages").ok().and_then(|o| o.as_reference().ok())
+}
+
+/// Append a page reference to the `/Pages` tree and refresh `/Count`.
+fn append_kid(doc: &mut Document, pages_id: ObjectId, page_id: ObjectId) {
+    if let Ok(pages) = doc.get_dictionary_mut(pages_id) {
+        let has = matches!(pages.get(b"Kids"), Ok(Object::Array(_)));
+        if !has {
+            pages.set("Kids", Object::Array(vec![]));
+        }
+        if let Ok(Object::Array(a)) = pages.get_mut(b"Kids") {
+            a.push(Object::Reference(page_id));
+        }
+        let count = if let Ok(Object::Array(a)) = pages.get(b"Kids") { a.len() as i64 } else { 0 };
+        pages.set("Count", count);
+    }
+}
+
+/// Deep-copy an object, remapping any object references through `map`.
+fn remap_object(obj: &Object, map: &HashMap<ObjectId, ObjectId>) -> Object {
+    match obj {
+        Object::Reference(id) => Object::Reference(*map.get(id).unwrap_or(id)),
+        Object::Array(a) => Object::Array(a.iter().map(|o| remap_object(o, map)).collect()),
+        Object::Dictionary(d) => {
+            let mut nd = Dictionary::new();
+            for (k, v) in d.iter() {
+                nd.set(k.clone(), remap_object(v, map));
+            }
+            Object::Dictionary(nd)
+        }
+        Object::Stream(s) => {
+            let mut ns = s.clone();
+            let mut nd = Dictionary::new();
+            for (k, v) in s.dict.iter() {
+                nd.set(k.clone(), remap_object(v, map));
+            }
+            ns.dict = nd;
+            Object::Stream(ns)
+        }
+        other => other.clone(),
+    }
+}
+
+/// Append every page of the PDF in `bytes` to the document behind `handle`.
+/// Returns the number of pages added (0 on failure/encrypted source).
+fn append_pdf(handle: i64, bytes: &[u8]) -> i32 {
+    let src = match Document::load_mem(bytes) {
+        Ok(d) => d,
+        Err(_) => return 0,
+    };
+    if src.trailer.get(b"Encrypt").is_ok() {
+        return 0;
+    }
+    let mut reg = registry().lock().unwrap();
+    let dest = match reg.get_mut(&handle) {
+        Some(d) => d,
+        None => return 0,
+    };
+    let pages_id = match pages_root(dest) {
+        Some(p) => p,
+        None => return 0,
+    };
+    // Reserve fresh ids for every source object, then copy them in remapped.
+    let mut map: HashMap<ObjectId, ObjectId> = HashMap::new();
+    for old_id in src.objects.keys() {
+        dest.max_id += 1;
+        map.insert(*old_id, (dest.max_id, 0));
+    }
+    for (old_id, obj) in &src.objects {
+        let new = remap_object(obj, &map);
+        dest.objects.insert(map[old_id], new);
+    }
+    let mut added = 0;
+    for (_num, src_page_id) in src.get_pages() {
+        let new_page_id = match map.get(&src_page_id) {
+            Some(id) => *id,
+            None => continue,
+        };
+        // Resolve inherited MediaBox/Resources onto the imported page since its
+        // parent is now our (attribute-less) Pages root.
+        let mb = media_box(&src, src_page_id);
+        let res = inherited(&src, src_page_id, b"Resources").map(|o| remap_object(o, &map));
+        if let Ok(pd) = dest.get_dictionary_mut(new_page_id) {
+            pd.set("Parent", Object::Reference(pages_id));
+            if pd.get(b"MediaBox").is_err() {
+                pd.set(
+                    "MediaBox",
+                    Object::Array(vec![mb[0].into(), mb[1].into(), mb[2].into(), mb[3].into()]),
+                );
+            }
+            if pd.get(b"Resources").is_err() {
+                if let Some(r) = res {
+                    pd.set("Resources", r);
+                }
+            }
+        }
+        append_kid(dest, pages_id, new_page_id);
+        added += 1;
+    }
+    added
+}
+
+/// Append a JPEG image as a new full-width page. Returns 1 on success.
+fn append_image_page(handle: i64, jpeg: &[u8], img_w: u32, img_h: u32) -> i32 {
+    if img_w == 0 || img_h == 0 {
+        return 0;
+    }
+    let mut reg = registry().lock().unwrap();
+    let dest = match reg.get_mut(&handle) {
+        Some(d) => d,
+        None => return 0,
+    };
+    let pages_id = match pages_root(dest) {
+        Some(p) => p,
+        None => return 0,
+    };
+    let pw = 595.0_f64; // A4 width in points
+    let ph = pw * img_h as f64 / img_w as f64;
+
+    let mut img_dict = Dictionary::new();
+    img_dict.set("Type", name_obj("XObject"));
+    img_dict.set("Subtype", name_obj("Image"));
+    img_dict.set("Width", Object::Integer(img_w as i64));
+    img_dict.set("Height", Object::Integer(img_h as i64));
+    img_dict.set("BitsPerComponent", Object::Integer(8));
+    img_dict.set("ColorSpace", name_obj("DeviceRGB"));
+    img_dict.set("Filter", name_obj("DCTDecode"));
+    let img_id = dest.add_object(Stream::new(img_dict, jpeg.to_vec()));
+
+    let content = format!("q {pw:.2} 0 0 {ph:.2} 0 0 cm /Im0 Do Q").into_bytes();
+    let content_id = dest.add_object(Stream::new(dictionary! {}, content));
+
+    let page = dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => Object::Array(vec![0.into(), 0.into(), pw.into(), ph.into()]),
+        "Contents" => content_id,
+        "Resources" => dictionary! {
+            "XObject" => dictionary! { "Im0" => img_id },
+        },
+    };
+    let page_id = dest.add_object(page);
+    append_kid(dest, pages_id, page_id);
+    1
+}
+
+/// Move the page at `from` to index `to` in the page order. Returns success.
+fn move_page(handle: i64, from: usize, to: usize) -> bool {
+    let mut reg = registry().lock().unwrap();
+    let dest = match reg.get_mut(&handle) {
+        Some(d) => d,
+        None => return false,
+    };
+    let pages_id = match pages_root(dest) {
+        Some(p) => p,
+        None => return false,
+    };
+    if let Ok(pages) = dest.get_dictionary_mut(pages_id) {
+        if let Ok(Object::Array(a)) = pages.get_mut(b"Kids") {
+            if from < a.len() && to < a.len() {
+                let item = a.remove(from);
+                a.insert(to, item);
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Delete the page at `index` from the page order (keeps orphan objects).
+fn remove_page(handle: i64, index: usize) -> bool {
+    let mut reg = registry().lock().unwrap();
+    let dest = match reg.get_mut(&handle) {
+        Some(d) => d,
+        None => return false,
+    };
+    let pages_id = match pages_root(dest) {
+        Some(p) => p,
+        None => return false,
+    };
+    if let Ok(pages) = dest.get_dictionary_mut(pages_id) {
+        let removed = if let Ok(Object::Array(a)) = pages.get_mut(b"Kids") {
+            if index < a.len() {
+                a.remove(index);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if removed {
+            let count = if let Ok(Object::Array(a)) = pages.get(b"Kids") { a.len() as i64 } else { 0 };
+            pages.set("Count", count);
+        }
+        return removed;
+    }
+    false
 }
 
 /// Serialize page `index` (0-based) of the document behind `handle` into the
@@ -4183,6 +4409,70 @@ mod jni_bindings {
         handle: jlong,
     ) {
         close_document(handle as i64);
+    }
+
+    /// `PdfNative.createEmptyDocument() -> long`.
+    #[no_mangle]
+    pub extern "system" fn Java_com_vayunmathur_pdf_util_PdfNative_createEmptyDocument<'local>(
+        _env: JNIEnv<'local>,
+        _class: JClass<'local>,
+    ) -> jlong {
+        create_empty_document()
+    }
+
+    /// `PdfNative.appendPdf(long, byte[]) -> int` (pages added).
+    #[no_mangle]
+    pub extern "system" fn Java_com_vayunmathur_pdf_util_PdfNative_appendPdf<'local>(
+        env: JNIEnv<'local>,
+        _class: JClass<'local>,
+        handle: jlong,
+        data: JByteArray<'local>,
+    ) -> jint {
+        let bytes = match env.convert_byte_array(&data) {
+            Ok(b) => b,
+            Err(_) => return 0,
+        };
+        append_pdf(handle as i64, &bytes)
+    }
+
+    /// `PdfNative.appendImagePage(long, byte[], int, int) -> int`.
+    #[no_mangle]
+    pub extern "system" fn Java_com_vayunmathur_pdf_util_PdfNative_appendImagePage<'local>(
+        env: JNIEnv<'local>,
+        _class: JClass<'local>,
+        handle: jlong,
+        jpeg: JByteArray<'local>,
+        w: jint,
+        h: jint,
+    ) -> jint {
+        let bytes = match env.convert_byte_array(&jpeg) {
+            Ok(b) => b,
+            Err(_) => return 0,
+        };
+        append_image_page(handle as i64, &bytes, w as u32, h as u32)
+    }
+
+    /// `PdfNative.movePage(long, int, int) -> boolean`.
+    #[no_mangle]
+    pub extern "system" fn Java_com_vayunmathur_pdf_util_PdfNative_movePage<'local>(
+        _env: JNIEnv<'local>,
+        _class: JClass<'local>,
+        handle: jlong,
+        from: jint,
+        to: jint,
+    ) -> jboolean {
+        move_page(handle as i64, from.max(0) as usize, to.max(0) as usize) as jboolean
+    }
+
+    /// `PdfNative.removePage(long, int) -> boolean`.
+    #[no_mangle]
+    pub extern "system" fn Java_com_vayunmathur_pdf_util_PdfNative_removePage<'local>(
+        _env: JNIEnv<'local>,
+        _class: JClass<'local>,
+        handle: jlong,
+        index: jint,
+    ) -> jboolean {
+        remove_page(handle as i64, index.max(0) as usize) as jboolean
     }
 
     fn bytes_or_null<'local>(env: &JNIEnv<'local>, data: Option<Vec<u8>>) -> jbyteArray {

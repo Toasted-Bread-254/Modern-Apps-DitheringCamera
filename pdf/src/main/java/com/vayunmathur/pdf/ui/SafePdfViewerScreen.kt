@@ -1699,7 +1699,7 @@ private fun StyleDialog(
  * Draw a page's primitives, mapping PDF page space (origin bottom-left) to the
  * canvas (origin top-left) with a uniform fit-to-width scale + Y-flip.
  */
-private fun DrawScope.drawSafePage(page: SafePdfPage) {
+internal fun DrawScope.drawSafePage(page: SafePdfPage) {
     val scale = size.width / page.width
     val h = size.height
 

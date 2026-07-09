@@ -40,6 +40,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.DynamicTheme
 import com.vayunmathur.pdf.ui.CapturePdfScreen
+import com.vayunmathur.pdf.ui.CutGlueScreen
 import com.vayunmathur.pdf.ui.PdfViewerScreen
 import com.vayunmathur.pdf.ui.SafePdfViewerScreen
 import com.vayunmathur.pdf.util.PdfViewModel
@@ -72,6 +73,7 @@ class MainActivity : ComponentActivity() {
             var safeData: Uri? by rememberSaveable { mutableStateOf(null) }
             var password: String? by rememberSaveable { mutableStateOf(null) }
             var isCapturing by rememberSaveable { mutableStateOf(false) }
+            var isCutGlue by rememberSaveable { mutableStateOf(false) }
 
             val pdfDocument by pdfViewModel.pdfDocument.collectAsState()
             val passwordRequired by pdfViewModel.passwordRequired.collectAsState()
@@ -102,11 +104,14 @@ class MainActivity : ComponentActivity() {
                             uri = safeData!!,
                             onBack = { safeData = null }
                         )
+                    } else if (isCutGlue) {
+                        CutGlueScreen(onBack = { isCutGlue = false })
                     } else if (data == null && !isCapturing) {
                         InitialScreen(
                             onOpenPdf = { filePickerLauncher.launch(arrayOf("application/pdf")) },
                             onOpenPdfSafe = { safeFilePickerLauncher.launch(arrayOf("application/pdf")) },
-                            onCapturePdf = { isCapturing = true }
+                            onCapturePdf = { isCapturing = true },
+                            onCutGlue = { isCutGlue = true }
                         )
                     } else if (isCapturing) {
                         CapturePdfScreen(
@@ -154,7 +159,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun InitialScreen(onOpenPdf: () -> Unit, onOpenPdfSafe: () -> Unit, onCapturePdf: () -> Unit) {
+fun InitialScreen(onOpenPdf: () -> Unit, onOpenPdfSafe: () -> Unit, onCapturePdf: () -> Unit, onCutGlue: () -> Unit) {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Button(onClick = onOpenPdf, Modifier.padding(16.dp)) {
@@ -165,6 +170,9 @@ fun InitialScreen(onOpenPdf: () -> Unit, onOpenPdfSafe: () -> Unit, onCapturePdf
             }
             Button(onClick = onCapturePdf, Modifier.padding(16.dp)) {
                 Text(stringResource(R.string.capture_pdf))
+            }
+            Button(onClick = onCutGlue, Modifier.padding(16.dp)) {
+                Text("PDF cut and glue")
             }
         }
     }
