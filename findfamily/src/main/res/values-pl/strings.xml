@@ -48,12 +48,6 @@
     <string name="change_connected_contact">Zmień powiązany kontakt</string>
     <string name="history_button">Historia</string>
     <string name="hide_button">Ukryj</string>
-    <string name="history_rewind_large">&lt;&lt;&lt;</string>
-    <string name="history_forward_large">&gt;&gt;&gt;</string>
-    <string name="history_rewind_medium">&lt;&lt;</string>
-    <string name="history_forward_medium">&gt;&gt;</string>
-    <string name="history_rewind_small">&lt;</string>
-    <string name="history_forward_small">&gt;</string>
     <string name="waypoint_name_blank_error">Pole „Imię” nie może pozostać puste</string>
     <string name="waypoint_range_error">Wartość musi być liczbą</string>
     <string name="waypoint_range_suffix">metry</string>

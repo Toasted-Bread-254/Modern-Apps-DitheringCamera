@@ -12,12 +12,6 @@
     <string name="change_connected_contact">Muuda ühendatud kasutajakontot</string>
     <string name="history_button">Ajalugu</string>
     <string name="hide_button">Peida</string>
-    <string name="history_rewind_large">&lt;&lt;&lt;</string>
-    <string name="history_forward_large">&gt;&gt;&gt;</string>
-    <string name="history_rewind_medium">&lt;&lt;</string>
-    <string name="history_forward_medium">&gt;&gt;</string>
-    <string name="history_rewind_small">&lt;</string>
-    <string name="history_forward_small">&gt;</string>
     <string name="waypoint_name_blank_error">Nimi ei saa jääda tühjaks</string>
     <string name="waypoint_range_error">Vahemik peab olema number</string>
     <string name="waypoint_range_suffix">meetrit</string>

@@ -41,12 +41,6 @@
     <string name="time_minutes_ago">%1$d 分钟前</string>
     <string name="time_hours_ago">%1$d 小时前</string>
     <string name="time_days_ago">%1$d 天前</string>
-    <string name="history_rewind_large">&lt;&lt;&lt;</string>
-    <string name="history_forward_large">&gt;&gt;&gt;</string>
-    <string name="history_rewind_medium">&lt;&lt;</string>
-    <string name="history_forward_medium">&gt;&gt;</string>
-    <string name="history_rewind_small">&lt;</string>
-    <string name="history_forward_small">&gt;</string>
     <string name="expiry_15_minutes">15 分钟</string>
     <string name="expiry_30_minutes">30 分钟</string>
     <string name="expiry_1_hour">1 小时</string>

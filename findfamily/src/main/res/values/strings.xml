@@ -70,13 +70,16 @@
     <string name="share_your_location">Share your location with this person</string>
     <string name="change_connected_contact">Change connected contact</string>
     <string name="history_button">History</string>
-    <string name="hide_button">Hide</string>
-    <string name="history_rewind_large">&lt;&lt;&lt;</string>
-    <string name="history_forward_large">&gt;&gt;&gt;</string>
-    <string name="history_rewind_medium">&lt;&lt;</string>
-    <string name="history_forward_medium">&gt;&gt;</string>
-    <string name="history_rewind_small">&lt;</string>
-    <string name="history_forward_small">&gt;</string>
+    <string name="history_title">History: %1$s</string>
+    <string name="hide_button">Live</string>
+    <string name="history_show_content_desc">View location history</string>
+    <string name="history_hide_content_desc">Back to live location</string>
+    <string name="history_step_minus_5m">-5m</string>
+    <string name="history_step_minus_1m">-1m</string>
+    <string name="history_step_minus_10s">-10s</string>
+    <string name="history_step_plus_10s">+10s</string>
+    <string name="history_step_plus_1m">+1m</string>
+    <string name="history_step_plus_5m">+5m</string>
 
     <!-- WaypointEditPage -->
     <string name="waypoint_name_blank_error">Name cannot be blank</string>

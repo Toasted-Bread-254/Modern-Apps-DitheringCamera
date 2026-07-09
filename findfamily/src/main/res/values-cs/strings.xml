@@ -35,12 +35,6 @@
     <string name="change_connected_contact">Změnit připojený kontakt</string>
     <string name="history_button">Historie</string>
     <string name="hide_button">Skrýt</string>
-    <string name="history_rewind_large">&lt;&lt;&lt;</string>
-    <string name="history_forward_large">&gt;&gt;&gt;</string>
-    <string name="history_rewind_medium">&lt;&lt;</string>
-    <string name="history_forward_medium">&gt;&gt;</string>
-    <string name="history_rewind_small">&lt;</string>
-    <string name="history_forward_small">&gt;</string>
     <string name="waypoint_name_blank_error">Název nemůže být prázdný</string>
     <string name="waypoint_range_error">Rozsah musí být číslo</string>
     <string name="waypoint_range_suffix">metrů</string>
