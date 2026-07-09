@@ -250,7 +250,7 @@ fun MainPage(
                             dbConfigs = listOf("passwords-db" to ffViewModel.backupPassphrase),
                             extraFiles = emptyList()
                         )
-                    } else if (selectedUserId != null) {
+                    } else if (selectedUserId != null && !historyMode) {
                         if (selectedUserId != Networking.userid) {
                             val user by ffViewModel.userByIdState(selectedUserId!!)
                             // UWB Find Nearby (UWB) requires the public android.ranging API
