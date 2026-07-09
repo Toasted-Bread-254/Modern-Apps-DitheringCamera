@@ -63,6 +63,25 @@ class SafePdfDocument private constructor(
         PdfNative.addHighlight(handle, index, x0, y0, x1, y1, argb).also { invalidate(index) }
     }
 
+    /** [kind]: 0 underline, 1 strikeout, 2 squiggly. */
+    suspend fun addTextMarkup(
+        index: Int, x0: Float, y0: Float, x1: Float, y1: Float, argb: Int, kind: Int,
+    ): Long = withContext(Dispatchers.IO) {
+        PdfNative.addTextMarkup(handle, index, x0, y0, x1, y1, argb, kind).also { invalidate(index) }
+    }
+
+    suspend fun addNote(
+        index: Int, x: Float, y: Float, argb: Int, text: String,
+    ): Long = withContext(Dispatchers.IO) {
+        PdfNative.addNote(handle, index, x, y, argb, text).also { invalidate(index) }
+    }
+
+    suspend fun addCallout(
+        index: Int, ax: Float, ay: Float, bx: Float, by: Float, argb: Int, size: Float, text: String,
+    ): Long = withContext(Dispatchers.IO) {
+        PdfNative.addCallout(handle, index, ax, ay, bx, by, argb, size, text).also { invalidate(index) }
+    }
+
     suspend fun addRect(
         index: Int, x0: Float, y0: Float, x1: Float, y1: Float, argb: Int, lineWidth: Float,
         fill: Boolean,

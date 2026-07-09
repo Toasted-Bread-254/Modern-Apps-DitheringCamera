@@ -1385,6 +1385,157 @@ fn add_highlight(handle: i64, page_index: i32, rect: [f64; 4], argb: u32) -> Opt
     add_annotation_object(doc, page_index, annot)
 }
 
+/// Add a text-markup annotation over `rect`. kind: 0 Underline, 1 StrikeOut, 2 Squiggly.
+fn add_text_markup(handle: i64, page_index: i32, rect: [f64; 4], argb: u32, kind: i32) -> Option<i64> {
+    let mut reg = registry().lock().unwrap();
+    let doc = reg.get_mut(&handle)?;
+    let r = page_rect(doc, page_index, rect);
+    let (w, h) = (r[2] - r[0], r[3] - r[1]);
+    let (cr, cg, cb) = argb_rgb(argb);
+    let lw = (h * 0.06).clamp(0.8, 3.0);
+    let content = match kind {
+        1 => {
+            let y = h / 2.0;
+            format!("q {lw} w {cr:.3} {cg:.3} {cb:.3} RG 0 {y:.2} m {w:.2} {y:.2} l S Q")
+        }
+        2 => {
+            let base = h * 0.12;
+            let amp = (h * 0.08).clamp(1.0, 4.0);
+            let step = (amp * 2.0).max(3.0);
+            let mut c = format!("q {lw} w {cr:.3} {cg:.3} {cb:.3} RG 0 {base:.2} m ");
+            let mut x = 0.0;
+            let mut up = true;
+            while x < w {
+                let nx = (x + step).min(w);
+                let y = if up { base + amp } else { base };
+                c.push_str(&format!("{nx:.2} {y:.2} l "));
+                x = nx;
+                up = !up;
+            }
+            c.push_str("S Q");
+            c
+        }
+        _ => {
+            let y = h * 0.10;
+            format!("q {lw} w {cr:.3} {cg:.3} {cb:.3} RG 0 {y:.2} m {w:.2} {y:.2} l S Q")
+        }
+    }
+    .into_bytes();
+    let ap_id = make_appearance(doc, w, h, content, Dictionary::new());
+    let subtype = match kind {
+        1 => "StrikeOut",
+        2 => "Squiggly",
+        _ => "Underline",
+    };
+    let mut annot = Dictionary::new();
+    annot.set("Type", name_obj("Annot"));
+    annot.set("Subtype", name_obj(subtype));
+    annot.set(
+        "QuadPoints",
+        Object::Array(vec![
+            r[0].into(), r[3].into(), r[2].into(), r[3].into(),
+            r[0].into(), r[1].into(), r[2].into(), r[1].into(),
+        ]),
+    );
+    annot.set("C", Object::Array(vec![cr.into(), cg.into(), cb.into()]));
+    set_alpha(&mut annot, argb);
+    set_appearance(&mut annot, r, ap_id);
+    add_annotation_object(doc, page_index, annot)
+}
+
+/// Add a sticky-note (Text) annotation at editor point (x,y) with `text`.
+fn add_note(handle: i64, page_index: i32, x: f64, y: f64, argb: u32, text: &str) -> Option<i64> {
+    let mut reg = registry().lock().unwrap();
+    let doc = reg.get_mut(&handle)?;
+    let binv = page_base_inverse(doc, page_index);
+    let (px, py) = transform(&binv, x, y);
+    let s = 20.0;
+    let r = normalize_rect([px, py - s, px + s, py]);
+    let (cr, cg, cb) = argb_rgb(argb);
+    let content = format!(
+        "q {cr:.3} {cg:.3} {cb:.3} rg 1 1 {w:.1} {h:.1} re f 1 1 1 rg 4 5 12 2 re f 4 9 12 2 re f 4 13 8 2 re f Q",
+        w = s - 2.0,
+        h = s - 2.0,
+    )
+    .into_bytes();
+    let ap_id = make_appearance(doc, s, s, content, Dictionary::new());
+    let mut annot = Dictionary::new();
+    annot.set("Type", name_obj("Annot"));
+    annot.set("Subtype", name_obj("Text"));
+    annot.set("Name", name_obj("Note"));
+    annot.set("Contents", Object::string_literal(text));
+    annot.set("C", Object::Array(vec![cr.into(), cg.into(), cb.into()]));
+    set_appearance(&mut annot, r, ap_id);
+    add_annotation_object(doc, page_index, annot)
+}
+
+/// Add a FreeText callout: a leader line from anchor (ax,ay) to a text box near
+/// (bx,by), all in editor coordinates.
+fn add_callout(
+    handle: i64,
+    page_index: i32,
+    ax: f64,
+    ay: f64,
+    bx: f64,
+    by: f64,
+    argb: u32,
+    size: f64,
+    text: &str,
+) -> Option<i64> {
+    let mut reg = registry().lock().unwrap();
+    let doc = reg.get_mut(&handle)?;
+    let binv = page_base_inverse(doc, page_index);
+    let (pax, pay) = transform(&binv, ax, ay);
+    let (pbx, pby) = transform(&binv, bx, by);
+    let bw = 160.0;
+    let bh = (size * 1.6).max(24.0);
+    let (box_x0, box_y1) = (pbx, pby);
+    let box_y0 = pby - bh;
+    let box_x1 = pbx + bw;
+    let minx = pax.min(box_x0);
+    let miny = pay.min(box_y0);
+    let maxx = pax.max(box_x1);
+    let maxy = pay.max(box_y1);
+    let r = [minx, miny, maxx, maxy];
+    let (w, h) = (maxx - minx, maxy - miny);
+    let (cr, cg, cb) = argb_rgb(argb);
+    let lax = pax - minx;
+    let lay = pay - miny;
+    let lx0 = box_x0 - minx;
+    let ly0 = box_y0 - miny;
+    let lx1 = box_x1 - minx;
+    let ly1 = box_y1 - miny;
+    let knee_y = (ly0 + ly1) / 2.0;
+    let mut c = format!(
+        "q 1 w {cr:.3} {cg:.3} {cb:.3} RG {lax:.2} {lay:.2} m {lx0:.2} {knee_y:.2} l S "
+    );
+    c.push_str(&format!(
+        "{lx0:.2} {ly0:.2} {bw2:.2} {bh2:.2} re S ",
+        bw2 = lx1 - lx0,
+        bh2 = ly1 - ly0,
+    ));
+    c.push_str(&format!(
+        "{cr:.3} {cg:.3} {cb:.3} rg BT /F1 {size} Tf {tx:.2} {ty:.2} Td ({t}) Tj ET Q",
+        tx = lx0 + 4.0,
+        ty = ly1 - size - 2.0,
+        t = escape_pdf_literal(text),
+    ));
+    let ap_id = make_appearance(doc, w, h, c.into_bytes(), helvetica_resources());
+    let mut annot = Dictionary::new();
+    annot.set("Type", name_obj("Annot"));
+    annot.set("Subtype", name_obj("FreeText"));
+    annot.set("IT", name_obj("FreeTextCallout"));
+    annot.set("Contents", Object::string_literal(text));
+    annot.set(
+        "DA",
+        Object::string_literal(format!("{cr:.3} {cg:.3} {cb:.3} rg /F1 {size} Tf")),
+    );
+    annot.set("C", Object::Array(vec![cr.into(), cg.into(), cb.into()]));
+    set_alpha(&mut annot, argb);
+    set_appearance(&mut annot, r, ap_id);
+    add_annotation_object(doc, page_index, annot)
+}
+
 fn add_square(
     handle: i64,
     page_index: i32,
@@ -4116,6 +4267,75 @@ mod jni_bindings {
             page,
             [x0 as f64, y0 as f64, x1 as f64, y1 as f64],
             argb as u32,
+        )
+        .unwrap_or(0)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[no_mangle]
+    pub extern "system" fn Java_com_vayunmathur_pdf_util_PdfNative_addTextMarkup<'local>(
+        _env: JNIEnv<'local>,
+        _class: JClass<'local>,
+        handle: jlong,
+        page: jint,
+        x0: jfloat,
+        y0: jfloat,
+        x1: jfloat,
+        y1: jfloat,
+        argb: jint,
+        kind: jint,
+    ) -> jlong {
+        add_text_markup(
+            handle as i64,
+            page,
+            [x0 as f64, y0 as f64, x1 as f64, y1 as f64],
+            argb as u32,
+            kind,
+        )
+        .unwrap_or(0)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_vayunmathur_pdf_util_PdfNative_addNote<'local>(
+        mut env: JNIEnv<'local>,
+        _class: JClass<'local>,
+        handle: jlong,
+        page: jint,
+        x: jfloat,
+        y: jfloat,
+        argb: jint,
+        text: JString<'local>,
+    ) -> jlong {
+        let t = jstr(&mut env, &text);
+        add_note(handle as i64, page, x as f64, y as f64, argb as u32, &t).unwrap_or(0)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[no_mangle]
+    pub extern "system" fn Java_com_vayunmathur_pdf_util_PdfNative_addCallout<'local>(
+        mut env: JNIEnv<'local>,
+        _class: JClass<'local>,
+        handle: jlong,
+        page: jint,
+        ax: jfloat,
+        ay: jfloat,
+        bx: jfloat,
+        by: jfloat,
+        argb: jint,
+        size: jfloat,
+        text: JString<'local>,
+    ) -> jlong {
+        let t = jstr(&mut env, &text);
+        add_callout(
+            handle as i64,
+            page,
+            ax as f64,
+            ay as f64,
+            bx as f64,
+            by as f64,
+            argb as u32,
+            size as f64,
+            &t,
         )
         .unwrap_or(0)
     }

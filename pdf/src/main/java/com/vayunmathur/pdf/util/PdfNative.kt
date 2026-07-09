@@ -58,6 +58,20 @@ object PdfNative {
         handle: Long, page: Int, x0: Float, y0: Float, x1: Float, y1: Float, argb: Int,
     ): Long
 
+    /** [kind]: 0 underline, 1 strikeout, 2 squiggly. */
+    external fun addTextMarkup(
+        handle: Long, page: Int, x0: Float, y0: Float, x1: Float, y1: Float, argb: Int, kind: Int,
+    ): Long
+
+    external fun addNote(
+        handle: Long, page: Int, x: Float, y: Float, argb: Int, text: String,
+    ): Long
+
+    external fun addCallout(
+        handle: Long, page: Int, ax: Float, ay: Float, bx: Float, by: Float,
+        argb: Int, size: Float, text: String,
+    ): Long
+
     external fun addRectAnnotation(
         handle: Long, page: Int,
         x0: Float, y0: Float, x1: Float, y1: Float, argb: Int, lineWidth: Float, fill: Boolean,

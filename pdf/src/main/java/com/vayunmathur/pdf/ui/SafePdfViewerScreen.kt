@@ -130,7 +130,25 @@ private sealed interface LoadState {
 }
 
 /** Editing tools. */
-private enum class EditTool { SELECT, TEXT, HIGHLIGHT, DRAW, SHAPE, LINE, POLYLINE, BEZIER, IMAGE }
+private enum class EditTool { SELECT, TEXT, HIGHLIGHT, MARKUP, DRAW, SHAPE, LINE, POLYLINE, BEZIER, NOTE, CALLOUT, IMAGE }
+
+/** Text-markup variants for the [EditTool.MARKUP] tool. */
+private enum class MarkupKind { HIGHLIGHT, UNDERLINE, STRIKEOUT, SQUIGGLY }
+
+@DrawableRes
+private fun MarkupKind.icon(): Int = when (this) {
+    MarkupKind.HIGHLIGHT -> R.drawable.ic_tool_highlight
+    MarkupKind.UNDERLINE -> R.drawable.ic_markup_underline
+    MarkupKind.STRIKEOUT -> R.drawable.ic_markup_strikeout
+    MarkupKind.SQUIGGLY -> R.drawable.ic_markup_squiggly
+}
+
+private fun MarkupKind.label(): String = when (this) {
+    MarkupKind.HIGHLIGHT -> "Highlight"
+    MarkupKind.UNDERLINE -> "Underline"
+    MarkupKind.STRIKEOUT -> "Strikeout"
+    MarkupKind.SQUIGGLY -> "Squiggly"
+}
 
 /** Closed-shape variants for the [EditTool.SHAPE] tool (dragged bounding box). */
 private enum class ShapeKind {
@@ -344,6 +362,10 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
     var dirty by remember { mutableStateOf(false) }
     var tool by remember { mutableStateOf(EditTool.SELECT) }
     var shape by remember { mutableStateOf(ShapeKind.RECT_OUTLINE) }
+    var markup by remember { mutableStateOf(MarkupKind.HIGHLIGHT) }
+    // Pending note/callout awaiting text entry: page + point(s).
+    var pendingNote by remember { mutableStateOf<Pair<Int, Offset>?>(null) }
+    var pendingCallout by remember { mutableStateOf<Triple<Int, Offset, Offset>?>(null) }
     // In-progress polyline/Bézier (built by tapping points; committed via the check button).
     var polyDraft by remember { mutableStateOf<PolyDraft?>(null) }
     var color by remember { mutableStateOf(Color.Red) }
@@ -709,6 +731,8 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                     },
                     shape = shape,
                     onShape = { shape = it; tool = EditTool.SHAPE; selected = null; commitPoly() },
+                    markup = markup,
+                    onMarkup = { markup = it; tool = EditTool.MARKUP; selected = null; commitPoly() },
                     color = color,
                     onColor = { color = it },
                     onStyle = { showStyle = true },
@@ -793,6 +817,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                             editMode = editMode,
                             tool = tool,
                             shape = shape,
+                            markup = markup,
                             color = drawColor,
                             strokeWidth = strokeWidth,
                             selected = selected?.takeIf { it.first == index }?.second,
@@ -807,6 +832,8 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                             onTextChange = { v -> textSession = textSession?.copy(value = v) },
                             onCommitText = { commitText(textSession); textSession = null },
                             onRequestImage = { pt -> imageTarget = index to pt; imageLauncher.launch("image/*") },
+                            onRequestNote = { pt -> pendingNote = index to pt },
+                            onRequestCallout = { a, b -> pendingCallout = Triple(index, a, b) },
                             polyDraft = polyDraft?.takeIf { it.page == index },
                             onAddPolyPoint = { pt ->
                                 val d = polyDraft
@@ -821,6 +848,48 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    pendingNote?.let { (page, pt) ->
+        var noteText by remember { mutableStateOf("") }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingNote = null },
+            title = { Text("Sticky note") },
+            text = {
+                TextField(value = noteText, onValueChange = { noteText = it }, placeholder = { Text("Note text") })
+            },
+            confirmButton = {
+                TextButton({
+                    val doc = document
+                    if (doc != null) scope.launch {
+                        val id = doc.addNote(page, pt.x, pt.y, drawColor.toArgb(), noteText)
+                        registerCreated(page, id); markEdited(page)
+                    }
+                    pendingNote = null
+                }) { Text("Add") }
+            },
+            dismissButton = { TextButton({ pendingNote = null }) { Text("Cancel") } },
+        )
+    }
+
+    pendingCallout?.let { (page, a, b) ->
+        var calloutText by remember { mutableStateOf("Text") }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingCallout = null },
+            title = { Text("Callout") },
+            text = { TextField(value = calloutText, onValueChange = { calloutText = it }) },
+            confirmButton = {
+                TextButton({
+                    val doc = document
+                    if (doc != null) scope.launch {
+                        val id = doc.addCallout(page, a.x, a.y, b.x, b.y, drawColor.toArgb(), 14f, calloutText)
+                        registerCreated(page, id); markEdited(page)
+                    }
+                    pendingCallout = null
+                }) { Text("Add") }
+            },
+            dismissButton = { TextButton({ pendingCallout = null }) { Text("Cancel") } },
+        )
     }
 
     if (showStyle) {
@@ -876,6 +945,7 @@ private fun SafePdfPageItem(
     editMode: Boolean,
     tool: EditTool,
     shape: ShapeKind,
+    markup: MarkupKind,
     color: Color,
     strokeWidth: Float,
     selected: Long?,
@@ -890,6 +960,8 @@ private fun SafePdfPageItem(
     onTextChange: (TextFieldValue) -> Unit,
     onCommitText: () -> Unit,
     onRequestImage: (Offset) -> Unit,
+    onRequestNote: (Offset) -> Unit,
+    onRequestCallout: (Offset, Offset) -> Unit,
     polyDraft: PolyDraft?,
     onAddPolyPoint: (Offset) -> Unit,
 ) {
@@ -950,6 +1022,7 @@ private fun SafePdfPageItem(
                 selected = selected,
                 tool = tool,
                 shape = shape,
+                markup = markup,
                 color = color,
                 strokeWidth = strokeWidth,
                 cw = cw,
@@ -964,6 +1037,8 @@ private fun SafePdfPageItem(
                 onCreated = onCreated,
                 onStartText = onStartText,
                 onRequestImage = onRequestImage,
+                onRequestNote = onRequestNote,
+                onRequestCallout = onRequestCallout,
                 polyDraft = polyDraft,
                 onAddPolyPoint = onAddPolyPoint,
             )
@@ -1011,6 +1086,7 @@ private fun EditOverlay(
     selected: Long?,
     tool: EditTool,
     shape: ShapeKind,
+    markup: MarkupKind,
     color: Color,
     strokeWidth: Float,
     cw: Float,
@@ -1025,6 +1101,8 @@ private fun EditOverlay(
     onCreated: (Long) -> Unit,
     onStartText: (TextSession) -> Unit,
     onRequestImage: (Offset) -> Unit,
+    onRequestNote: (Offset) -> Unit,
+    onRequestCallout: (Offset, Offset) -> Unit,
     polyDraft: PolyDraft?,
     onAddPolyPoint: (Offset) -> Unit,
 ) {
@@ -1048,8 +1126,8 @@ private fun EditOverlay(
             // (a move). On empty space we leave it unconsumed so the list scrolls.
             val selectMove = tool == EditTool.SELECT && annotAt(start) != null
             val blockScroll =
-                tool == EditTool.HIGHLIGHT || tool == EditTool.SHAPE || tool == EditTool.LINE ||
-                    tool == EditTool.DRAW || selectMove
+                tool == EditTool.HIGHLIGHT || tool == EditTool.MARKUP || tool == EditTool.SHAPE ||
+                    tool == EditTool.LINE || tool == EditTool.CALLOUT || tool == EditTool.DRAW || selectMove
             if (blockScroll) {
                 down.consume()
                 dragStart = start
@@ -1074,7 +1152,7 @@ private fun EditOverlay(
                     val consume = tool != EditTool.SELECT || selectMove
                     if (consume) change.consume()
                     when (tool) {
-                        EditTool.HIGHLIGHT, EditTool.SHAPE, EditTool.LINE -> dragCurrent = pos
+                        EditTool.HIGHLIGHT, EditTool.MARKUP, EditTool.SHAPE, EditTool.LINE, EditTool.CALLOUT -> dragCurrent = pos
                         EditTool.DRAW -> { dragCurrent = pos; inkPoints = inkPoints + pos }
                         EditTool.SELECT -> if (selectMove) moveDelta += (pos - lastPos)
                         else -> {}
@@ -1099,6 +1177,7 @@ private fun EditOverlay(
                         )
                     }
                     EditTool.IMAGE -> onRequestImage(toPage(start))
+                    EditTool.NOTE -> onRequestNote(toPage(start))
                     EditTool.POLYLINE, EditTool.BEZIER -> onAddPolyPoint(toPage(start))
                     EditTool.SELECT -> {
                         val hit = annotAt(start)
@@ -1130,6 +1209,25 @@ private fun EditOverlay(
                             val id = document.addHighlight(index, a.x, a.y, b.x, b.y, color.toArgb())
                             onCreated(id); onEdited()
                         }
+                    }
+                    EditTool.MARKUP -> if (s != null && e != null) {
+                        val a = toPage(s); val b = toPage(e)
+                        scope.launch {
+                            val id = if (markup == MarkupKind.HIGHLIGHT) {
+                                document.addHighlight(index, a.x, a.y, b.x, b.y, color.toArgb())
+                            } else {
+                                val kind = when (markup) {
+                                    MarkupKind.STRIKEOUT -> 1
+                                    MarkupKind.SQUIGGLY -> 2
+                                    else -> 0
+                                }
+                                document.addTextMarkup(index, a.x, a.y, b.x, b.y, color.toArgb(), kind)
+                            }
+                            onCreated(id); onEdited()
+                        }
+                    }
+                    EditTool.CALLOUT -> if (s != null && e != null) {
+                        onRequestCallout(toPage(s), toPage(e))
                     }
                     EditTool.SHAPE -> if (s != null && e != null) {
                         val rect = Rect(minOf(s.x, e.x), minOf(s.y, e.y), maxOf(s.x, e.x), maxOf(s.y, e.y))
@@ -1229,6 +1327,22 @@ private fun EditOverlay(
                 size = Size(kotlin.math.abs(e.x - s.x), kotlin.math.abs(e.y - s.y)),
                 style = Fill,
             )
+        }
+        if (s != null && e != null && tool == EditTool.MARKUP) {
+            val left = minOf(s.x, e.x); val right = maxOf(s.x, e.x)
+            val top = minOf(s.y, e.y); val bottom = maxOf(s.y, e.y)
+            when (markup) {
+                MarkupKind.HIGHLIGHT -> drawRect(
+                    color = color.copy(alpha = 0.35f),
+                    topLeft = Offset(left, top), size = Size(right - left, bottom - top), style = Fill,
+                )
+                MarkupKind.STRIKEOUT -> drawLine(color, Offset(left, (top + bottom) / 2f), Offset(right, (top + bottom) / 2f), strokeWidth = 2f)
+                else -> drawLine(color, Offset(left, bottom - 2f), Offset(right, bottom - 2f), strokeWidth = 2f)
+            }
+        }
+        if (s != null && e != null && tool == EditTool.CALLOUT) {
+            drawLine(color, s, e, strokeWidth = 2f)
+            drawRect(color = color, topLeft = e, size = Size(120f, 40f), style = Stroke(width = 2f))
         }
         if (s != null && e != null && tool == EditTool.SHAPE) {
             val rect = Rect(minOf(s.x, e.x), minOf(s.y, e.y), maxOf(s.x, e.x), maxOf(s.y, e.y))
@@ -1335,6 +1449,8 @@ private fun EditToolbar(
     onTool: (EditTool) -> Unit,
     shape: ShapeKind,
     onShape: (ShapeKind) -> Unit,
+    markup: MarkupKind,
+    onMarkup: (MarkupKind) -> Unit,
     color: Color,
     onColor: (Color) -> Unit,
     onStyle: () -> Unit,
@@ -1349,10 +1465,12 @@ private fun EditToolbar(
         ) {
             toolButton(R.drawable.ic_tool_select, "Select", tool == EditTool.SELECT) { onTool(EditTool.SELECT) }
             toolButton(R.drawable.ic_tool_text, "Text", tool == EditTool.TEXT) { onTool(EditTool.TEXT) }
-            toolButton(R.drawable.ic_tool_highlight, "Highlight", tool == EditTool.HIGHLIGHT) { onTool(EditTool.HIGHLIGHT) }
+            markupMenuButton(markup = markup, active = tool == EditTool.MARKUP, onMarkup = onMarkup)
             toolButton(R.drawable.ic_tool_draw, "Draw", tool == EditTool.DRAW) { onTool(EditTool.DRAW) }
             shapeMenuButton(shape = shape, active = tool == EditTool.SHAPE, onShape = onShape)
             linesMenuButton(tool = tool, onTool = onTool)
+            toolButton(R.drawable.ic_note, "Note", tool == EditTool.NOTE) { onTool(EditTool.NOTE) }
+            toolButton(R.drawable.ic_callout, "Callout", tool == EditTool.CALLOUT) { onTool(EditTool.CALLOUT) }
             toolButton(R.drawable.ic_tool_image, "Image", tool == EditTool.IMAGE) { onTool(EditTool.IMAGE) }
 
             for (c in listOf(Color.Red, Color.Yellow, Color.Blue, Color.Black)) {
@@ -1379,6 +1497,42 @@ private fun EditToolbar(
                     Icon(painterResource(R.drawable.ic_duplicate), contentDescription = "Duplicate")
                 }
                 IconButton(onDelete) { IconDelete() }
+            }
+        }
+    }
+}
+
+/** Dropdown for text-markup tools (highlight, underline, strikeout, squiggly). */
+@Composable
+private fun markupMenuButton(
+    markup: MarkupKind,
+    active: Boolean,
+    onMarkup: (MarkupKind) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton({ expanded = true }) {
+            Icon(
+                painterResource(markup.icon()),
+                contentDescription = "Text markup",
+                tint = if (active) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            for (kind in MarkupKind.entries) {
+                DropdownMenuItem(
+                    leadingIcon = {
+                        Icon(
+                            painterResource(kind.icon()),
+                            contentDescription = null,
+                            tint = if (active && kind == markup) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    text = { Text(kind.label()) },
+                    onClick = { expanded = false; onMarkup(kind) },
+                )
             }
         }
     }
