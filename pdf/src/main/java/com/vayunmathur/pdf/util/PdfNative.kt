@@ -82,6 +82,9 @@ object PdfNative {
     /** Serialized AcroForm widget fields on [page]. */
     external fun listFormFields(handle: Long, page: Int): ByteArray?
 
+    /** Serialized link annotations (rect, dest page, uri) on [page]. */
+    external fun listLinks(handle: Long, page: Int): ByteArray?
+
     /** Add a FreeText annotation; returns its id (0 on failure). */
     external fun addTextAnnotation(
         handle: Long, page: Int,

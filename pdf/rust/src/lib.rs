@@ -2659,6 +2659,90 @@ fn field_attr<'a>(doc: &'a Document, mut id: ObjectId, key: &[u8]) -> Option<&'a
     None
 }
 
+/// Resolve a GoTo destination to a 0-based page index, or -1.
+fn resolve_dest_page(doc: &Document, d: &Object, page_of: &HashMap<ObjectId, i32>) -> i32 {
+    let d = deref(doc, d).unwrap_or(d);
+    if let Object::Array(a) = d {
+        if let Some(first) = a.first() {
+            if let Ok(id) = first.as_reference() {
+                return *page_of.get(&id).unwrap_or(&-1);
+            }
+        }
+    }
+    -1
+}
+
+/// Serialize link annotations for a page: rect (displayed space), destination
+/// page (-1 if none), and URI (empty if none).
+fn list_links(handle: i64, page_index: i32) -> Option<Vec<u8>> {
+    let reg = registry().lock().unwrap();
+    let doc = reg.get(&handle)?;
+    let page_id = nth_page_id(doc, page_index)?;
+    let base = page_base_matrix(doc, page_id);
+    let mut page_of: HashMap<ObjectId, i32> = HashMap::new();
+    for (n, id) in doc.get_pages() {
+        page_of.insert(id, (n as i32) - 1);
+    }
+    let mut records: Vec<([f64; 4], i32, String)> = Vec::new();
+    if let Some(Object::Array(annots)) = doc
+        .get_dictionary(page_id)
+        .ok()
+        .and_then(|d| d.get(b"Annots").ok())
+        .and_then(|o| deref(doc, o))
+    {
+        for a in annots {
+            let dict = match a.as_reference().ok().and_then(|id| doc.get_dictionary(id).ok()) {
+                Some(d) => d,
+                None => continue,
+            };
+            if dict.get(b"Subtype").ok().and_then(|o| o.as_name().ok()) != Some(b"Link".as_ref()) {
+                continue;
+            }
+            let rect = match dict.get(b"Rect").ok().and_then(|o| read_rect(doc, o)) {
+                Some(r) => {
+                    let n = normalize_rect(r);
+                    let (x0, y0) = transform(&base, n[0], n[1]);
+                    let (x1, y1) = transform(&base, n[2], n[3]);
+                    normalize_rect([x0, y0, x1, y1])
+                }
+                None => continue,
+            };
+            let mut dest_page = -1i32;
+            let mut uri = String::new();
+            if let Some(action) = dict.get(b"A").ok().and_then(|o| deref(doc, o)).and_then(|o| o.as_dict().ok()) {
+                let s = action.get(b"S").ok().and_then(|o| o.as_name().ok());
+                if s == Some(b"URI".as_ref()) {
+                    if let Ok(u) = action.get(b"URI").and_then(|o| o.as_str()) {
+                        uri = String::from_utf8_lossy(u).into_owned();
+                    }
+                } else if s == Some(b"GoTo".as_ref()) {
+                    if let Ok(d) = action.get(b"D") {
+                        dest_page = resolve_dest_page(doc, d, &page_of);
+                    }
+                }
+            } else if let Ok(d) = dict.get(b"Dest") {
+                dest_page = resolve_dest_page(doc, d, &page_of);
+            }
+            if dest_page >= 0 || !uri.is_empty() {
+                records.push((rect, dest_page, uri));
+            }
+        }
+    }
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&(records.len() as u32).to_le_bytes());
+    for (rect, dest, uri) in records {
+        for v in rect {
+            buf.extend_from_slice(&(v as f32).to_le_bytes());
+        }
+        buf.extend_from_slice(&dest.to_le_bytes());
+        let b = uri.as_bytes();
+        let len = b.len().min(u16::MAX as usize);
+        buf.extend_from_slice(&(len as u16).to_le_bytes());
+        buf.extend_from_slice(&b[..len]);
+    }
+    Some(buf)
+}
+
 fn list_form_fields(handle: i64, page_index: i32) -> Option<Vec<u8>> {
     let reg = registry().lock().unwrap();
     let doc = reg.get(&handle)?;
@@ -4862,6 +4946,16 @@ mod jni_bindings {
         page: jint,
     ) -> jbyteArray {
         bytes_or_null(&env, list_form_fields(handle as i64, page))
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_vayunmathur_pdf_util_PdfNative_listLinks<'local>(
+        env: JNIEnv<'local>,
+        _class: JClass<'local>,
+        handle: jlong,
+        page: jint,
+    ) -> jbyteArray {
+        bytes_or_null(&env, list_links(handle as i64, page))
     }
 
     #[allow(clippy::too_many_arguments)]

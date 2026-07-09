@@ -92,3 +92,13 @@ data class SafeSearchMatch(
     val x1: Float,
     val y1: Float,
 )
+
+/** A link annotation: page-space rect plus a destination page (-1 if none) and/or URI. */
+data class SafeLink(
+    val x0: Float,
+    val y0: Float,
+    val x1: Float,
+    val y1: Float,
+    val destPage: Int,
+    val uri: String,
+)

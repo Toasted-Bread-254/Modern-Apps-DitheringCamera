@@ -133,6 +133,20 @@ object SafePdfParser {
         return out
     }
 
+    /** Decode the link listing buffer from `listLinks`. */
+    fun parseLinks(bytes: ByteArray): List<SafeLink> {
+        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val count = buf.int
+        val out = ArrayList<SafeLink>(count.coerceAtLeast(0))
+        repeat(count) {
+            val x0 = buf.float; val y0 = buf.float; val x1 = buf.float; val y1 = buf.float
+            val dest = buf.int
+            val uri = readString(buf)
+            out.add(SafeLink(x0, y0, x1, y1, dest, uri))
+        }
+        return out
+    }
+
     private fun readString(buf: ByteBuffer): String {
         val len = buf.short.toInt() and 0xFFFF
         val b = ByteArray(len)

@@ -50,6 +50,11 @@ class SafePdfDocument private constructor(
             ?.let { SafePdfParser.parseFormFields(it) } ?: emptyList()
     }
 
+    /** Link annotations on [index]. */
+    suspend fun links(index: Int): List<SafeLink> = withContext(Dispatchers.IO) {
+        PdfNative.listLinks(handle, index)?.let { SafePdfParser.parseLinks(it) } ?: emptyList()
+    }
+
     suspend fun addText(
         index: Int, x0: Float, y0: Float, x1: Float, y1: Float, argb: Int, size: Float, text: String,
     ): Long = withContext(Dispatchers.IO) {

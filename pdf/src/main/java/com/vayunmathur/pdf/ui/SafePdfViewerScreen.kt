@@ -101,6 +101,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.compose.ui.unit.IntSize
 import com.vayunmathur.library.ui.IconDelete
 import com.vayunmathur.library.ui.IconCheck
@@ -122,6 +123,7 @@ import com.vayunmathur.pdf.R
 import com.vayunmathur.pdf.util.PdfPrimitive
 import com.vayunmathur.pdf.util.SafeAnnotation
 import com.vayunmathur.pdf.util.SafeFormField
+import com.vayunmathur.pdf.util.SafeLink
 import com.vayunmathur.pdf.util.SafePdfDocument
 import com.vayunmathur.pdf.util.PdfStateStore
 import com.vayunmathur.pdf.util.printPdfBytes
@@ -422,6 +424,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
     // Page-manager overlay + dynamic page count / global refresh for page ops.
     var showPages by remember { mutableStateOf(false) }
     var showOverflow by remember { mutableStateOf(false) }
+    var selectText by remember { mutableStateOf(false) }
     var pageCount by remember(document) { mutableIntStateOf(document?.pageCount ?: 0) }
     var pageMgrVersion by remember { mutableIntStateOf(0) }
     // Per-page render version: bumping one page's entry re-renders ONLY that page,
@@ -788,6 +791,14 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                             IconButton({ showPages = true }) {
                                 Icon(painterResource(R.drawable.ic_pages), contentDescription = "Manage pages")
                             }
+                            IconButton({ selectText = !selectText }) {
+                                Icon(
+                                    painterResource(R.drawable.ic_select_text),
+                                    contentDescription = "Select text",
+                                    tint = if (selectText) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                             Box {
                                 IconButton({ showOverflow = true }) {
                                     Icon(painterResource(R.drawable.ic_overflow), contentDescription = "More")
@@ -958,6 +969,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                             index = index,
                             version = (pageVersions[index] ?: 0) + pageMgrVersion,
                             editMode = editMode,
+                            selectText = selectText,
                             tool = tool,
                             shape = shape,
                             markup = markup,
@@ -970,6 +982,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                             onSelect = { annotId -> selected = annotId?.let { index to it } },
                             onEdited = { markEdited(index) },
                             onCreated = { id -> registerCreated(index, id) },
+                            onLinkPage = { p -> scope.launch { listState.animateScrollToItem(p.coerceIn(0, (pageCount - 1).coerceAtLeast(0))) } },
                             textSession = textSession?.takeIf { it.page == index },
                             onStartText = { s -> commitText(textSession); textSession = s },
                             onTextChange = { v -> textSession = textSession?.copy(value = v) },
@@ -1129,6 +1142,7 @@ private fun SafePdfPageItem(
     index: Int,
     version: Int,
     editMode: Boolean,
+    selectText: Boolean,
     tool: EditTool,
     shape: ShapeKind,
     markup: MarkupKind,
@@ -1150,6 +1164,7 @@ private fun SafePdfPageItem(
     onRequestCallout: (Offset, Offset) -> Unit,
     polyDraft: PolyDraft?,
     onAddPolyPoint: (Offset) -> Unit,
+    onLinkPage: (Int) -> Unit,
 ) {
     val page by produceState<SafePdfPage?>(null, document, index, version) {
         value = document.renderPage(index)
@@ -1159,6 +1174,9 @@ private fun SafePdfPageItem(
     }
     val formFields by produceState(emptyList<SafeFormField>(), document, index, version) {
         value = if (editMode) document.formFields(index) else emptyList()
+    }
+    val links by produceState(emptyList<SafeLink>(), document, index, version, editMode) {
+        value = if (!editMode) document.links(index) else emptyList()
     }
 
     val current = page
@@ -1199,6 +1217,18 @@ private fun SafePdfPageItem(
                     )
                 }
             }
+        }
+
+        if (!editMode) {
+            NonEditOverlay(
+                page = current,
+                links = links,
+                selectText = selectText,
+                cw = cw,
+                ch = ch,
+                scale = scale,
+                onLinkPage = onLinkPage,
+            )
         }
 
         if (editMode) {
@@ -1259,6 +1289,85 @@ private fun SafePdfPageItem(
                         fontSize = with(density) { (textSession.size * scale).toSp() },
                     ),
                     cursorBrush = SolidColor(Color(textSession.color)),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NonEditOverlay(
+    page: SafePdfPage,
+    links: List<SafeLink>,
+    selectText: Boolean,
+    cw: Float,
+    ch: Float,
+    scale: Float,
+    onLinkPage: (Int) -> Unit,
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    // Clickable link boxes.
+    for (link in links) {
+        val leftDp = with(density) { (link.x0 * scale).toDp() }
+        val topDp = with(density) { (ch - link.y1 * scale).toDp() }
+        val wDp = with(density) { ((link.x1 - link.x0) * scale).toDp() }
+        val hDp = with(density) { ((link.y1 - link.y0) * scale).toDp() }
+        Box(
+            Modifier
+                .padding(start = leftDp, top = topDp)
+                .size(wDp, hDp)
+                .clickable {
+                    if (link.uri.isNotEmpty()) {
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(android.content.Intent.ACTION_VIEW, link.uri.toUri())
+                            )
+                        }
+                    } else if (link.destPage >= 0) {
+                        onLinkPage(link.destPage)
+                    }
+                },
+        )
+    }
+
+    // Drag-to-select text: copies text primitives inside the drawn rectangle.
+    if (selectText) {
+        var start by remember { mutableStateOf<Offset?>(null) }
+        var cur by remember { mutableStateOf<Offset?>(null) }
+        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+        Canvas(
+            Modifier.fillMaxSize().pointerInput(page) {
+                detectDragGestures(
+                    onDragStart = { start = it; cur = it },
+                    onDrag = { change, _ -> cur = change.position; change.consume() },
+                    onDragEnd = {
+                        val s = start; val e = cur
+                        if (s != null && e != null) {
+                            val left = minOf(s.x, e.x) / scale
+                            val right = maxOf(s.x, e.x) / scale
+                            val top = (ch - minOf(s.y, e.y)) / scale
+                            val bottom = (ch - maxOf(s.y, e.y)) / scale
+                            val picked = page.primitives.filterIsInstance<PdfPrimitive.Text>()
+                                .filter { it.origin.x in left..right && it.origin.y in bottom..top }
+                                .sortedWith(compareByDescending<PdfPrimitive.Text> { it.origin.y }.thenBy { it.origin.x })
+                                .joinToString(" ") { it.text }
+                            if (picked.isNotBlank()) {
+                                clipboard.setText(androidx.compose.ui.text.AnnotatedString(picked))
+                                android.widget.Toast.makeText(context, "Copied text", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        start = null; cur = null
+                    },
+                )
+            },
+        ) {
+            val s = start; val e = cur
+            if (s != null && e != null) {
+                drawRect(
+                    color = Color(0x552196F3),
+                    topLeft = Offset(minOf(s.x, e.x), minOf(s.y, e.y)),
+                    size = Size(kotlin.math.abs(e.x - s.x), kotlin.math.abs(e.y - s.y)),
                 )
             }
         }
