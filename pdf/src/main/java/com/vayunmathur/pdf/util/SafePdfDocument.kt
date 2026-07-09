@@ -169,6 +169,12 @@ class SafePdfDocument private constructor(
     /** Serialize the (possibly edited) document to PDF bytes. */
     suspend fun save(): ByteArray? = withContext(Dispatchers.IO) { PdfNative.saveDocument(handle) }
 
+    /** Serialize with streams compressed and unused objects pruned. */
+    suspend fun saveCompressed(): ByteArray? = withContext(Dispatchers.IO) { PdfNative.saveCompressed(handle) }
+
+    /** Flatten annotations into page content (makes overlays permanent). */
+    suspend fun flatten(): Boolean = withContext(Dispatchers.IO) { PdfNative.flattenDocument(handle) }
+
     /** Current page count from native (reflects add/remove during editing). */
     fun livePageCount(): Int = PdfNative.getPageCount(handle)
 

@@ -2920,6 +2920,143 @@ fn set_checkbox(handle: i64, widget_id: i64, on: bool) -> bool {
     }
 }
 
+/// Serialize `handle` with streams deflate-compressed and unused objects pruned.
+fn save_compressed(handle: i64) -> Option<Vec<u8>> {
+    let bytes = save_document(handle)?;
+    let mut doc = Document::load_mem(&bytes).ok()?;
+    doc.compress();
+    doc.prune_objects();
+    let mut out = Vec::new();
+    doc.save_to(&mut out).ok()?;
+    Some(out)
+}
+
+/// Ensure page `page_id` has an inline `/Resources /XObject` mapping `name` -> `xid`.
+fn add_page_xobject(doc: &mut Document, page_id: ObjectId, name: &str, xid: ObjectId) {
+    // Resolve to an inline Resources dict on the page (copying a referenced one).
+    let res_inline = matches!(
+        doc.get_dictionary(page_id).ok().and_then(|d| d.get(b"Resources").ok()),
+        Some(Object::Dictionary(_))
+    );
+    if !res_inline {
+        let copied = doc
+            .get_dictionary(page_id)
+            .ok()
+            .and_then(|d| d.get(b"Resources").ok())
+            .and_then(|o| deref(doc, o))
+            .and_then(|o| o.as_dict().ok())
+            .cloned()
+            .unwrap_or_else(Dictionary::new);
+        if let Ok(p) = doc.get_dictionary_mut(page_id) {
+            p.set("Resources", Object::Dictionary(copied));
+        }
+    }
+    if let Ok(p) = doc.get_dictionary_mut(page_id) {
+        if let Ok(Object::Dictionary(res)) = p.get_mut(b"Resources") {
+            let has_xo = matches!(res.get(b"XObject"), Ok(Object::Dictionary(_)));
+            if !has_xo {
+                res.set("XObject", Object::Dictionary(Dictionary::new()));
+            }
+            if let Ok(Object::Dictionary(xo)) = res.get_mut(b"XObject") {
+                xo.set(name, Object::Reference(xid));
+            }
+        }
+    }
+}
+
+/// Append `content_id` (a content stream) to page `page_id`'s `/Contents`.
+fn append_content(doc: &mut Document, page_id: ObjectId, content_id: ObjectId) {
+    let current = doc.get_dictionary(page_id).ok().and_then(|d| d.get(b"Contents").ok()).cloned();
+    let new_contents = match current {
+        Some(Object::Reference(r)) => Object::Array(vec![Object::Reference(r), Object::Reference(content_id)]),
+        Some(Object::Array(mut a)) => {
+            a.push(Object::Reference(content_id));
+            Object::Array(a)
+        }
+        _ => Object::Array(vec![Object::Reference(content_id)]),
+    };
+    if let Ok(p) = doc.get_dictionary_mut(page_id) {
+        p.set("Contents", new_contents);
+    }
+}
+
+/// Flatten every annotation's appearance into its page content stream, then drop
+/// the annotations. Makes overlays (incl. redaction boxes) permanent.
+fn flatten_document(handle: i64) -> bool {
+    let mut reg = registry().lock().unwrap();
+    let doc = match reg.get_mut(&handle) {
+        Some(d) => d,
+        None => return false,
+    };
+    let page_ids: Vec<ObjectId> = doc.get_pages().values().copied().collect();
+    for page_id in page_ids {
+        // Collect (xobject name, appearance id, placement matrix) for each annot.
+        let annot_ids: Vec<ObjectId> = match doc
+            .get_dictionary(page_id)
+            .ok()
+            .and_then(|d| d.get(b"Annots").ok())
+            .and_then(|o| deref(doc, o))
+        {
+            Some(Object::Array(a)) => a.iter().filter_map(|o| o.as_reference().ok()).collect(),
+            _ => continue,
+        };
+        if annot_ids.is_empty() {
+            continue;
+        }
+        let mut placements: Vec<(String, ObjectId, Mat)> = Vec::new();
+        for (i, aid) in annot_ids.iter().enumerate() {
+            let dict = match doc.get_dictionary(*aid) {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let flags = dict.get(b"F").ok().and_then(num).unwrap_or(0.0) as i64;
+            if flags & 0b10 != 0 {
+                continue;
+            }
+            let rect = match dict.get(b"Rect").ok().and_then(|o| read_rect(doc, o)) {
+                Some(r) => r,
+                None => continue,
+            };
+            let ap_id = match dict.get(b"AP").ok().and_then(|o| deref(doc, o)).and_then(|o| o.as_dict().ok())
+                .and_then(|ap| ap.get(b"N").ok())
+                .and_then(|n| n.as_reference().ok())
+            {
+                Some(id) => id,
+                None => continue,
+            };
+            let (bbox, matrix) = match doc.get_object(ap_id).ok().and_then(|o| o.as_stream().ok()) {
+                Some(s) => {
+                    let bbox = s.dict.get(b"BBox").ok().and_then(|o| read_rect(doc, o)).unwrap_or([0.0, 0.0, 1.0, 1.0]);
+                    let matrix = s.dict.get(b"Matrix").ok().and_then(read_matrix_obj).unwrap_or(IDENTITY);
+                    (bbox, matrix)
+                }
+                None => continue,
+            };
+            let m = appearance_matrix(rect, bbox, matrix);
+            placements.push((format!("Fl{}_{}", page_id.0, i), ap_id, m));
+        }
+        if placements.is_empty() {
+            continue;
+        }
+        let mut content = String::new();
+        for (name, _, m) in &placements {
+            content.push_str(&format!(
+                "q {:.4} {:.4} {:.4} {:.4} {:.4} {:.4} cm /{} Do Q ",
+                m[0], m[1], m[2], m[3], m[4], m[5], name
+            ));
+        }
+        let cid = doc.add_object(Stream::new(dictionary! {}, content.into_bytes()));
+        append_content(doc, page_id, cid);
+        for (name, ap_id, _) in &placements {
+            add_page_xobject(doc, page_id, name, *ap_id);
+        }
+        if let Ok(p) = doc.get_dictionary_mut(page_id) {
+            p.remove(b"Annots");
+        }
+    }
+    true
+}
+
 fn save_document(handle: i64) -> Option<Vec<u8>> {
     let mut reg = registry().lock().unwrap();
     let doc = reg.get_mut(&handle)?;
@@ -5320,6 +5457,26 @@ mod jni_bindings {
         handle: jlong,
     ) -> jbyteArray {
         bytes_or_null(&env, save_document(handle as i64))
+    }
+
+    /// `PdfNative.saveCompressed(long) -> byte[]`.
+    #[no_mangle]
+    pub extern "system" fn Java_com_vayunmathur_pdf_util_PdfNative_saveCompressed<'local>(
+        env: JNIEnv<'local>,
+        _class: JClass<'local>,
+        handle: jlong,
+    ) -> jbyteArray {
+        bytes_or_null(&env, save_compressed(handle as i64))
+    }
+
+    /// `PdfNative.flattenDocument(long) -> boolean`.
+    #[no_mangle]
+    pub extern "system" fn Java_com_vayunmathur_pdf_util_PdfNative_flattenDocument<'local>(
+        _env: JNIEnv<'local>,
+        _class: JClass<'local>,
+        handle: jlong,
+    ) -> jboolean {
+        flatten_document(handle as i64) as jboolean
     }
 
     /// `PdfNative.extractText(long) -> String` (null on failure).

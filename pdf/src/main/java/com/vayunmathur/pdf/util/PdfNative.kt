@@ -164,6 +164,12 @@ object PdfNative {
     /** Serialize the modified document to PDF bytes, or null on failure. */
     external fun saveDocument(handle: Long): ByteArray?
 
+    /** Serialize with streams compressed + unused objects pruned, or null. */
+    external fun saveCompressed(handle: Long): ByteArray?
+
+    /** Flatten annotations into page content (removes them); true on success. */
+    external fun flattenDocument(handle: Long): Boolean
+
     /** Serialized document outline (bookmarks), or null. */
     external fun listOutline(handle: Long): ByteArray?
 

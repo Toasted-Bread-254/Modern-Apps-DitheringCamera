@@ -643,6 +643,17 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
 
     var showEncrypt by remember { mutableStateOf(false) }
     var pendingEncryptPw by remember { mutableStateOf<String?>(null) }
+    val compressLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf")
+    ) { outUri ->
+        val doc = document
+        if (outUri != null && doc != null) scope.launch {
+            val bytes = doc.saveCompressed()
+            if (bytes != null) withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.openOutputStream(outUri)?.use { it.write(bytes) } }
+            }
+        }
+    }
     val encryptLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf")
     ) { outUri ->
@@ -828,6 +839,23 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                                     DropdownMenuItem(
                                         text = { Text("Encrypt with password\u2026") },
                                         onClick = { showOverflow = false; showEncrypt = true },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Flatten annotations") },
+                                        onClick = {
+                                            showOverflow = false
+                                            val doc = document
+                                            if (doc != null) scope.launch {
+                                                doc.flatten(); pageMgrVersion++; dirty = true
+                                            }
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Save compressed\u2026") },
+                                        onClick = {
+                                            showOverflow = false
+                                            compressLauncher.launch("compressed.pdf")
+                                        },
                                     )
                                 }
                             }
