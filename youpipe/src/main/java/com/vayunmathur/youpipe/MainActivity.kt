@@ -35,6 +35,7 @@ import com.vayunmathur.youpipe.util.YouPipeViewModel
 import com.vayunmathur.youpipe.util.YouPipeViewModelFactory
 import com.vayunmathur.youpipe.ui.SearchPage
 import com.vayunmathur.youpipe.ui.SettingsPage
+import com.vayunmathur.youpipe.ui.RecommendationSettingsPage
 import com.vayunmathur.youpipe.ui.SubscriptionVideosPage
 import com.vayunmathur.youpipe.ui.SubscriptionsPage
 import com.vayunmathur.youpipe.ui.VideoPage
@@ -80,6 +81,10 @@ class MainActivity : ComponentActivity() {
             db.historyVideoDao(),
             db.downloadedVideoDao(),
             db.cachedRelatedVideoDao(),
+            db.recommendationImpressionDao(),
+            db.recommendationPreferencesDao(),
+            db.channelPreferenceDao(),
+            db.keywordPreferenceDao(),
         )
     }
 
@@ -151,6 +156,9 @@ sealed interface Route: NavKey {
 
     @Serializable
     data object Settings: Route
+
+    @Serializable
+    data object RecommendationSettings: Route
 }
 
 @Composable
@@ -183,6 +191,9 @@ fun Navigation(initialRoute: Route, ypvm: YouPipeViewModel) {
         }
         entry<Route.Settings> {
             SettingsPage(backStack, ypvm)
+        }
+        entry<Route.RecommendationSettings> {
+            RecommendationSettingsPage(backStack, ypvm)
         }
     }
 }

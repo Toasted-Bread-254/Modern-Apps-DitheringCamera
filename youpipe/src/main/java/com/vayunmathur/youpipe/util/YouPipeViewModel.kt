@@ -12,10 +12,17 @@ import androidx.work.WorkManager
 import com.vayunmathur.library.util.DataStoreUtils
 import com.vayunmathur.youpipe.data.CachedRelatedVideo
 import com.vayunmathur.youpipe.data.CachedRelatedVideoDao
+import com.vayunmathur.youpipe.data.ChannelPreference
+import com.vayunmathur.youpipe.data.ChannelPreferenceDao
 import com.vayunmathur.youpipe.data.DownloadedVideo
 import com.vayunmathur.youpipe.data.DownloadedVideoDao
 import com.vayunmathur.youpipe.data.HistoryVideo
 import com.vayunmathur.youpipe.data.HistoryVideoDao
+import com.vayunmathur.youpipe.data.KeywordPreference
+import com.vayunmathur.youpipe.data.KeywordPreferenceDao
+import com.vayunmathur.youpipe.data.RecommendationImpressionDao
+import com.vayunmathur.youpipe.data.RecommendationPreferences
+import com.vayunmathur.youpipe.data.RecommendationPreferencesDao
 import com.vayunmathur.youpipe.data.Subscription
 import com.vayunmathur.youpipe.data.SubscriptionCategory
 import com.vayunmathur.youpipe.data.SubscriptionCategoryDao
@@ -36,6 +43,7 @@ import com.vayunmathur.youpipe.ui.getAudioCodecName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,8 +69,10 @@ import org.schabi.newpipe.extractor.channel.ChannelInfoItem
 import org.schabi.newpipe.extractor.stream.Description
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import java.util.zip.ZipInputStream
+import kotlin.random.Random
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 import kotlin.time.toKotlinInstant
 
@@ -87,6 +97,10 @@ class YouPipeViewModel(
     private val historyVideoDao: HistoryVideoDao,
     private val downloadedVideoDao: DownloadedVideoDao,
     private val cachedRelatedVideoDao: CachedRelatedVideoDao,
+    private val recommendationImpressionDao: RecommendationImpressionDao,
+    private val recommendationPreferencesDao: RecommendationPreferencesDao,
+    private val channelPreferenceDao: ChannelPreferenceDao,
+    private val keywordPreferenceDao: KeywordPreferenceDao,
 ) : AndroidViewModel(application) {
 
     // ===================== Data StateFlows =====================
@@ -193,26 +207,87 @@ class YouPipeViewModel(
 
     // ===================== Recommendations =====================
 
-    private val _recommendations = MutableStateFlow<List<VideoInfo>>(emptyList())
-    val recommendations: StateFlow<List<VideoInfo>> = _recommendations.asStateFlow()
+    private val _recommendations = MutableStateFlow<List<RankedVideo>>(emptyList())
+    val recommendations: StateFlow<List<RankedVideo>> = _recommendations.asStateFlow()
 
     private val _recommendationsLoading = MutableStateFlow(false)
     val recommendationsLoading: StateFlow<Boolean> = _recommendationsLoading.asStateFlow()
+
+    /** User-facing recommendation controls, defaulting to today's balanced behavior. */
+    val recommendationPreferences: StateFlow<RecommendationPreferences> =
+        recommendationPreferencesDao.getFlow()
+            .map { it ?: RecommendationPreferences() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RecommendationPreferences())
+
+    val channelPreferences: StateFlow<List<ChannelPreference>> = channelPreferenceDao.getAllFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val keywordPreferences: StateFlow<List<KeywordPreference>> = keywordPreferenceDao.getAllFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The inferred interest profile, for the editable interest-management screen. */
+    val interestProfile: StateFlow<InterestProfile> =
+        combine(historyVideoDao.getAllFlow(), recommendationPreferences) { history, prefs ->
+            buildInterestProfile(history, Clock.System.now(), RecommendationWeights.fromPreferences(prefs))
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InterestProfile(emptyMap(), emptyMap()))
+
+    // In-VM TTL cache for Trending so repeated Search-screen visits don't refetch.
+    private var trendingCache: Pair<Instant, List<VideoInfo>>? = null
 
     fun loadRecommendations() {
         viewModelScope.launch(Dispatchers.IO) {
             _recommendationsLoading.value = true
             try {
-                val history = historyVideos.value
-                val subNames = subscriptions.value.map { it.name.lowercase() }.toSet()
+                // Read directly from the DAOs so a cold Search screen (with no active
+                // collector on the history/sub flows) still sees the persisted data.
+                val history = historyVideoDao.getAll()
+                val subs = subscriptionDao.getAll()
+                val subNames = subs.map { it.name.lowercase() }.toSet()
                 val now = Clock.System.now()
 
-                val profile = buildInterestProfile(history, now)
-                val candidates = gatherCandidates(profile)
-                val ranked = rankRecommendations(candidates, history, subNames, now)
+                val prefs = recommendationPreferencesDao.get() ?: RecommendationPreferences()
+                val weights = RecommendationWeights.fromPreferences(prefs)
+                val filters = ContentFilters(
+                    hideShorts = prefs.hideShorts,
+                    hideLive = prefs.hideLive,
+                    minDurationSec = prefs.minDurationSec,
+                    maxDurationSec = prefs.maxDurationSec,
+                )
+
+                val channelPrefs = channelPreferenceDao.getAll().associate {
+                    it.channelKey to ChannelPref(it.multiplier, it.blocked, it.pinned)
+                }
+                val mutedKeywords = keywordPreferenceDao.getAll().filter { it.muted }.map { it.keyword }.toSet()
+
+                val impressions = recommendationImpressionDao.getAll()
+                val watchedIds = history.map { it.id }.toSet()
+                val channelStats = impressions.groupBy { it.channelKey }.mapValues { (_, imps) ->
+                    ChannelImpressionStat(
+                        shownCount = imps.sumOf { it.shownCount },
+                        watched = imps.any { it.videoID in watchedIds },
+                    )
+                }
+                val recentlyShown = impressions.associate { it.videoID to it.lastShownAt }
+
+                val profile = buildInterestProfile(history, now, weights)
+                val candidates = gatherCandidates(profile, prefs, subs, history)
+                val ranked = rankRecommendations(
+                    candidates = candidates,
+                    history = history,
+                    subNames = subNames,
+                    now = now,
+                    weights = weights,
+                    channelPrefs = channelPrefs,
+                    mutedKeywords = mutedKeywords,
+                    contentFilters = filters,
+                    channelStats = channelStats,
+                    recentlyShown = recentlyShown,
+                    noise = { Random.nextDouble(0.0, REFRESH_NOISE) },
+                )
 
                 _recommendations.value = ranked
-                fetchDeArrowForVideos(ranked.map { it.videoID })
+                recordImpressions(ranked, now)
+                fetchDeArrowForVideos(ranked.map { it.video.videoID })
             } catch (e: Exception) {
                 Log.e(TAG, "Recommendation error", e)
             }
@@ -220,20 +295,42 @@ class YouPipeViewModel(
         }
     }
 
+    private suspend fun recordImpressions(ranked: List<RankedVideo>, now: Instant) {
+        try {
+            ranked.forEach { rv ->
+                recommendationImpressionDao.recordImpression(
+                    rv.video.videoID, rv.video.author.lowercase(), rv.source.name, now,
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Impression record error", e)
+        }
+    }
+
     /**
-     * Pulls candidates from all sources in parallel and merges them. Each source
-     * is isolated in its own try/catch so one failing network call never blanks
-     * the feed.
+     * Pulls candidates from all enabled sources in parallel and merges them. Each
+     * source is isolated in its own try/catch so one failing network call never
+     * blanks the feed. Disabled sources (per [prefs]) are skipped entirely.
      */
-    private suspend fun gatherCandidates(profile: InterestProfile): List<Candidate> = coroutineScope {
-        val history = historyVideos.value
-        val subs = subscriptions.value
+    private suspend fun gatherCandidates(
+        profile: InterestProfile,
+        prefs: RecommendationPreferences,
+        subs: List<Subscription>,
+        history: List<HistoryVideo>,
+    ): List<Candidate> = coroutineScope {
         val sourceTimestamps = history.associate { it.id to it.timestamp }
+        val sourceTitles = history.associate { it.id to it.videoItem.name }
 
         val relatedDeferred = async(Dispatchers.IO) {
+            if (!prefs.sourceRelated) return@async emptyList()
             try {
                 cachedRelatedVideoDao.getAll().map { item ->
-                    Candidate(item.videoItem, RecSource.RELATED, sourceTimestamps[item.sourceVideoID])
+                    Candidate(
+                        item.videoItem,
+                        RecSource.RELATED,
+                        sourceTimestamps[item.sourceVideoID],
+                        sourceTitles[item.sourceVideoID],
+                    )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Related candidates error", e); emptyList()
@@ -241,45 +338,54 @@ class YouPipeViewModel(
         }
 
         val trendingDeferred = async(Dispatchers.IO) {
+            if (!prefs.sourceTrending) return@async emptyList()
             try {
-                getTrendingVideos().map { Candidate(it, RecSource.TRENDING) }
+                cachedTrending().map { Candidate(it, RecSource.TRENDING) }
             } catch (e: Exception) {
                 Log.e(TAG, "Trending candidates error", e); emptyList()
             }
         }
 
-        val subscriptionCandidates = subscriptionVideos.value.map {
-            Candidate(
-                VideoInfo(it.name, it.id, it.duration, it.views, it.uploadDate, it.thumbnailURL, it.author),
-                RecSource.SUBSCRIPTION,
-            )
+        val subscriptionCandidates = if (prefs.sourceSubscription) {
+            subscriptionVideoDao.getAll().map {
+                Candidate(
+                    VideoInfo(it.name, it.id, it.duration, it.views, it.uploadDate, it.thumbnailURL, it.author),
+                    RecSource.SUBSCRIPTION,
+                )
+            }
+        } else {
+            emptyList()
         }
 
         val topChannelDeferred = async(Dispatchers.IO) {
+            if (!prefs.sourceTopChannel) return@async emptyList()
             try {
-                profile.authorWeights.entries
+                val authors = profile.authorWeights.entries
                     .sortedByDescending { it.value }
                     .take(MAX_TOP_CHANNELS)
-                    .flatMap { (author, _) ->
-                        val channelId = resolveChannelId(author, subs) ?: return@flatMap emptyList()
+                    .map { it.key }
+                authors.map { author ->
+                    async(Dispatchers.IO) {
+                        val channelId = resolveChannelId(author, subs) ?: return@async emptyList()
                         getChannelVideos(channelId)
                             .take(TOP_CHANNEL_VIDEOS)
-                            .map { Candidate(it, RecSource.TOP_CHANNEL) }
+                            .map { Candidate(it, RecSource.TOP_CHANNEL, sourceLabel = it.author) }
                             .toList()
                     }
+                }.awaitAll().flatten()
             } catch (e: Exception) {
                 Log.e(TAG, "Top-channel candidates error", e); emptyList()
             }
         }
 
         val searchDeferred = async(Dispatchers.IO) {
+            if (!prefs.sourceSearch) return@async emptyList()
             try {
-                profile.keywordWeights.entries
-                    .sortedByDescending { it.value }
-                    .take(MAX_SEARCH_KEYWORDS)
-                    .flatMap { (keyword, _) ->
-                        searchVideos(keyword).map { Candidate(it, RecSource.SEARCH) }
+                searchQueries(profile).map { query ->
+                    async(Dispatchers.IO) {
+                        searchVideos(query).map { Candidate(it, RecSource.SEARCH) }
                     }
+                }.awaitAll().flatten()
             } catch (e: Exception) {
                 Log.e(TAG, "Search candidates error", e); emptyList()
             }
@@ -289,9 +395,35 @@ class YouPipeViewModel(
             topChannelDeferred.await() + searchDeferred.await()
     }
 
+    /** Trending results from the TTL cache, refetching only when stale. */
+    private suspend fun cachedTrending(): List<VideoInfo> {
+        val now = Clock.System.now()
+        trendingCache?.let { (cachedAt, list) ->
+            if (now - cachedAt < TRENDING_TTL) return list
+        }
+        val fresh = getTrendingVideos()
+        trendingCache = now to fresh
+        return fresh
+    }
+
+    /**
+     * Derives SEARCH queries from the interest profile, preferring bigrams of the
+     * top co-occurring keywords over single broad tokens.
+     */
+    private fun searchQueries(profile: InterestProfile): List<String> {
+        val top = profile.keywordWeights.entries.sortedByDescending { it.value }.map { it.key }
+        if (top.isEmpty()) return emptyList()
+        if (top.size == 1) return listOf(top[0])
+        val queries = mutableListOf("${top[0]} ${top[1]}")
+        if (top.size >= 3) queries.add("${top[0]} ${top[2]}")
+        return queries.take(MAX_SEARCH_KEYWORDS)
+    }
+
     /**
      * Resolves an author name to a YouTube channel id, preferring a matching
-     * subscription and falling back to a bounded channel search.
+     * subscription and falling back to a bounded channel search. The search hit is
+     * only accepted when its channel name closely matches [authorName], so a
+     * homonym channel can't pollute the top-channel source.
      */
     private suspend fun resolveChannelId(authorName: String, subs: List<Subscription>): String? {
         subs.firstOrNull { it.name.equals(authorName, ignoreCase = true) }?.let { return it.channelID }
@@ -299,9 +431,96 @@ class YouPipeViewModel(
             val ex = ServiceList.YouTube.getSearchExtractor(authorName)
             ex.fetchPage()
             ex.initialPage.items.filterIsInstance<ChannelInfoItem>()
-                .firstOrNull()?.let { channelURLtoID(it.url) }
+                .firstOrNull { channelNameMatches(it.name, authorName) }
+                ?.let { channelURLtoID(it.url) }
         } catch (e: Exception) {
             null
+        }
+    }
+
+    // ===================== Recommendation preferences API =====================
+
+    private fun updatePrefs(transform: (RecommendationPreferences) -> RecommendationPreferences) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = recommendationPreferencesDao.get() ?: RecommendationPreferences()
+            recommendationPreferencesDao.upsert(transform(current))
+        }
+    }
+
+    fun setPreset(preset: RecommendationPreset) = updatePrefs {
+        it.copy(
+            preset = preset.name,
+            discoveryFamiliar = preset.discoveryFamiliar,
+            freshEvergreen = preset.freshEvergreen,
+            focusedDiverse = preset.focusedDiverse,
+        )
+    }
+
+    fun setDiscoveryFamiliar(value: Float) = updatePrefs { it.copy(discoveryFamiliar = value, preset = CUSTOM_PRESET) }
+    fun setFreshEvergreen(value: Float) = updatePrefs { it.copy(freshEvergreen = value, preset = CUSTOM_PRESET) }
+    fun setFocusedDiverse(value: Float) = updatePrefs { it.copy(focusedDiverse = value, preset = CUSTOM_PRESET) }
+
+    fun toggleSource(source: RecSource) = updatePrefs {
+        when (source) {
+            RecSource.RELATED -> it.copy(sourceRelated = !it.sourceRelated)
+            RecSource.TRENDING -> it.copy(sourceTrending = !it.sourceTrending)
+            RecSource.SUBSCRIPTION -> it.copy(sourceSubscription = !it.sourceSubscription)
+            RecSource.TOP_CHANNEL -> it.copy(sourceTopChannel = !it.sourceTopChannel)
+            RecSource.SEARCH -> it.copy(sourceSearch = !it.sourceSearch)
+        }
+    }
+
+    fun setHideShorts(value: Boolean) = updatePrefs { it.copy(hideShorts = value) }
+    fun setHideLive(value: Boolean) = updatePrefs { it.copy(hideLive = value) }
+    fun setMinDuration(seconds: Long) = updatePrefs { it.copy(minDurationSec = seconds.coerceAtLeast(0)) }
+    fun setMaxDuration(seconds: Long) = updatePrefs { it.copy(maxDurationSec = seconds.coerceAtLeast(0)) }
+
+    // ===================== Channel / keyword actions =====================
+
+    private fun updateChannelPref(channelKey: String, transform: (ChannelPreference) -> ChannelPreference) {
+        val key = channelKey.lowercase()
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = channelPreferenceDao.get(key) ?: ChannelPreference(key)
+            channelPreferenceDao.upsert(transform(current))
+        }
+    }
+
+    fun blockChannel(channelKey: String) = updateChannelPref(channelKey) { it.copy(blocked = true) }
+    fun demoteChannel(channelKey: String) = updateChannelPref(channelKey) { it.copy(multiplier = DEMOTE_MULTIPLIER) }
+    fun boostChannel(channelKey: String) = updateChannelPref(channelKey) { it.copy(multiplier = BOOST_MULTIPLIER) }
+    fun pinChannel(channelKey: String) = updateChannelPref(channelKey) { it.copy(pinned = true) }
+
+    fun clearChannelPreference(channelKey: String) {
+        viewModelScope.launch(Dispatchers.IO) { channelPreferenceDao.delete(channelKey.lowercase()) }
+    }
+
+    fun muteKeyword(keyword: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            keywordPreferenceDao.upsert(KeywordPreference(keyword.lowercase(), muted = true))
+        }
+    }
+
+    fun unmuteKeyword(keyword: String) {
+        viewModelScope.launch(Dispatchers.IO) { keywordPreferenceDao.delete(keyword.lowercase()) }
+    }
+
+    /**
+     * Removes an inferred interest by zeroing its signal: a channel gets a 0.0
+     * score multiplier, a keyword gets muted.
+     */
+    fun removeInterest(channelKey: String? = null, keyword: String? = null) {
+        channelKey?.let { updateChannelPref(it) { pref -> pref.copy(multiplier = 0.0) } }
+        keyword?.let { muteKeyword(it) }
+    }
+
+    /** Clears all learned/overridden recommendation state and resets the dials. */
+    fun resetAlgorithm() {
+        viewModelScope.launch(Dispatchers.IO) {
+            recommendationImpressionDao.clearAll()
+            channelPreferenceDao.clearAll()
+            keywordPreferenceDao.clearAll()
+            recommendationPreferencesDao.clearAll()
+            trendingCache = null
         }
     }
 
@@ -848,6 +1067,7 @@ class YouPipeViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val cutoff = Clock.System.now() - 30.days
             cachedRelatedVideoDao.deleteOlderThan(cutoff)
+            recommendationImpressionDao.deleteOlderThan(cutoff)
         }
     }
 
@@ -857,6 +1077,12 @@ class YouPipeViewModel(
         private const val MAX_TOP_CHANNELS = 5
         private const val TOP_CHANNEL_VIDEOS = 5
         private const val MAX_SEARCH_KEYWORDS = 2
+
+        private const val CUSTOM_PRESET = "CUSTOM"
+        private const val DEMOTE_MULTIPLIER = 0.3
+        private const val BOOST_MULTIPLIER = 3.0
+        private const val REFRESH_NOISE = 0.15
+        private val TRENDING_TTL = 5.minutes
 
         val ALL_SPONSOR_CATEGORIES = setOf(
             "sponsor", "selfpromo", "interaction", "intro", "outro",
@@ -904,6 +1130,10 @@ class YouPipeViewModelFactory(
     private val historyVideoDao: HistoryVideoDao,
     private val downloadedVideoDao: DownloadedVideoDao,
     private val cachedRelatedVideoDao: CachedRelatedVideoDao,
+    private val recommendationImpressionDao: RecommendationImpressionDao,
+    private val recommendationPreferencesDao: RecommendationPreferencesDao,
+    private val channelPreferenceDao: ChannelPreferenceDao,
+    private val keywordPreferenceDao: KeywordPreferenceDao,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -918,6 +1148,10 @@ class YouPipeViewModelFactory(
             historyVideoDao,
             downloadedVideoDao,
             cachedRelatedVideoDao,
+            recommendationImpressionDao,
+            recommendationPreferencesDao,
+            channelPreferenceDao,
+            keywordPreferenceDao,
         ) as T
     }
 }
