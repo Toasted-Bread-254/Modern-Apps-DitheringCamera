@@ -127,7 +127,6 @@ import com.vayunmathur.pdf.util.SafeFormField
 import com.vayunmathur.pdf.util.SafeLink
 import com.vayunmathur.pdf.util.SafePdfDocument
 import com.vayunmathur.pdf.util.PdfStateStore
-import com.vayunmathur.pdf.util.printPdfBytes
 import com.vayunmathur.pdf.util.SafePdfPage
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
@@ -624,64 +623,8 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
         }
     }
 
-    var pendingExtract by remember { mutableStateOf<Int?>(null) }
-    val extractLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/pdf")
-    ) { outUri ->
-        val doc = document
-        val idx = pendingExtract
-        pendingExtract = null
-        if (outUri != null && doc != null && idx != null) {
-            scope.launch {
-                val bytes = doc.extractPage(idx)
-                if (bytes != null) runCatching {
-                    context.contentResolver.openOutputStream(outUri)?.use { it.write(bytes) }
-                }
-            }
-        }
-    }
-
-    val textExportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("text/plain")
-    ) { outUri ->
-        val doc = document
-        if (outUri != null && doc != null) scope.launch {
-            val t = doc.extractText() ?: ""
-            withContext(Dispatchers.IO) {
-                runCatching { context.contentResolver.openOutputStream(outUri)?.use { it.write(t.toByteArray()) } }
-            }
-        }
-    }
-
-    val pngExportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("image/png")
-    ) { outUri ->
-        val doc = document
-        if (outUri != null && doc != null) scope.launch {
-            val idx = listState.firstVisibleItemIndex
-            val page = doc.renderPage(idx)
-            if (page != null && page.width > 0f) {
-                val png = withContext(Dispatchers.IO) { renderSafePagePng(page, 1600) }
-                withContext(Dispatchers.IO) {
-                    runCatching { context.contentResolver.openOutputStream(outUri)?.use { it.write(png) } }
-                }
-            }
-        }
-    }
-
     var showEncrypt by remember { mutableStateOf(false) }
     var pendingEncryptPw by remember { mutableStateOf<String?>(null) }
-    val compressLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/pdf")
-    ) { outUri ->
-        val doc = document
-        if (outUri != null && doc != null) scope.launch {
-            val bytes = doc.saveCompressed()
-            if (bytes != null) withContext(Dispatchers.IO) {
-                runCatching { context.contentResolver.openOutputStream(outUri)?.use { it.write(bytes) } }
-            }
-        }
-    }
     val encryptLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf")
     ) { outUri ->
@@ -2054,102 +1997,6 @@ private fun toolButton(
     }
 }
 
-/** Full-screen page manager: reorder (long-press drag), rotate, extract, and
- * delete pages of the open document. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PageManagerSheet(
-    document: SafePdfDocument,
-    initialCount: Int,
-    version: Int,
-    onMove: (Int, Int) -> Unit,
-    onDelete: (Int) -> Unit,
-    onRotate: (Int, Int) -> Unit,
-    onExtract: (Int) -> Unit,
-    onClose: () -> Unit,
-) {
-    androidx.activity.compose.BackHandler { onClose() }
-    val keys = remember { (0 until initialCount).map { it.toLong() }.toMutableStateList() }
-    var nextKey by remember { mutableIntStateOf(initialCount) }
-    val listState = rememberLazyListState()
-    val reorderState = rememberReorderableLazyListState(listState) { from, to ->
-        if (from.index < keys.size && to.index < keys.size) {
-            val k = keys.removeAt(from.index)
-            keys.add(to.index, k)
-            onMove(from.index, to.index)
-        }
-    }
-    androidx.compose.material3.Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("Pages") },
-                    navigationIcon = { IconNavigation { onClose() } },
-                )
-            },
-        ) { padding ->
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.padding(padding).fillMaxSize().padding(12.dp),
-            ) {
-                items(keys, key = { it }) { key ->
-                    val index = keys.indexOf(key)
-                    ReorderableItem(reorderState, key = key) { _ ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(Modifier.weight(1f).then(Modifier.longPressDraggableHandle())) {
-                                ManagerThumb(document, index, version)
-                            }
-                            Column {
-                                IconButton({ onRotate(index, -90) }) {
-                                    Icon(painterResource(R.drawable.ic_rotate), "Rotate left")
-                                }
-                                IconButton({ onRotate(index, 90) }) {
-                                    Icon(
-                                        painterResource(R.drawable.ic_rotate), "Rotate right",
-                                        modifier = Modifier.graphicsLayer { scaleX = -1f },
-                                    )
-                                }
-                                IconButton({ onExtract(index) }) {
-                                    Icon(painterResource(R.drawable.ic_extract), "Extract")
-                                }
-                                IconButton({ keys.removeAt(index); onDelete(index) }) { IconDelete() }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ManagerThumb(document: SafePdfDocument, index: Int, version: Int) {
-    val page by produceState<SafePdfPage?>(null, index, version) {
-        value = if (index >= 0) document.renderPage(index) else null
-    }
-    val current = page
-    val ratio = if (current != null && current.height > 0f) current.width / current.height else 0.75f
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .aspectRatio(ratio)
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
-            .background(Color.White),
-    ) {
-        if (current == null || current.width <= 0f) {
-            CircularProgressIndicator(Modifier.align(Alignment.Center))
-        } else {
-            Canvas(Modifier.fillMaxSize()) { drawSafePage(current) }
-        }
-    }
-}
-
 /** Style picker: color palette + custom RGB, opacity, and line-width sliders.
  * Affects newly drawn annotations. */
 @Composable
@@ -2296,27 +2143,6 @@ private inline fun List<Offset>.toPath(map: (Offset) -> Offset): Path? {
         path.lineTo(p.x, p.y)
     }
     return path
-}
-
-/** Render a page to a PNG byte array at [widthPx] wide (white background). */
-private fun renderSafePagePng(page: SafePdfPage, widthPx: Int): ByteArray {
-    val w = widthPx.coerceAtLeast(1)
-    val h = (w * page.height / page.width).toInt().coerceAtLeast(1)
-    val img = androidx.compose.ui.graphics.ImageBitmap(w, h)
-    val canvas = androidx.compose.ui.graphics.Canvas(img)
-    androidx.compose.ui.graphics.drawscope.CanvasDrawScope().draw(
-        androidx.compose.ui.unit.Density(1f),
-        androidx.compose.ui.unit.LayoutDirection.Ltr,
-        canvas,
-        Size(w.toFloat(), h.toFloat()),
-    ) {
-        drawRect(Color.White, size = Size(w.toFloat(), h.toFloat()))
-        drawSafePage(page)
-    }
-    val bmp = img.asAndroidBitmap()
-    val out = ByteArrayOutputStream()
-    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
-    return out.toByteArray()
 }
 
 private class JpegImage(val bytes: ByteArray, val width: Int, val height: Int)
