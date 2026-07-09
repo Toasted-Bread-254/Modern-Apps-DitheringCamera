@@ -137,7 +137,7 @@ private sealed interface LoadState {
 }
 
 /** Editing tools. */
-private enum class EditTool { SELECT, TEXT, HIGHLIGHT, MARKUP, DRAW, SHAPE, LINE, POLYLINE, BEZIER, NOTE, CALLOUT, IMAGE }
+private enum class EditTool { SELECT, TEXT, HIGHLIGHT, MARKUP, DRAW, SHAPE, LINE, POLYLINE, BEZIER, NOTE, CALLOUT, REDACT, IMAGE }
 
 /** Text-markup variants for the [EditTool.MARKUP] tool. */
 private enum class MarkupKind { HIGHLIGHT, UNDERLINE, STRIKEOUT, SQUIGGLY }
@@ -1234,7 +1234,8 @@ private fun EditOverlay(
             val selectMove = tool == EditTool.SELECT && annotAt(start) != null
             val blockScroll =
                 tool == EditTool.HIGHLIGHT || tool == EditTool.MARKUP || tool == EditTool.SHAPE ||
-                    tool == EditTool.LINE || tool == EditTool.CALLOUT || tool == EditTool.DRAW || selectMove
+                    tool == EditTool.LINE || tool == EditTool.CALLOUT || tool == EditTool.REDACT ||
+                    tool == EditTool.DRAW || selectMove
             if (blockScroll) {
                 down.consume()
                 dragStart = start
@@ -1259,7 +1260,7 @@ private fun EditOverlay(
                     val consume = tool != EditTool.SELECT || selectMove
                     if (consume) change.consume()
                     when (tool) {
-                        EditTool.HIGHLIGHT, EditTool.MARKUP, EditTool.SHAPE, EditTool.LINE, EditTool.CALLOUT -> dragCurrent = pos
+                        EditTool.HIGHLIGHT, EditTool.MARKUP, EditTool.SHAPE, EditTool.LINE, EditTool.CALLOUT, EditTool.REDACT -> dragCurrent = pos
                         EditTool.DRAW -> { dragCurrent = pos; inkPoints = inkPoints + pos }
                         EditTool.SELECT -> if (selectMove) moveDelta += (pos - lastPos)
                         else -> {}
@@ -1374,6 +1375,15 @@ private fun EditOverlay(
                             onCreated(id); onEdited()
                         }
                     }
+                    EditTool.REDACT -> if (s != null && e != null) {
+                        val a = toPage(Offset(minOf(s.x, e.x), minOf(s.y, e.y)))
+                        val b = toPage(Offset(maxOf(s.x, e.x), maxOf(s.y, e.y)))
+                        scope.launch {
+                            // Opaque black filled rectangle (visual redaction).
+                            val id = document.addRect(index, a.x, a.y, b.x, b.y, 0xFF000000.toInt(), 0f, fill = true)
+                            onCreated(id); onEdited()
+                        }
+                    }
                     EditTool.DRAW -> {
                         val pts = inkPoints
                         if (pts.size >= 2) {
@@ -1450,6 +1460,14 @@ private fun EditOverlay(
         if (s != null && e != null && tool == EditTool.CALLOUT) {
             drawLine(color, s, e, strokeWidth = 2f)
             drawRect(color = color, topLeft = e, size = Size(120f, 40f), style = Stroke(width = 2f))
+        }
+        if (s != null && e != null && tool == EditTool.REDACT) {
+            drawRect(
+                color = Color.Black,
+                topLeft = Offset(minOf(s.x, e.x), minOf(s.y, e.y)),
+                size = Size(kotlin.math.abs(e.x - s.x), kotlin.math.abs(e.y - s.y)),
+                style = Fill,
+            )
         }
         if (s != null && e != null && tool == EditTool.SHAPE) {
             val rect = Rect(minOf(s.x, e.x), minOf(s.y, e.y), maxOf(s.x, e.x), maxOf(s.y, e.y))
@@ -1612,6 +1630,7 @@ private fun EditToolbar(
             linesMenuButton(tool = tool, onTool = onTool)
             toolButton(R.drawable.ic_note, "Note", tool == EditTool.NOTE) { onTool(EditTool.NOTE) }
             toolButton(R.drawable.ic_callout, "Callout", tool == EditTool.CALLOUT) { onTool(EditTool.CALLOUT) }
+            toolButton(R.drawable.ic_redact, "Redact", tool == EditTool.REDACT) { onTool(EditTool.REDACT) }
             toolButton(R.drawable.ic_tool_image, "Image", tool == EditTool.IMAGE) { onTool(EditTool.IMAGE) }
 
             for (c in listOf(Color.Red, Color.Yellow, Color.Blue, Color.Black)) {
