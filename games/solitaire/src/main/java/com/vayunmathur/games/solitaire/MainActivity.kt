@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -57,6 +58,8 @@ import com.vayunmathur.library.util.NavKey
 import com.vayunmathur.library.util.rememberNavBackStack
 import kotlinx.coroutines.delay
 import kotlinx.serialization.Serializable
+
+private val SolitaireBoardMaxWidth = 640.dp
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -313,7 +316,14 @@ fun GameScreen(backStack: NavBackStack<Route>, viewModel: SolitaireViewModel, mo
 
                 when (mode) {
                     GameMode.KLONDIKE -> uiState.klondike?.let {
-                        KlondikeBoard(it, viewModel, Modifier.fillMaxWidth())
+                        KlondikeBoard(
+                            it,
+                            viewModel,
+                            Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .widthIn(max = SolitaireBoardMaxWidth)
+                                .fillMaxWidth()
+                        )
                         if (!it.isWon && it.tableauPiles.none { p -> p.faceDown.isNotEmpty() }) {
                             Button(
                                 onClick = { viewModel.klondikeAutoComplete() },
@@ -324,10 +334,24 @@ fun GameScreen(backStack: NavBackStack<Route>, viewModel: SolitaireViewModel, mo
                         }
                     }
                     GameMode.SPIDER -> uiState.spider?.let {
-                        SpiderBoard(it, viewModel, Modifier.fillMaxWidth())
+                        SpiderBoard(
+                            it,
+                            viewModel,
+                            Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .widthIn(max = SolitaireBoardMaxWidth)
+                                .fillMaxWidth()
+                        )
                     }
                     GameMode.FREECELL -> uiState.freeCell?.let {
-                        FreeCellBoard(it, viewModel, Modifier.fillMaxWidth())
+                        FreeCellBoard(
+                            it,
+                            viewModel,
+                            Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .widthIn(max = SolitaireBoardMaxWidth)
+                                .fillMaxWidth()
+                        )
                     }
                 }
             }
