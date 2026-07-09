@@ -1425,46 +1425,113 @@ private fun NonEditOverlay(
         )
     }
 
-    // Drag-to-select text: copies text primitives inside the drawn rectangle.
+    // Glyph-level text selection with draggable handles.
     if (selectText) {
-        var start by remember { mutableStateOf<Offset?>(null) }
-        var cur by remember { mutableStateOf<Offset?>(null) }
-        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-        Canvas(
-            Modifier.fillMaxSize().pointerInput(page) {
-                detectDragGestures(
-                    onDragStart = { start = it; cur = it },
-                    onDrag = { change, _ -> cur = change.position; change.consume() },
-                    onDragEnd = {
-                        val s = start; val e = cur
-                        if (s != null && e != null) {
-                            val left = minOf(s.x, e.x) / scale
-                            val right = maxOf(s.x, e.x) / scale
-                            val top = (ch - minOf(s.y, e.y)) / scale
-                            val bottom = (ch - maxOf(s.y, e.y)) / scale
-                            val picked = page.primitives.filterIsInstance<PdfPrimitive.Text>()
-                                .filter { it.origin.x in left..right && it.origin.y in bottom..top }
-                                .sortedWith(compareByDescending<PdfPrimitive.Text> { it.origin.y }.thenBy { it.origin.x })
-                                .joinToString(" ") { it.text }
-                            if (picked.isNotBlank()) {
-                                clipboard.setText(androidx.compose.ui.text.AnnotatedString(picked))
-                                android.widget.Toast.makeText(context, "Copied text", android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                        start = null; cur = null
-                    },
-                )
-            },
-        ) {
-            val s = start; val e = cur
-            if (s != null && e != null) {
-                drawRect(
-                    color = Color(0x552196F3),
-                    topLeft = Offset(minOf(s.x, e.x), minOf(s.y, e.y)),
-                    size = Size(kotlin.math.abs(e.x - s.x), kotlin.math.abs(e.y - s.y)),
-                )
+        TextSelectionLayer(page = page, ch = ch, scale = scale)
+    }
+}
+
+/** A single selectable glyph in reading order, with its on-screen rect. */
+private data class SelGlyph(val ch: Char, val left: Float, val top: Float, val right: Float, val bottom: Float)
+
+/**
+ * Glyph-level selection over a page's text primitives: drag to select a range in
+ * reading order, adjust with the two handles, and copy the exact substring.
+ * Per-glyph x positions are approximated from the run width (no font metrics).
+ */
+@Composable
+private fun TextSelectionLayer(page: SafePdfPage, ch: Float, scale: Float) {
+    val context = LocalContext.current
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    // Build ordered glyphs once per page/scale.
+    val glyphs = remember(page, scale, ch) {
+        val list = ArrayList<Triple<Float, Float, SelGlyph>>() // (orderY, orderX, glyph)
+        for (prim in page.primitives) {
+            if (prim !is PdfPrimitive.Text || prim.text.isEmpty()) continue
+            val cw = prim.size * 0.5f
+            prim.text.forEachIndexed { i, c ->
+                val px = prim.origin.x + i * cw
+                val left = px * scale
+                val right = (px + cw) * scale
+                val baseline = ch - prim.origin.y * scale
+                val top = baseline - prim.size * scale
+                list.add(Triple(-prim.origin.y, px, SelGlyph(c, left, top, right, baseline)))
             }
         }
+        list.sortWith(compareBy({ it.first }, { it.second }))
+        list.map { it.third }
+    }
+    if (glyphs.isEmpty()) return
+
+    var range by remember(page) { mutableStateOf<IntRange?>(null) }
+    var dragEnd by remember(page) { mutableStateOf(true) } // which handle is moving
+
+    fun nearest(p: Offset): Int {
+        var best = 0
+        var bestD = Float.MAX_VALUE
+        glyphs.forEachIndexed { i, g ->
+            val cx = (g.left + g.right) / 2f
+            val cy = (g.top + g.bottom) / 2f
+            val d = (cx - p.x) * (cx - p.x) + (cy - p.y) * (cy - p.y)
+            if (d < bestD) { bestD = d; best = i }
+        }
+        return best
+    }
+
+    Canvas(
+        Modifier.fillMaxSize().pointerInput(glyphs) {
+            detectDragGestures(
+                onDragStart = { pos ->
+                    val r = range
+                    // Grab an existing handle if the touch is near one, else start fresh.
+                    if (r != null) {
+                        val startG = glyphs[r.first]
+                        val endG = glyphs[r.last]
+                        val dStart = kotlin.math.hypot(startG.left - pos.x, startG.bottom - pos.y)
+                        val dEnd = kotlin.math.hypot(endG.right - pos.x, endG.bottom - pos.y)
+                        if (minOf(dStart, dEnd) < 60f) {
+                            dragEnd = dEnd <= dStart
+                            return@detectDragGestures
+                        }
+                    }
+                    val i = nearest(pos)
+                    range = i..i
+                    dragEnd = true
+                },
+                onDrag = { change, _ ->
+                    change.consume()
+                    val i = nearest(change.position)
+                    val r = range ?: (i..i)
+                    range = if (dragEnd) minOf(r.first, i)..maxOf(r.first, i)
+                    else minOf(i, r.last)..maxOf(i, r.last)
+                },
+                onDragEnd = {
+                    val r = range
+                    if (r != null) {
+                        val text = glyphs.subList(r.first, r.last + 1).joinToString("") { it.ch.toString() }
+                        if (text.isNotBlank()) {
+                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
+                            android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+            )
+        },
+    ) {
+        val r = range ?: return@Canvas
+        for (i in r) {
+            val g = glyphs[i]
+            drawRect(
+                color = Color(0x553F51B5),
+                topLeft = Offset(g.left, g.top),
+                size = Size(g.right - g.left, g.bottom - g.top),
+            )
+        }
+        // Handles at the two ends.
+        val s = glyphs[r.first]
+        val e = glyphs[r.last]
+        drawCircle(Color(0xFF3F51B5), radius = 14f, center = Offset(s.left, s.bottom))
+        drawCircle(Color(0xFF3F51B5), radius = 14f, center = Offset(e.right, e.bottom))
     }
 }
 
