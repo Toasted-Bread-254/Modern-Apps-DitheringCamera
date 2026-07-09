@@ -112,12 +112,15 @@ fun InitialDownloadScreen(
     }
 }
 
+private const val SPEED_WINDOW_MS = 4000L
+
 private class Active(
     val fileName: String,
     val id: Long,
-    var lastBytes: Long,
-    var lastTime: Long,
-)
+) {
+    /** Recent (timeMs, bytesSoFar) samples for a moving-average download speed. */
+    val samples = ArrayDeque<Pair<Long, Long>>()
+}
 
 /**
  * Drive the initial downloads with Android's [DownloadManager]. Gating is by
@@ -168,7 +171,7 @@ private suspend fun runDownloadsCore(
         } else {
             enqueue(dm, context, ds, url, fileName)
         }
-        active += Active(fileName, id, 0L, System.currentTimeMillis())
+        active += Active(fileName, id)
     }
 
     while (active.isNotEmpty()) {
@@ -202,12 +205,18 @@ private suspend fun runDownloadsCore(
                     else -> {
                         val progress = if (total > 0) soFar.toDouble() / total else 0.0
                         ds.setDouble("progress_${a.fileName}", progress)
-                        val dt = (now - a.lastTime) / 1000.0
-                        if (dt > 0) {
-                            val speedMbps = ((soFar - a.lastBytes) * 8.0) / 1_000_000.0 / dt
+                        // Moving-average speed over the last SPEED_WINDOW_MS so the
+                        // reading stays stable even when a poll tick reports no new
+                        // bytes (DownloadManager updates in bursts).
+                        a.samples.addLast(now to soFar)
+                        while (a.samples.size > 1 && now - a.samples.first().first > SPEED_WINDOW_MS) {
+                            a.samples.removeFirst()
+                        }
+                        val (oldestTime, oldestBytes) = a.samples.first()
+                        val spanSec = (now - oldestTime) / 1000.0
+                        if (spanSec >= 0.5) {
+                            val speedMbps = ((soFar - oldestBytes) * 8.0) / 1_000_000.0 / spanSec
                             ds.setDouble("speed_${a.fileName}", speedMbps.coerceAtLeast(0.0))
-                            a.lastBytes = soFar
-                            a.lastTime = now
                         }
                     }
                 }
