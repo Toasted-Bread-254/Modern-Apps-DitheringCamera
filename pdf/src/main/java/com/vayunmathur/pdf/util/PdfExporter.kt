@@ -3,11 +3,16 @@ package com.vayunmathur.pdf.util
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.ImageDecoder
 import android.graphics.Matrix
+import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.util.Log
+import com.vayunmathur.library.ocr.OcrEngine
 import com.vayunmathur.pdf.model.CapturedImage
 import com.vayunmathur.pdf.model.Quadrilateral
 import kotlinx.coroutines.Dispatchers
@@ -15,8 +20,18 @@ import kotlinx.coroutines.withContext
 import java.io.FileOutputStream
 import kotlin.math.roundToInt
 
-suspend fun savePdfToUri(context: Context, images: List<CapturedImage>, targetUri: Uri): Boolean = withContext(Dispatchers.IO) {
+/** Post-processing filter applied to each scanned page before export. */
+enum class ScanFilter { NONE, GRAYSCALE, BW, CONTRAST }
+
+suspend fun savePdfToUri(
+    context: Context,
+    images: List<CapturedImage>,
+    targetUri: Uri,
+    filter: ScanFilter = ScanFilter.NONE,
+    addOcr: Boolean = false,
+): Boolean = withContext(Dispatchers.IO) {
     val pdfDocument = PdfDocument()
+    val ocr = if (addOcr) OcrEngine(context).takeIf { it.isAvailable() } else null
     try {
         images.forEachIndexed { index, capturedImage ->
             val uri = capturedImage.uri
@@ -27,11 +42,9 @@ suspend fun savePdfToUri(context: Context, images: List<CapturedImage>, targetUr
                 val bitmap = ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
                     decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                 }
-                
-                // Determine crop dimensions
+
                 val (cropWidth, cropHeight) = when {
                     quadrilateral != null -> {
-                        // For quadrilateral, use bounding box dimensions
                         val bounds = quadrilateral.toBoundingRect()
                         bitmap.width * bounds.width to bitmap.height * bounds.height
                     }
@@ -39,20 +52,19 @@ suspend fun savePdfToUri(context: Context, images: List<CapturedImage>, targetUr
                     else -> bitmap.width.toFloat() to bitmap.height.toFloat()
                 }
 
-                // Scale the image so its longest side matches the longest side of A4 (842 points).
                 val a4LongSide = 842f
                 val scale = a4LongSide / maxOf(cropWidth, cropHeight)
-                
                 val targetWidth = (cropWidth * scale).toInt().coerceAtLeast(1)
                 val targetHeight = (cropHeight * scale).toInt().coerceAtLeast(1)
 
-                val pageInfo = PdfDocument.PageInfo.Builder(targetWidth, targetHeight, index + 1).create()
-                val page = pdfDocument.startPage(pageInfo)
-
+                // Render the (warped/cropped/full) source into a page-sized bitmap.
+                val pageBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+                val pageCanvas = Canvas(pageBitmap)
+                pageCanvas.drawColor(Color.WHITE)
                 when {
                     quadrilateral != null -> {
                         val warped = warpQuadToBitmap(bitmap, quadrilateral, targetWidth, targetHeight)
-                        page.canvas.drawBitmap(warped, 0f, 0f, null)
+                        pageCanvas.drawBitmap(warped, 0f, 0f, null)
                         warped.recycle()
                     }
                     crop != null -> {
@@ -60,19 +72,28 @@ suspend fun savePdfToUri(context: Context, images: List<CapturedImage>, targetUr
                             (crop.left * bitmap.width).roundToInt(),
                             (crop.top * bitmap.height).roundToInt(),
                             (crop.right * bitmap.width).roundToInt(),
-                            (crop.bottom * bitmap.height).roundToInt()
+                            (crop.bottom * bitmap.height).roundToInt(),
                         )
-                        val dstRect = android.graphics.Rect(0, 0, targetWidth, targetHeight)
-                        page.canvas.drawBitmap(bitmap, srcRect, dstRect, null)
+                        pageCanvas.drawBitmap(bitmap, srcRect, android.graphics.Rect(0, 0, targetWidth, targetHeight), null)
                     }
                     else -> {
                         val matrix = Matrix()
                         matrix.postScale(scale, scale)
-                        page.canvas.drawBitmap(bitmap, matrix, null)
+                        pageCanvas.drawBitmap(bitmap, matrix, null)
                     }
+                }
+                applyScanFilter(pageBitmap, filter)
+
+                val pageInfo = PdfDocument.PageInfo.Builder(targetWidth, targetHeight, index + 1).create()
+                val page = pdfDocument.startPage(pageInfo)
+                page.canvas.drawBitmap(pageBitmap, 0f, 0f, null)
+
+                if (ocr != null) {
+                    drawOcrTextLayer(page.canvas, ocr.recognizeDetailed(pageBitmap))
                 }
 
                 pdfDocument.finishPage(page)
+                pageBitmap.recycle()
                 bitmap.recycle()
             } catch (e: Exception) {
                 Log.e("PdfExporter", "Error processing image $uri", e)
@@ -80,9 +101,7 @@ suspend fun savePdfToUri(context: Context, images: List<CapturedImage>, targetUr
         }
 
         context.contentResolver.openFileDescriptor(targetUri, "w")?.use { pfd ->
-            FileOutputStream(pfd.fileDescriptor).use { fos ->
-                pdfDocument.writeTo(fos)
-            }
+            FileOutputStream(pfd.fileDescriptor).use { fos -> pdfDocument.writeTo(fos) }
         }
         true
     } catch (e: Exception) {
@@ -90,6 +109,56 @@ suspend fun savePdfToUri(context: Context, images: List<CapturedImage>, targetUr
         false
     } finally {
         pdfDocument.close()
+        ocr?.close()
+    }
+}
+
+/** Apply a scan [filter] to [bmp] in place (via a filtered self-copy). */
+private fun applyScanFilter(bmp: Bitmap, filter: ScanFilter) {
+    if (filter == ScanFilter.NONE) return
+    val matrix = when (filter) {
+        ScanFilter.GRAYSCALE, ScanFilter.BW -> ColorMatrix().apply { setSaturation(0f) }
+        ScanFilter.CONTRAST -> ColorMatrix(
+            floatArrayOf(
+                1.5f, 0f, 0f, 0f, -50f,
+                0f, 1.5f, 0f, 0f, -50f,
+                0f, 0f, 1.5f, 0f, -50f,
+                0f, 0f, 0f, 1f, 0f,
+            )
+        )
+        ScanFilter.NONE -> return
+    }
+    if (filter == ScanFilter.BW) {
+        // Strong contrast after desaturation approximates a bilevel scan.
+        matrix.postConcat(
+            ColorMatrix(
+                floatArrayOf(
+                    4f, 0f, 0f, 0f, -430f,
+                    0f, 4f, 0f, 0f, -430f,
+                    0f, 0f, 4f, 0f, -430f,
+                    0f, 0f, 0f, 1f, 0f,
+                )
+            )
+        )
+    }
+    val copy = bmp.copy(Bitmap.Config.ARGB_8888, false)
+    val paint = Paint().apply { colorFilter = ColorMatrixColorFilter(matrix) }
+    Canvas(bmp).drawBitmap(copy, 0f, 0f, paint)
+    copy.recycle()
+}
+
+/** Draw an invisible (transparent) OCR text layer so scans are selectable/searchable. */
+private fun drawOcrTextLayer(canvas: Canvas, result: OcrEngine.OcrResult) {
+    val paint = Paint().apply { color = Color.argb(0, 0, 0, 0) }
+    for (b in result.boxes) {
+        val bw = (b.right - b.left).toFloat()
+        val bh = (b.bottom - b.top).toFloat()
+        if (bw <= 1f || bh <= 1f || b.text.isBlank()) continue
+        paint.textScaleX = 1f
+        paint.textSize = bh * 0.8f
+        val measured = paint.measureText(b.text)
+        if (measured > 0f) paint.textScaleX = bw / measured
+        canvas.drawText(b.text, b.left.toFloat(), b.bottom.toFloat() - bh * 0.15f, paint)
     }
 }
 

@@ -24,10 +24,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -92,11 +94,14 @@ fun CapturePdfScreen(
     }
 
     val pendingTargetUri = remember { mutableStateOf<Uri?>(null) }
+    var scanFilter by remember { mutableStateOf(com.vayunmathur.pdf.util.ScanFilter.NONE) }
+    var addOcr by remember { mutableStateOf(false) }
+    var showScanOptions by remember { mutableStateOf(false) }
 
     val createDocumentLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         uri?.let { targetUri ->
             pendingTargetUri.value = targetUri
-            viewModel.exportCapturedPdf(targetUri)
+            viewModel.exportCapturedPdf(targetUri, scanFilter, addOcr)
         }
     }
 
@@ -168,6 +173,33 @@ fun CapturePdfScreen(
                                 IconUpload()
                             }
                             if (images.isNotEmpty()) {
+                                Box {
+                                    IconButton(onClick = { showScanOptions = true }) {
+                                        Icon(painterResource(R.drawable.ic_overflow), contentDescription = "Scan options")
+                                    }
+                                    androidx.compose.material3.DropdownMenu(
+                                        expanded = showScanOptions,
+                                        onDismissRequest = { showScanOptions = false },
+                                    ) {
+                                        for (f in com.vayunmathur.pdf.util.ScanFilter.entries) {
+                                            androidx.compose.material3.DropdownMenuItem(
+                                                leadingIcon = {
+                                                    if (scanFilter == f) Icon(painterResource(R.drawable.ic_tool_select), null)
+                                                },
+                                                text = { Text(f.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                                                onClick = { scanFilter = f },
+                                            )
+                                        }
+                                        androidx.compose.material3.HorizontalDivider()
+                                        androidx.compose.material3.DropdownMenuItem(
+                                            leadingIcon = {
+                                                if (addOcr) Icon(painterResource(R.drawable.ic_tool_select), null)
+                                            },
+                                            text = { Text("Searchable (OCR)") },
+                                            onClick = { addOcr = !addOcr },
+                                        )
+                                    }
+                                }
                                 IconButton(onClick = {
                                     createDocumentLauncher.launch("captured_${System.currentTimeMillis()}.pdf")
                                 }) {

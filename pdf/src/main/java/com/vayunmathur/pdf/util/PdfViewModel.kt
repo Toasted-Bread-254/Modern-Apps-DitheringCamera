@@ -66,11 +66,15 @@ class PdfViewModel(application: Application) : AndroidViewModel(application) {
     private val _pdfWriteResults = MutableSharedFlow<PdfWriteResult>(extraBufferCapacity = 1)
     val pdfWriteResults: SharedFlow<PdfWriteResult> = _pdfWriteResults.asSharedFlow()
 
-    fun exportCapturedPdf(targetUri: Uri) {
+    fun exportCapturedPdf(
+        targetUri: Uri,
+        filter: ScanFilter = ScanFilter.NONE,
+        addOcr: Boolean = false,
+    ) {
         val snapshot = _capturedImages.value
         val ctx = getApplication<Application>()
         viewModelScope.launch {
-            val ok = savePdfToUri(ctx, snapshot, targetUri)
+            val ok = savePdfToUri(ctx, snapshot, targetUri, filter, addOcr)
             _pdfWriteResults.emit(PdfWriteResult(targetUri, ok))
         }
     }
