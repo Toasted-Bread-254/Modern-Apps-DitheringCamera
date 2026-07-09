@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.weather.R
 import com.vayunmathur.weather.Route
+import com.vayunmathur.weather.network.RegionTimezone
+import com.vayunmathur.weather.network.WeatherApi
 import com.vayunmathur.weather.map.DwdIconGlobal
 import com.vayunmathur.weather.map.OmMapMetadata
 import com.vayunmathur.weather.map.OmTilesNative
@@ -51,8 +53,8 @@ import com.vayunmathur.weather.map.omFileUrl
 import com.vayunmathur.weather.map.omVariable
 import com.vayunmathur.weather.util.WeatherMetric
 import com.vayunmathur.weather.util.colorRamp
-import com.vayunmathur.weather.util.formatSelectedHourLabel
-import com.vayunmathur.weather.util.graphableMetrics
+import com.vayunmathur.weather.util.formatInstantInZone
+import com.vayunmathur.weather.util.mapMetrics
 import com.vayunmathur.weather.util.metricValueFormatter
 import com.vayunmathur.weather.util.rememberPressureUnit
 import com.vayunmathur.weather.util.rememberTempUnit
@@ -65,6 +67,7 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.TimeZone
 import org.maplibre.compose.camera.CameraPosition
 import org.maplibre.compose.camera.rememberCameraState
 import org.maplibre.compose.expressions.dsl.const
@@ -92,6 +95,13 @@ import org.maplibre.spatialk.geojson.Position
 
 /** Longest side (px) of the decoded/colorized overlay raster. */
 private const val RASTER_MAX_DIM = 512
+
+/**
+ * Minimum camera zoom before the map resolves and shows the zoomed-in region's
+ * local time. Below this the viewport spans multiple zones, so a single
+ * region's time would be misleading. The initial camera zoom is 7 (≈ regional).
+ */
+private const val MIN_ZOOM_FOR_REGION_TZ = 7.0
 
 /** Muted, keyless raster basemap. Isolated here so the provider is swappable. */
 private const val BASEMAP_TILE_URL =
@@ -148,7 +158,11 @@ fun WeatherMapPage(
     val domain = DwdIconGlobal
 
     var selectedMetric by remember {
-        mutableStateOf(runCatching { WeatherMetric.valueOf(metric) }.getOrDefault(WeatherMetric.Temperature))
+        mutableStateOf(
+            runCatching { WeatherMetric.valueOf(metric) }
+                .getOrDefault(WeatherMetric.Temperature)
+                .takeIf { it in mapMetrics } ?: WeatherMetric.Temperature,
+        )
     }
 
     // north-up, no tilt so the axis-aligned image quad stays correct.
@@ -164,6 +178,13 @@ fun WeatherMapPage(
     var overlayQuad by remember { mutableStateOf<PositionQuad?>(null) }
     var loading by remember { mutableStateOf(false) }
 
+    // The viewer's own zone: the primary time label is always shown in it.
+    val userZone = remember { TimeZone.currentSystemDefault() }
+    // The zone of the map center, resolved only when sufficiently zoomed in.
+    var regionTz by remember { mutableStateOf<RegionTimezone?>(null) }
+    // Cache region lookups by ~0.1° center so panning doesn't re-hit the API.
+    val tzCache = remember { mutableMapOf<String, RegionTimezone>() }
+
     // Cache decoded regions by (rounded bbox, variable, valid_time) so panning
     // back and forth (or re-selecting a measure/time) doesn't re-fetch.
     val cache = remember { mutableMapOf<String, DecodedRegion>() }
@@ -171,7 +192,7 @@ fun WeatherMapPage(
     val styleJson = remember { rasterStyleJson() }
 
     val supportedMetrics = remember(metadata) {
-        metadata?.let { m -> graphableMetrics.filter { m.supports(it) } } ?: graphableMetrics
+        metadata?.let { m -> mapMetrics.filter { m.supports(it) } } ?: mapMetrics
     }
     val times = metadata?.validTimes.orEmpty()
 
@@ -191,7 +212,7 @@ fun WeatherMapPage(
             // The incoming measure may not exist in this model run (e.g. UV,
             // dew point). Fall back to a supported one so the map isn't blank.
             if (!meta.supports(selectedMetric)) {
-                val fallback = graphableMetrics.firstOrNull { meta.supports(it) }
+                val fallback = mapMetrics.firstOrNull { meta.supports(it) }
                 if (fallback != null) selectedMetric = fallback
             }
         }
@@ -204,6 +225,32 @@ fun WeatherMapPage(
             .debounce(400)
             .collectLatest { (_, projection) ->
                 visibleBbox = projection?.queryVisibleBoundingBox()
+            }
+    }
+
+    // Resolve the map center's time zone when zoomed in enough, so the panel
+    // can show the region's local time alongside the viewer's. Cleared (falls
+    // back to viewer-only) when zoomed out past the threshold.
+    LaunchedEffect(camera) {
+        snapshotFlow { camera.position.target to camera.position.zoom }
+            .debounce(500)
+            .collectLatest { (target, zoom) ->
+                if (zoom < MIN_ZOOM_FOR_REGION_TZ) {
+                    regionTz = null
+                    return@collectLatest
+                }
+                val key = "${(target.latitude * 10).roundToInt()},${(target.longitude * 10).roundToInt()}"
+                tzCache[key]?.let {
+                    regionTz = it
+                    return@collectLatest
+                }
+                val tz = withContext(Dispatchers.IO) {
+                    runCatching { WeatherApi.timezoneAt(target.latitude, target.longitude) }.getOrNull()
+                }
+                if (tz?.timezone != null) {
+                    tzCache[key] = tz
+                    regionTz = tz
+                }
             }
     }
 
@@ -334,12 +381,31 @@ fun WeatherMapPage(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 val currentIso = times.getOrNull(timeIndex)
-                Text(
-                    text = currentIso?.let { formatValidTimeLabel(it, use24Hour) }
-                        ?: stringResource(R.string.map_time),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+                if (currentIso != null) {
+                    Text(
+                        text = formatInstantInZone(currentIso, userZone, use24Hour),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    val region = regionTz
+                    val regionZone = region?.timezone?.let {
+                        runCatching { TimeZone.of(it) }.getOrNull()
+                    }
+                    if (regionZone != null && regionZone.id != userZone.id) {
+                        val abbrev = region.abbreviation?.let { " · $it" }.orEmpty()
+                        Text(
+                            text = formatInstantInZone(currentIso, regionZone, use24Hour) + abbrev,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    Text(
+                        text = stringResource(R.string.map_time),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
                 if (times.size > 1) {
                     Slider(
                         value = timeIndex.toFloat(),
@@ -444,15 +510,6 @@ private fun rasterSize(bbox: BoundingBox): Pair<Int, Int> {
 private fun cacheKey(bbox: BoundingBox, variable: String, validTime: String): String {
     fun r(v: Double) = (v * 10).roundToInt()
     return "$variable@$validTime:${r(bbox.north)},${r(bbox.south)},${r(bbox.east)},${r(bbox.west)}"
-}
-
-/**
- * Format a UTC `valid_time` (e.g. `2026-07-01T18:00Z`) for the time label.
- * Values are model UTC steps, so the label is suffixed with `UTC`.
- */
-private fun formatValidTimeLabel(validTime: String, use24Hour: Boolean): String {
-    val local = validTime.removeSuffix("Z")
-    return "${formatSelectedHourLabel(local, use24Hour)} UTC"
 }
 
 /**

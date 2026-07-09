@@ -106,8 +106,13 @@ val WeatherMetric.colorRamp: List<ColorStop>
         )
     }
 
-/** All metrics that can be shaded on the map (every graphable metric). */
-val graphableMetrics: List<WeatherMetric> = WeatherMetric.entries
+/**
+ * Metrics that can be shaded on the map. Precipitation and wind gusts are
+ * excluded: the DWD ICON `.om` spatial fields for them don't render usefully.
+ */
+val mapMetrics: List<WeatherMetric> = WeatherMetric.entries.filter {
+    it != WeatherMetric.Precipitation && it != WeatherMetric.WindGusts
+}
 
 /**
  * Per-metric display formatter for a raw metric value, honoring the user's
