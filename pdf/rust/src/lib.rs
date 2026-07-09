@@ -91,20 +91,20 @@ enum DecryptStatus {
     Unsupported,
 }
 
-/// Apply RC4 to every string and stream inside `obj` (symmetric).
-fn crypt_object(obj: &mut Object, okey: &[u8]) {
+/// Apply a cipher (`apply`) to every string and stream inside `obj`.
+fn crypt_object(obj: &mut Object, apply: &dyn Fn(&[u8]) -> Vec<u8>) {
     match obj {
-        Object::String(s, _) => *s = crypto::rc4(okey, s),
+        Object::String(s, _) => *s = apply(s),
         Object::Array(a) => {
             for o in a.iter_mut() {
-                crypt_object(o, okey);
+                crypt_object(o, apply);
             }
         }
         Object::Dictionary(d) => {
             let keys: Vec<Vec<u8>> = d.iter().map(|(k, _)| k.clone()).collect();
             for k in keys {
                 if let Ok(v) = d.get_mut(&k) {
-                    crypt_object(v, okey);
+                    crypt_object(v, apply);
                 }
             }
         }
@@ -112,10 +112,10 @@ fn crypt_object(obj: &mut Object, okey: &[u8]) {
             let keys: Vec<Vec<u8>> = st.dict.iter().map(|(k, _)| k.clone()).collect();
             for k in keys {
                 if let Ok(v) = st.dict.get_mut(&k) {
-                    crypt_object(v, okey);
+                    crypt_object(v, apply);
                 }
             }
-            st.content = crypto::rc4(okey, &st.content);
+            st.content = apply(&st.content);
         }
         _ => {}
     }
@@ -131,13 +131,20 @@ fn trailer_id0(doc: &Document) -> Vec<u8> {
     Vec::new()
 }
 
-/// Decrypt a standard-RC4-encrypted document in place with `password`.
+#[derive(Clone, Copy, PartialEq)]
+enum CryptMethod {
+    Rc4,
+    AesV2,
+    AesV3,
+}
+
+/// Decrypt a standard-encrypted document (RC4 or AES) in place with `password`.
 fn decrypt_in_place(doc: &mut Document, password: &[u8]) -> DecryptStatus {
     let enc_id = match doc.trailer.get(b"Encrypt").and_then(|o| o.as_reference()) {
         Ok(id) => id,
         Err(_) => return DecryptStatus::Unsupported,
     };
-    let (o, u, p, v, r, length) = {
+    let (o, u, ue, p, r, length, method) = {
         let enc = match doc.get_dictionary(enc_id) {
             Ok(d) => d,
             Err(_) => return DecryptStatus::Unsupported,
@@ -148,21 +155,50 @@ fn decrypt_in_place(doc: &mut Document, password: &[u8]) -> DecryptStatus {
         }
         let v = enc.get(b"V").ok().and_then(num).unwrap_or(0.0) as i64;
         let r = enc.get(b"R").ok().and_then(num).unwrap_or(0.0) as i64;
-        if v >= 4 || r >= 5 {
-            return DecryptStatus::Unsupported; // AES / newer handlers
-        }
+        // Determine the crypt method.
+        let method = if v >= 5 {
+            CryptMethod::AesV3
+        } else if v == 4 {
+            // Read /CF /StdCF /CFM.
+            let cfm = enc
+                .get(b"CF")
+                .ok()
+                .and_then(|o| o.as_dict().ok())
+                .and_then(|cf| cf.get(b"StdCF").ok())
+                .and_then(|s| s.as_dict().ok())
+                .and_then(|s| s.get(b"CFM").ok())
+                .and_then(|o| o.as_name().ok());
+            match cfm {
+                Some(b) if b == b"AESV3" => CryptMethod::AesV3,
+                Some(b) if b == b"AESV2" => CryptMethod::AesV2,
+                Some(b) if b == b"V2" => CryptMethod::Rc4,
+                _ => return DecryptStatus::Unsupported,
+            }
+        } else {
+            CryptMethod::Rc4
+        };
         let o = enc.get(b"O").ok().and_then(|o| o.as_str().ok()).map(|s| s.to_vec()).unwrap_or_default();
         let u = enc.get(b"U").ok().and_then(|o| o.as_str().ok()).map(|s| s.to_vec()).unwrap_or_default();
+        let ue = enc.get(b"UE").ok().and_then(|o| o.as_str().ok()).map(|s| s.to_vec()).unwrap_or_default();
         let p = enc.get(b"P").ok().and_then(num).unwrap_or(0.0) as i32;
-        let length = enc.get(b"Length").ok().and_then(num).unwrap_or(40.0) as usize;
-        (o, u, p, v, r, length)
+        let default_len = if method == CryptMethod::AesV2 { 128.0 } else { 40.0 };
+        let length = enc.get(b"Length").ok().and_then(num).unwrap_or(default_len) as usize;
+        (o, u, ue, p, r, length, method)
     };
-    let _ = v;
-    let n = (length / 8).clamp(5, 16);
+
     let id0 = trailer_id0(doc);
-    let key = match crypto::authenticate(password, &o, &u, p, &id0, n, r as u8) {
-        Some(k) => k,
-        None => return DecryptStatus::NeedPassword,
+    let n = if method == CryptMethod::AesV2 { 16 } else { (length / 8).clamp(5, 16) };
+
+    // Derive the file key.
+    let key = match method {
+        CryptMethod::AesV3 => match crypto::authenticate_v5(password, &u, &ue, r as u8) {
+            Some(k) => k,
+            None => return DecryptStatus::NeedPassword,
+        },
+        _ => match crypto::authenticate(password, &o, &u, p, &id0, n, r as u8) {
+            Some(k) => k,
+            None => return DecryptStatus::NeedPassword,
+        },
     };
 
     let ids: Vec<ObjectId> = doc.objects.keys().copied().collect();
@@ -170,9 +206,22 @@ fn decrypt_in_place(doc: &mut Document, password: &[u8]) -> DecryptStatus {
         if id == enc_id {
             continue;
         }
-        let okey = crypto::object_key(&key, id.0, id.1, n);
+        let apply: Box<dyn Fn(&[u8]) -> Vec<u8>> = match method {
+            CryptMethod::Rc4 => {
+                let okey = crypto::object_key(&key, id.0, id.1, n);
+                Box::new(move |d: &[u8]| crypto::rc4(&okey, d))
+            }
+            CryptMethod::AesV2 => {
+                let okey = crypto::object_key_aes(&key, id.0, id.1, n);
+                Box::new(move |d: &[u8]| crypto::aes_cbc_decrypt(&okey, d))
+            }
+            CryptMethod::AesV3 => {
+                let k = key.clone();
+                Box::new(move |d: &[u8]| crypto::aes_cbc_decrypt(&k, d))
+            }
+        };
         if let Some(obj) = doc.objects.get_mut(&id) {
-            crypt_object(obj, &okey);
+            crypt_object(obj, &apply);
         }
     }
     doc.trailer.remove(b"Encrypt");
@@ -230,8 +279,9 @@ fn save_encrypted(handle: i64, user_pw: &[u8], owner_pw: &[u8]) -> Option<Vec<u8
             continue;
         }
         let okey = crypto::object_key(&key, id.0, id.1, n);
+        let apply = move |d: &[u8]| crypto::rc4(&okey, d);
         if let Some(obj) = doc.objects.get_mut(&id) {
-            crypt_object(obj, &okey);
+            crypt_object(obj, &apply);
         }
     }
     doc.trailer.set("Encrypt", Object::Reference(enc_id));

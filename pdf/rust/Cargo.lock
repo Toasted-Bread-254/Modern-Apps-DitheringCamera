@@ -628,10 +628,13 @@ dependencies = [
 name = "pdf_render"
 version = "0.1.0"
 dependencies = [
+ "aes",
+ "cbc",
  "jni",
  "lopdf",
  "md-5",
  "openjp2",
+ "sha2",
 ]
 
 [[package]]
