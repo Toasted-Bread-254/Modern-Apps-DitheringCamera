@@ -48,4 +48,5 @@
         <item quantity="other">%1$d inimest</item>
     </plurals>
     <string name="photo_widget_description">Fotod sinu galeriist - klõpsa ja seadista</string>
+    <string name="openassistant_needs_update">Kui soovid kasutada tehisarupõhist fotootsingut, uuenda OpenAssistanti rakendus.</string>
 </resources>
