@@ -85,6 +85,12 @@ sealed interface GMEvent {
         val senderId: String? = null,
         /** Inline media attachments to render (URL-based). Empty = none. */
         val attachments: List<MessageAttachment> = emptyList(),
+        /** Service-specific JSON metadata to persist on the message row. */
+        val serviceData: String? = null,
+        /** When this message is a poll, the poll question. Null for non-poll messages. */
+        val pollQuestion: String? = null,
+        /** Poll option names (when [pollQuestion] is set). */
+        val pollOptions: List<String> = emptyList(),
     ) : GMEvent
 
     /** A message was deleted on the remote side (or by us). */
@@ -144,6 +150,17 @@ sealed interface GMEvent {
         val conversationId: String,
         val messageId: String,
         val senderId: String,
+    ) : GMEvent
+
+    /** A poll vote was cast (or changed). [optionNames] is the voter's full current selection
+     *  (empty = they cleared their vote). [voterId] is a stable per-voter key ("self" for the
+     *  local user) so tallies replace rather than accumulate. */
+    data class PollVote(
+        override val source: MessageSource,
+        val conversationId: String,
+        val pollMessageId: String,
+        val voterId: String,
+        val optionNames: List<String>,
     ) : GMEvent
 
     /** A conversation was renamed. */

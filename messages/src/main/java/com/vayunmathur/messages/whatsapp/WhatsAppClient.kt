@@ -90,6 +90,9 @@ object WhatsAppClient {
     private val undecryptableTracker = ConcurrentHashMap<String, Int>()
     private val pendingMessageIDs: MutableSet<String> = Collections.newSetFromMap(ConcurrentHashMap())
     private val processedEditIDs: MutableSet<String> = Collections.newSetFromMap(ConcurrentHashMap())
+    // Groups we've already fetched metadata for this session, so we publish the group's
+    // ConversationUpdate (name / isGroup / participants) at most once instead of on every event.
+    private val knownGroups: MutableSet<String> = Collections.newSetFromMap(ConcurrentHashMap())
     private var reconnectJob: Job? = null
     private var reconnectAttempts = 0
     private val pollSecrets = ConcurrentHashMap<String, ByteArray>()
@@ -174,6 +177,7 @@ object WhatsAppClient {
         webSocket?.disconnect()
         webSocket = null
         nameCache.clear()
+        knownGroups.clear()
         scope.launch { WhatsAppAuthData.clear(appContext) }
         _state.value = State.NeedsSetup
     }
@@ -691,6 +695,45 @@ object WhatsAppClient {
     }
 
     /**
+     * Fetch a group's subject + participants (w:g2 interactive query) and publish a
+     * [GMEvent.ConversationUpdate] so the thread shows up named + flagged as a group. Freshly
+     * joined groups aren't in history sync, so without this the conversation never appears (and
+     * group messages, which only upsert a bare row, look nameless / like a 1:1). Fetched at most
+     * once per group per session ([knownGroups]); does NOT touch the unread badge on re-entry.
+     * Ref whatsmeow group.go GetGroupInfo.
+     */
+    private suspend fun fetchAndEmitGroupInfo(groupJid: String) {
+        if (!groupJid.contains("@g.us")) return
+        if (!knownGroups.add(groupJid)) return
+        val iq = WhatsAppProtocol.buildGroupParticipantsQuery(groupJid, generateMessageId())
+        val resp = sendIqAndWait(iq) ?: run { knownGroups.remove(groupJid); return }
+        val group = resp.getChildByTag("group") ?: run { knownGroups.remove(groupJid); return }
+        val subject = group.attrs["subject"]?.ifEmpty { null }
+        val participantJids = group.getChildren()
+            .filter { it.tag == "participant" }
+            .mapNotNull { it.attrs["jid"] }
+        val participantNames = participantJids.map { resolveName(it) }
+        val serviceData = if (participantNames.isNotEmpty()) {
+            org.json.JSONObject()
+                .put("participantNames", org.json.JSONArray(participantNames))
+                .toString()
+        } else null
+        _events.emit(GMEvent.ConversationUpdate(
+            source = MessageSource.WHATSAPP,
+            conversationId = "wa:$groupJid",
+            peerName = subject,
+            peerPhone = null,
+            avatarUrl = null,
+            lastPreview = null,
+            lastTimestamp = 0L,
+            unreadCount = 0,
+            isGroup = true,
+            participantCount = participantJids.size,
+            serviceData = serviceData,
+        ))
+    }
+
+    /**
      * Fetch (and cache) the media upload host + auth token via the w:m media_conn IQ.
      * Ref whatsmeow mediaconn.go queryMediaConn. Returns (host, auth) or null.
      */
@@ -991,6 +1034,10 @@ object WhatsAppClient {
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to process SKDM", e)
                     }
+                    // A SKDM-only message carries no user-visible content (types as "ignore"); once
+                    // the key is stored there's nothing to display, so stop before emitting a blank
+                    // bubble. Messages that bundle the SKDM with real content fall through to render.
+                    if (message.messageType == "ignore") return@launch
                 }
 
                 // Skip status broadcasts (Go handleWAMessage status@broadcast check)
@@ -1069,12 +1116,46 @@ object WhatsAppClient {
                         append("↷ Forwarded\n")
                     }
                     append(message.body)
-                }
+                }.let { resolveMentionsInBody(it, message.mentionedJids) }
 
-                // Store poll secrets from incoming polls for vote encryption
+                // Store poll secrets from incoming polls for vote encryption/decryption.
                 if (message.pollData != null && !message.pollData.isPollVote && message.e2eMessage != null) {
                     val secret = message.e2eMessage.messageContextInfo?.messageSecret?.toByteArray()
-                    if (secret != null) pollSecrets[message.id] = secret
+                    if (secret != null) storePollSecret(message.id, secret)
+                }
+
+                // Handle incoming poll votes (PollUpdateMessage): decrypt the selected option
+                // hashes, map them back to names, and emit a tally update. Ref whatsmeow
+                // DecryptPollVote.
+                if (message.e2eMessage?.hasPollUpdateMessage() == true) {
+                    val update = message.e2eMessage.pollUpdateMessage
+                    val key = update.pollCreationMessageKey
+                    val pollId = key.id
+                    val voter = if (message.isFromMe) (authData?.wid ?: "") else sender
+                    val creator = when {
+                        key.fromMe -> voter
+                        key.participant.isNotEmpty() -> key.participant
+                        else -> key.remoteJid
+                    }
+                    val secret = loadPollSecret(pollId)
+                    if (secret != null) {
+                        val hashes = WhatsAppProtocol.decryptPollVote(update, pollId, creator, voter, secret)
+                        if (hashes != null) {
+                            val dao = db?.pollOptionDao()
+                            val names = hashes.mapNotNull { h ->
+                                val hex = h.joinToString("") { "%02x".format(it) }
+                                dao?.getByHash(pollId, hex)?.optionName
+                            }
+                            _events.emit(GMEvent.PollVote(
+                                source = MessageSource.WHATSAPP,
+                                conversationId = "wa:${message.from}",
+                                pollMessageId = pollId,
+                                voterId = if (message.isFromMe) "self" else sender,
+                                optionNames = names,
+                            ))
+                        }
+                    }
+                    return@launch
                 }
 
                 // Handle reactions separately (Go handleWAMessage reaction case)
@@ -1104,6 +1185,21 @@ object WhatsAppClient {
                     return@launch
                 }
 
+                // For group chats, make sure the conversation exists (named + flagged as a
+                // group) before we store the message — a freshly joined group isn't in history
+                // sync, so otherwise it would only ever be a nameless bare row. Deduped +
+                // awaited so the metadata lands before the message's unread bump.
+                if (message.from.contains("@g.us")) {
+                    fetchAndEmitGroupInfo(message.from)
+                }
+
+                // Download + decrypt any inline media so it renders in-thread instead of as a
+                // bare "[Image]"/"[Video]" placeholder. Null for non-media or on failure.
+                val mediaAttachment = message.e2eMessage?.let {
+                    buildIncomingMediaAttachment(it, message.id)
+                }
+                val mediaAttachments = listOfNotNull(mediaAttachment)
+
                 // Messages the user sent from another linked device (fromMe) are synced
                 // to us as outgoing, not incoming — emit a MessageUpdate so they render on
                 // the sent side instead of as an incoming (previously blank) bubble.
@@ -1116,6 +1212,7 @@ object WhatsAppClient {
                         outgoing = true,
                         timestamp = message.timestamp * 1000,
                         senderName = null,
+                        attachments = mediaAttachments,
                     ))
                     return@launch
                 }
@@ -1135,6 +1232,9 @@ object WhatsAppClient {
                     timestamp = message.timestamp * 1000,
                     senderName = if (isGroupChat) resolveName(sender) else null,
                     senderId = if (isGroupChat) sender else null,
+                    attachments = mediaAttachments,
+                    pollQuestion = message.pollData?.takeIf { !it.isPollVote }?.question,
+                    pollOptions = message.pollData?.takeIf { !it.isPollVote }?.options ?: emptyList(),
                 ))
 
                 // Send delivery receipt
@@ -1316,6 +1416,11 @@ object WhatsAppClient {
         val timestamp = (node.attrs["t"]?.toLongOrNull() ?: System.currentTimeMillis() / 1000) * 1000
         val actor = resolveName(node.attrs["participant"] ?: groupJid)
         val msgId = node.attrs["id"] ?: ""
+
+        // Any group notification (being added, subject/participant changes, …) implies the
+        // group should exist locally. Fetch + publish its metadata so the conversation appears
+        // named and flagged as a group even when we were just added and have no history for it.
+        fetchAndEmitGroupInfo(groupJid)
 
         node.content?.filterIsInstance<WhatsAppProtocol.Node>()?.forEach { child ->
             val body = when (child.tag) {
@@ -2065,6 +2170,7 @@ object WhatsAppClient {
         id: String,
         msg: WhatsAppE2EProto.Message,
         type: String,
+        extraEncAttrs: Map<String, String> = emptyMap(),
     ): WhatsAppProtocol.Node? {
         val auth = authData ?: return null
         val crypto = ensureE2E(auth) ?: return null
@@ -2098,6 +2204,7 @@ object WhatsAppClient {
             participantEncs = encs,
             includeDeviceIdentity = includeIdentity,
             deviceIdentity = deviceIdentity,
+            extraEncAttrs = extraEncAttrs,
         )
     }
 
@@ -2120,6 +2227,7 @@ object WhatsAppClient {
         id: String,
         msg: WhatsAppE2EProto.Message,
         type: String = "text",
+        extraEncAttrs: Map<String, String> = emptyMap(),
     ): WhatsAppProtocol.Node? {
         val auth = authData ?: return null
         val crypto = ensureE2E(auth) ?: return null
@@ -2136,9 +2244,18 @@ object WhatsAppClient {
             WhatsAppProtocol.senderKeyDistributionPlaintext(groupJid, skdmBytes)
         )
 
-        val participants = queryGroupParticipants(groupJid)
+        // Meta AI / bots participate in a group via a special "hosted"/"bot" server and are NOT
+        // part of the group's end-to-end sender-key encryption — you literally cannot send them
+        // the group sender key, and including them aborts the whole send. The reference
+        // (whatsmeow prepareMessageNode) deletes hosted/hosted.lid devices for group sends for
+        // exactly this reason; the bot instead receives @mentions over its own message-secret
+        // channel. Keep every real user (phone + LID); drop only bot/hosted servers.
+        val participants = queryGroupParticipants(groupJid).filter { jid ->
+            val server = jid.substringAfter("@", "")
+            server != "bot" && server != "hosted" && server != "hosted.lid"
+        }
         if (participants.isEmpty()) {
-            Log.w(TAG, "No participants resolved for group $groupJid; cannot fan out SKDM")
+            Log.w(TAG, "No user participants resolved for group $groupJid; cannot fan out SKDM")
             return null
         }
         val devices = getUserDevices(participants).ifEmpty { participants }
@@ -2164,6 +2281,7 @@ object WhatsAppClient {
             includeDeviceIdentity = includeIdentity,
             deviceIdentity = deviceIdentity,
             extraEnc = skMsg,
+            extraEncAttrs = extraEncAttrs,
         )
     }
 
@@ -2189,11 +2307,14 @@ object WhatsAppClient {
         // whatsmeow upload.go: mmsType "image"/"video"/"audio"/"document"; stickers use the image bucket.
         val mmsType = if (mediaType == "sticker") "image" else mediaType
         val encAuth = java.net.URLEncoder.encode(auth, "UTF-8")
-        val uploadUrl = "https://$host/mms/$mmsType/$token?auth=$encAuth&token=$token"
+        val encToken = java.net.URLEncoder.encode(token, "UTF-8")
+        val uploadUrl = "https://$host/mms/$mmsType/$token?auth=$encAuth&token=$encToken"
         val requestBody = encryptedData.toRequestBody(null)
+        // WhatsApp's rupload endpoint expects POST (whatsmeow upload.go rawUpload). A PUT here
+        // returns 404, which is why media send was failing.
         val request = Request.Builder()
             .url(uploadUrl)
-            .put(requestBody)
+            .post(requestBody)
             .header("Origin", "https://web.whatsapp.com")
             .header("Referer", "https://web.whatsapp.com/")
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
@@ -2243,18 +2364,35 @@ object WhatsAppClient {
             return false
         }
         return try {
+            WhatsAppDiag.log(TAG, "media: start type=$mediaType size=${bytes.size} to=$to")
             val enc = WhatsAppProtocol.encryptMedia(bytes, mediaKeyStr)
             val token = Base64.encodeToString(enc.fileEncSha256, Base64.URL_SAFE or Base64.NO_WRAP)
+            WhatsAppDiag.log(TAG, "media: encrypted, uploading…")
             val upload = uploadMedia(enc.encryptedData, mediaType, token)
-            val node = WhatsAppProtocol.buildMediaMessage(
-                to, id, upload.url, upload.directPath,
+            WhatsAppDiag.log(TAG, "media: uploaded url=${upload.url.take(40)}")
+            val proto = WhatsAppProtocol.buildMediaProto(
+                upload.url, upload.directPath,
                 enc.mediaKey, enc.fileSha256, enc.fileEncSha256, enc.fileLength,
                 mimeType, fileName, mediaType
             )
+            // Media must be Signal-encrypted + fanned out like any other message (an
+            // unencrypted node is dropped) and carry stanza type "media" + a "mediatype"
+            // enc attr. Ref whatsmeow send.go getTypeFromMessage / prepareMessageNode.
+            val encAttrs = mapOf("mediatype" to mediaType)
+            val node = if (to.contains("@g.us")) {
+                buildEncryptedGroupMessageNode(to, id, proto, type = "media", extraEncAttrs = encAttrs)
+            } else {
+                buildEncryptedMessageNode(to, id, proto, "media", extraEncAttrs = encAttrs)
+            } ?: run {
+                WhatsAppDiag.log(TAG, "media: build node FAILED (encryption produced no recipients)")
+                pendingMessageIDs.remove(id); return false
+            }
             val sent = ws.send(WhatsAppProtocol.encodeNode(node))
+            WhatsAppDiag.log(TAG, "media: stanza sent=$sent id=$id")
             if (!sent) pendingMessageIDs.remove(id)
             sent
         } catch (e: Exception) {
+            WhatsAppDiag.log(TAG, "media: FAILED ${e.message}")
             Log.e(TAG, "Failed to send media", e)
             pendingMessageIDs.remove(id)
             false
@@ -2547,33 +2685,43 @@ object WhatsAppClient {
         question: String,
         options: List<String>,
         selectableCount: Int = 0,
-    ): Boolean {
-        if (_state.value !is State.Connected) return false
-        val ws = webSocket ?: return false
-        val to = extractJid(conversationId) ?: return false
+    ): String? {
+        if (_state.value !is State.Connected) return null
+        val ws = webSocket ?: return null
+        val to = extractJid(conversationId) ?: return null
         val id = WhatsAppProtocol.generateMessageId(authData?.wid)
 
         val messageSecret = ByteArray(32).also { random.nextBytes(it) }
         val msg = WhatsAppProtocol.buildPollCreationProto(question, options, selectableCount, messageSecret)
+        // Polls use stanza type "poll" (not "text") — the server drops a poll sent as text.
+        // Ref whatsmeow send.go getTypeFromMessage.
+        WhatsAppDiag.log(TAG, "poll: start to=$to options=${options.size} group=${to.contains("@g.us")}")
         val node = if (to.contains("@g.us")) {
-            buildEncryptedGroupMessageNode(to, id, msg)
+            buildEncryptedGroupMessageNode(to, id, msg, type = "poll")
         } else {
-            buildEncryptedMessageNode(to, id, msg, "text")
-        } ?: return false
+            buildEncryptedMessageNode(to, id, msg, "poll")
+        } ?: run {
+            WhatsAppDiag.log(TAG, "poll: build node FAILED (encryption produced no recipients)")
+            return null
+        }
 
         pendingMessageIDs.add(id)
         val sent = ws.send(WhatsAppProtocol.encodeNode(node))
+        WhatsAppDiag.log(TAG, "poll: stanza sent=$sent id=$id")
         if (sent) {
             storePollOptions(id, options)
-            pollSecrets[id] = messageSecret
+            storePollSecret(id, messageSecret)
         } else {
             pendingMessageIDs.remove(id)
         }
-        return sent
+        // Return the real message id so the caller can reconcile its optimistic pending row —
+        // votes (and stored secret/options) are keyed by this id.
+        return if (sent) id else null
     }
 
     /**
-     * Shared media-send contract poll entrypoint (called by MessagesSessionManager).
+     * Shared media-send contract poll entrypoint (called by MessagesSessionManager). Returns the
+     * real poll message id on success (null on failure) so the pending row can be reconciled.
      * Maps [allowMultiple] to selectableCount (whatsmeow PollCreationMessage semantics).
      */
     suspend fun sendPoll(
@@ -2581,7 +2729,7 @@ object WhatsAppClient {
         question: String,
         options: List<String>,
         allowMultiple: Boolean,
-    ): Boolean = sendPollCreation(
+    ): String? = sendPollCreation(
         conversationId = conversationId,
         question = question,
         options = options,
@@ -2592,36 +2740,67 @@ object WhatsAppClient {
      * Send a poll vote.
      * From Go HandleMatrixPollVote / PollVoteToWhatsApp.
      */
+    /**
+     * Cast (or change) a poll vote. Encrypts the selected option hashes with the poll's
+     * messageSecret and sends a PollUpdateMessage via the normal fan-out (stanza type "poll").
+     * [pollCreatorJid]/[pollFromMe] describe the ORIGINAL poll message (needed for key derivation
+     * + the vote's pollCreationMessageKey). Ref whatsmeow BuildPollVote.
+     */
     suspend fun sendPollVote(
         conversationId: String,
         pollMessageId: String,
-        pollSenderJid: String,
+        pollCreatorJid: String,
+        pollFromMe: Boolean,
         selectedOptionNames: List<String>,
     ): Boolean {
         if (_state.value !is State.Connected) return false
         val ws = webSocket ?: return false
         val chatJid = extractJid(conversationId) ?: return false
-        val id = WhatsAppProtocol.generateMessageId(authData?.wid)
+        val rawPollId = extractMessageId(pollMessageId)
+        val secret = loadPollSecret(rawPollId)
+            ?: run { WhatsAppDiag.log(TAG, "poll vote: no secret for $rawPollId"); return false }
         val ownJid = authData?.wid ?: ""
+        val id = WhatsAppProtocol.generateMessageId(authData?.wid)
 
         val optionHashes = selectedOptionNames.map { option ->
             java.security.MessageDigest.getInstance("SHA-256")
                 .digest(option.toByteArray(Charsets.UTF_8))
         }
-
-        val node = WhatsAppProtocol.buildPollVoteMessage(
+        val creator = if (pollFromMe) ownJid else pollCreatorJid.ifEmpty { chatJid }
+        val proto = WhatsAppProtocol.buildPollVoteMessage(
             chatJid = chatJid,
-            pollMessageId = pollMessageId,
-            pollSenderJid = pollSenderJid,
+            pollMessageId = rawPollId,
+            pollCreatorJid = creator,
+            pollFromMe = pollFromMe,
+            voterJid = ownJid,
             optionHashes = optionHashes,
-            ownJid = ownJid,
-            id = id,
-            pollSecret = pollSecrets[pollMessageId],
+            pollSecret = secret,
         )
+        val node = if (chatJid.contains("@g.us")) {
+            buildEncryptedGroupMessageNode(chatJid, id, proto, type = "poll")
+        } else {
+            buildEncryptedMessageNode(chatJid, id, proto, "poll")
+        } ?: return false
         pendingMessageIDs.add(id)
         val sent = ws.send(WhatsAppProtocol.encodeNode(node))
         if (!sent) pendingMessageIDs.remove(id)
         return sent
+    }
+
+    /** Persist a poll's shared secret (in-memory + DB) so votes can be encrypted/decrypted later. */
+    private suspend fun storePollSecret(msgId: String, secret: ByteArray) {
+        pollSecrets[msgId] = secret
+        db?.pollSecretDao()?.upsert(
+            WhatsAppPollSecret(msgId, secret.joinToString("") { "%02x".format(it) })
+        )
+    }
+
+    private suspend fun loadPollSecret(msgId: String): ByteArray? {
+        pollSecrets[msgId]?.let { return it }
+        val hex = db?.pollSecretDao()?.get(msgId) ?: return null
+        return runCatching {
+            hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        }.getOrNull()?.also { pollSecrets[msgId] = it }
     }
 
     /**
@@ -3034,6 +3213,89 @@ object WhatsAppClient {
     }
 
     /**
+     * Download + decrypt an incoming media message and cache it locally, returning a
+     * [com.vayunmathur.messages.data.MessageAttachment] pointing at the decrypted file (file://
+     * URL) so the UI renders it inline. Returns null for non-media messages or on
+     * download/decrypt failure (the "[Image]"/"[Video]" placeholder body then remains).
+     * Ref whatsmeow Download.
+     */
+    private suspend fun buildIncomingMediaAttachment(
+        e2e: WhatsAppE2EProto.Message,
+        msgId: String,
+    ): com.vayunmathur.messages.data.MessageAttachment? {
+        val url: String; val directPath: String; val mediaKey: ByteArray; val encSha: ByteArray
+        val mime: String?; val keyInfo: String; val type: String
+        val width: Int; val height: Int; val fileName: String?; val ext: String
+        when {
+            e2e.hasImageMessage() -> e2e.imageMessage.let {
+                url = it.url; directPath = it.directPath; mediaKey = it.mediaKey.toByteArray()
+                encSha = it.fileEncSha256.toByteArray(); mime = it.mimetype.ifEmpty { "image/jpeg" }
+                keyInfo = WhatsAppProtocol.MEDIA_KEY_IMAGE; type = "image"
+                width = it.width; height = it.height; fileName = null; ext = "jpg"
+            }
+            e2e.hasStickerMessage() -> e2e.stickerMessage.let {
+                url = it.url; directPath = it.directPath; mediaKey = it.mediaKey.toByteArray()
+                encSha = it.fileEncSha256.toByteArray(); mime = it.mimetype.ifEmpty { "image/webp" }
+                keyInfo = WhatsAppProtocol.MEDIA_KEY_STICKER; type = "sticker"
+                width = it.width; height = it.height; fileName = null; ext = "webp"
+            }
+            e2e.hasVideoMessage() -> e2e.videoMessage.let {
+                url = it.url; directPath = it.directPath; mediaKey = it.mediaKey.toByteArray()
+                encSha = it.fileEncSha256.toByteArray(); mime = it.mimetype.ifEmpty { "video/mp4" }
+                keyInfo = WhatsAppProtocol.MEDIA_KEY_VIDEO; type = "video"
+                width = it.width; height = it.height; fileName = null; ext = "mp4"
+            }
+            e2e.hasAudioMessage() -> e2e.audioMessage.let {
+                url = it.url; directPath = it.directPath; mediaKey = it.mediaKey.toByteArray()
+                encSha = it.fileEncSha256.toByteArray(); mime = it.mimetype.ifEmpty { "audio/ogg" }
+                keyInfo = WhatsAppProtocol.MEDIA_KEY_AUDIO; type = "audio"
+                width = 0; height = 0; fileName = null; ext = "ogg"
+            }
+            e2e.hasDocumentMessage() -> e2e.documentMessage.let {
+                url = it.url; directPath = it.directPath; mediaKey = it.mediaKey.toByteArray()
+                encSha = it.fileEncSha256.toByteArray(); mime = it.mimetype.ifEmpty { null }
+                keyInfo = WhatsAppProtocol.MEDIA_KEY_DOCUMENT; type = "file"
+                width = 0; height = 0
+                fileName = it.fileName.ifEmpty { it.title.ifEmpty { null } }
+                ext = it.fileName.substringAfterLast('.', "").ifEmpty { "bin" }
+            }
+            else -> return null
+        }
+        if (mediaKey.isEmpty()) return null
+        val downloadUrl = url.ifEmpty {
+            if (directPath.isEmpty()) return null
+            val host = mediaConn()?.first ?: return null
+            val mmsType = when (type) {
+                "sticker", "image" -> "image"
+                "video" -> "video"
+                "audio" -> "audio"
+                else -> "document"
+            }
+            val hash = Base64.encodeToString(encSha, Base64.URL_SAFE or Base64.NO_WRAP)
+            "https://$host$directPath&hash=$hash&mms-type=$mmsType&__wa-mms="
+        }
+        val bytes = downloadMedia(downloadUrl, mediaKey, keyInfo) ?: return null
+        return try {
+            val dir = java.io.File(appContext.cacheDir, "whatsapp_media")
+            dir.mkdirs()
+            val safeName = msgId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val file = java.io.File(dir, "$safeName.$ext")
+            if (!(file.exists() && file.length() > 0)) file.writeBytes(bytes)
+            com.vayunmathur.messages.data.MessageAttachment(
+                url = "file://${file.absolutePath}",
+                mimeType = mime,
+                attachmentType = type,
+                fileName = fileName,
+                width = width,
+                height = height,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to cache incoming media for $msgId", e)
+            null
+        }
+    }
+
+    /**
      * Logout from WhatsApp server and clear local data.
      * From whatsmeow LogoutRemote
      */
@@ -3106,12 +3368,38 @@ object WhatsAppClient {
     }
 
     private suspend fun resolveName(jid: String): String {
+        // Bot accounts (Meta AI) have no phone number — give them a friendly name.
+        if (jid.contains("@bot")) return "Meta AI"
         return nameCache.getOrPut(jid) {
-            // Extract phone number from JID for display
-            // Format: "1234567890@s.whatsapp.net" or "1234567890-1234567890@g.us"
-            val phone = jid.substringBefore("@").substringBefore("-")
+            // Display the phone number, stripping any device/agent/group suffixes
+            // ("1234:1@…", "1234.5@…", "1234-1620@g.us").
+            val phone = jid.substringBefore("@")
+                .substringBefore(":")
+                .substringBefore(".")
+                .substringBefore("-")
             "+$phone"
         }
+    }
+
+    /**
+     * Replace the raw "@<number>" mention tokens WhatsApp embeds in message text with the
+     * mentioned contact's display name (or "You" for the local user, "Meta AI" for the bot),
+     * using [WhatsAppMessage.mentionedJids] to know who each token refers to.
+     */
+    private suspend fun resolveMentionsInBody(body: String, mentionedJids: List<String>): String {
+        if (mentionedJids.isEmpty() || !body.contains("@")) return body
+        var result = body
+        for (jid in mentionedJids) {
+            val userPart = jid.substringBefore("@").substringBefore(":").substringBefore(".")
+            if (userPart.isEmpty()) continue
+            val resolved = resolveJID(jid)
+            val name = when {
+                resolved == authData?.wid || resolved == authData?.lid -> "You"
+                else -> resolveName(resolved)
+            }
+            result = result.replace("@$userPart", "@$name")
+        }
+        return result
     }
 
     fun getContactSuggestions(query: String): List<ContactSuggestion> {

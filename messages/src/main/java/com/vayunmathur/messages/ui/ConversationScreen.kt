@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -84,6 +86,8 @@ import com.vayunmathur.messages.util.CameraCapture
 import com.vayunmathur.messages.util.FindFamilyLocation
 import com.vayunmathur.messages.util.MessagesViewModel
 import com.vayunmathur.messages.util.ReactionAction
+import com.vayunmathur.messages.util.PollView
+import com.vayunmathur.messages.util.pollFromServiceData
 import com.vayunmathur.messages.util.isMessageRequest
 import com.vayunmathur.messages.util.mediaCapabilities
 import com.vayunmathur.messages.util.participantNames
@@ -403,6 +407,9 @@ fun ConversationScreen(
                                 onLongPress = if (canReact) {
                                     { reactingTo = item.message }
                                 } else null,
+                                onPollVote = { options ->
+                                    vm.sendPollVote(item.message.id, options)
+                                },
                             )
                         }
                     }
@@ -699,6 +706,7 @@ private fun MessageBubble(
     isFirstInRun: Boolean,
     isLastInRun: Boolean,
     onLongPress: (() -> Unit)? = null,
+    onPollVote: (List<String>) -> Unit = {},
 ) {
     val isOutgoing = msg.direction == MessageDirection.OUTGOING
     val bubbleColor = if (isOutgoing) MaterialTheme.colorScheme.primary
@@ -732,9 +740,11 @@ private fun MessageBubble(
             )
         }
         val attachments = remember(msg.mediaJson) { parseAttachments(msg.mediaJson) }
+        val poll = remember(msg.serviceData) { pollFromServiceData(msg.serviceData) }
         // Suppress a bare "[Image]"/"[Attachment]" placeholder body once the
-        // real media is available; keep genuine captions.
-        val showBody = msg.body.isNotBlank() &&
+        // real media is available; keep genuine captions. Poll messages render
+        // their own body, so suppress the text there too.
+        val showBody = poll == null && msg.body.isNotBlank() &&
             !(attachments.isNotEmpty() && isPlaceholderBody(msg.body))
         Surface(
             color = bubbleColor,
@@ -754,6 +764,9 @@ private fun MessageBubble(
         ) {
             Column {
                 attachments.forEach { AttachmentView(it) }
+                if (poll != null) {
+                    PollBody(poll, onVote = onPollVote)
+                }
                 if (showBody) {
                     Text(
                         msg.body,
@@ -859,6 +872,50 @@ private fun ReactionPickerDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
+}
+
+@Composable
+private fun PollBody(poll: PollView, onVote: (List<String>) -> Unit) {
+    Column(
+        modifier = Modifier
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .widthIn(min = 200.dp),
+    ) {
+        Text(poll.question, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        poll.options.forEach { opt ->
+            val count = poll.counts[opt] ?: 0
+            val selected = opt in poll.myVotes
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 3.dp)
+                    .clickable {
+                        val newVotes = when {
+                            // Single-choice polls: tap replaces (tap again to clear).
+                            poll.selectable <= 1 -> if (selected) emptyList() else listOf(opt)
+                            selected -> (poll.myVotes - opt).toList()
+                            else -> (poll.myVotes + opt).toList()
+                        }
+                        onVote(newVotes)
+                    },
+            ) {
+                Text(if (selected) "◉" else "○", fontSize = 15.sp)
+                Spacer(Modifier.width(8.dp))
+                Text(opt, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                Text("$count", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+        if (poll.totalVoters > 0) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "${poll.totalVoters} vote${if (poll.totalVoters == 1) "" else "s"}",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
 
 @Composable

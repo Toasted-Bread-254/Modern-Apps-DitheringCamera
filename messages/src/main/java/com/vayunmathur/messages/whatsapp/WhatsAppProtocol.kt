@@ -1229,9 +1229,7 @@ object WhatsAppProtocol {
      * Build a media message node.
      * From whatsmeow/send.go + upload.go
      */
-    fun buildMediaMessage(
-        to: String,
-        id: String,
+    fun buildMediaProto(
         url: String,
         directPath: String,
         mediaKey: ByteArray,
@@ -1240,8 +1238,8 @@ object WhatsAppProtocol {
         fileLength: Long,
         mimeType: String,
         caption: String?,
-        mediaType: String, // "image", "video", "audio", "document"
-    ): Node {
+        mediaType: String, // "image", "video", "audio", "document", "sticker"
+    ): com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message {
         val e2eBuilder = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message.newBuilder()
 
         when (mediaType) {
@@ -1304,34 +1302,8 @@ object WhatsAppProtocol {
             }
         }
 
-        val plaintext = e2eBuilder.build().toByteArray()
-
-        val encMediaType = when (mediaType) {
-            "image" -> "image"
-            "video" -> "video"
-            "audio" -> "audio"
-            "document" -> "document"
-            "sticker" -> "sticker"
-            else -> ""
-        }
-        val encAttrs = mutableMapOf("v" to "2", "type" to "msg")
-        if (encMediaType.isNotEmpty()) encAttrs["mediatype"] = encMediaType
-
-        return Node(
-            tag = "message",
-            attrs = mapOf(
-                "to" to to,
-                "id" to id,
-                "type" to "media"
-            ),
-            content = listOf(
-                Node(
-                    tag = "enc",
-                    attrs = encAttrs,
-                    data = padMessage(plaintext)
-                )
-            )
-        )
+        val plaintext = e2eBuilder.build()
+        return plaintext
     }
 
     /**
@@ -1835,47 +1807,117 @@ object WhatsAppProtocol {
     }
 
     /**
-     * Reroute LID JIDs to phone number JIDs.
-     * From whatsmeow handlewhatsapp.go rerouteWAMessage()
+     * Build an encrypted poll vote (PollUpdateMessage) as a Message proto, routed through the
+     * normal send path. Selected options are SHA-256 hashes of the chosen option names; the vote
+     * payload is AES-256-GCM encrypted with a key derived from the poll's messageSecret.
+     * Ref whatsmeow msgsecret.go BuildPollVote / EncryptPollVote.
      */
     fun buildPollVoteMessage(
         chatJid: String,
         pollMessageId: String,
-        pollSenderJid: String,
+        pollCreatorJid: String,
+        pollFromMe: Boolean,
+        voterJid: String,
         optionHashes: List<ByteArray>,
-        ownJid: String,
-        id: String,
-        pollSecret: ByteArray? = null,
-    ): Node {
-        throw UnsupportedOperationException("PollVoteMessage/PollUpdateMessage is not available in the current protobuf schema")
+        pollSecret: ByteArray,
+    ): com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message {
+        val vote = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.PollVoteMessage.newBuilder()
+        optionHashes.forEach { vote.addSelectedOptions(com.google.protobuf.ByteString.copyFrom(it)) }
+        val plaintext = vote.build().toByteArray()
+
+        val (key, aad) = pollVoteKeyAndAad(pollSecret, pollMessageId, pollCreatorJid, voterJid)
+        val iv = ByteArray(12).also { java.security.SecureRandom().nextBytes(it) }
+        val ciphertext = aesGcm(Cipher.ENCRYPT_MODE, key, iv, plaintext, aad)
+
+        val msgKey = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.MessageKey.newBuilder()
+            .setFromMe(pollFromMe)
+            .setId(pollMessageId)
+            .setRemoteJid(chatJid)
+        if (!pollFromMe && chatJid.contains("@g.us") && pollCreatorJid.isNotEmpty()) {
+            msgKey.setParticipant(pollCreatorJid)
+        }
+        val update = com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.PollUpdateMessage.newBuilder()
+            .setPollCreationMessageKey(msgKey.build())
+            .setVote(
+                com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.PollEncValue.newBuilder()
+                    .setEncPayload(com.google.protobuf.ByteString.copyFrom(ciphertext))
+                    .setEncIV(com.google.protobuf.ByteString.copyFrom(iv))
+            )
+            .setSenderTimestampMS(System.currentTimeMillis())
+        return com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.Message.newBuilder()
+            .setPollUpdateMessage(update.build())
+            .build()
     }
 
     /**
-     * Encrypt poll vote using AES-256-GCM with HKDF-derived key.
-     * From Go whatsmeow/poll.go EncryptPollVote.
-     * Key material: HKDF(secret=messageSecret, info="Poll Vote" + pollMsgID + voterJID)
+     * Decrypt an incoming poll vote, returning the SHA-256 option hashes the voter selected (or
+     * null on failure). The caller maps hashes back to option names via the stored poll options.
      */
-    private fun encryptPollVote(
-        votePayload: ByteArray,
+    fun decryptPollVote(
+        update: com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.PollUpdateMessage,
+        pollMessageId: String,
+        pollCreatorJid: String,
+        voterJid: String,
+        pollSecret: ByteArray,
+    ): List<ByteArray>? {
+        return try {
+            val (key, aad) = pollVoteKeyAndAad(pollSecret, pollMessageId, pollCreatorJid, voterJid)
+            val plaintext = aesGcm(
+                Cipher.DECRYPT_MODE, key,
+                update.vote.encIV.toByteArray(),
+                update.vote.encPayload.toByteArray(),
+                aad,
+            )
+            com.vayunmathur.messages.whatsapp.proto.WhatsAppE2EProto.PollVoteMessage
+                .parseFrom(plaintext)
+                .selectedOptionsList
+                .map { it.toByteArray() }
+        } catch (e: Exception) {
+            Log.w(TAG, "Poll vote decrypt failed", e)
+            null
+        }
+    }
+
+    /**
+     * Derive the poll-vote key + GCM additional-data, matching whatsmeow generateMsgSecretKey for
+     * the "Poll Vote" use case:
+     *   key = HKDF-SHA256(pollSecret, salt=nil, info = pollMsgId + creatorJid + voterJid + "Poll Vote")
+     *   aad = pollMsgId + 0x00 + voterJid
+     * JIDs are normalized to bare user@server (no device/agent) to match the peer.
+     */
+    private fun pollVoteKeyAndAad(
         pollSecret: ByteArray,
         pollMessageId: String,
+        pollCreatorJid: String,
         voterJid: String,
-        iv: ByteArray,
-    ): ByteArray {
-        val info = "Poll Vote".toByteArray(Charsets.UTF_8) +
-            pollMessageId.toByteArray(Charsets.UTF_8) +
-            voterJid.toByteArray(Charsets.UTF_8)
-
+    ): Pair<ByteArray, ByteArray> {
+        val creator = normalizeJidForSecret(pollCreatorJid)
+        val voter = normalizeJidForSecret(voterJid)
+        val info = pollMessageId.toByteArray(Charsets.UTF_8) +
+            creator.toByteArray(Charsets.UTF_8) +
+            voter.toByteArray(Charsets.UTF_8) +
+            "Poll Vote".toByteArray(Charsets.UTF_8)
         val hkdf = HKDFBytesGenerator(SHA256Digest())
         hkdf.init(HKDFParameters(pollSecret, null, info))
-        val encKey = ByteArray(32)
-        hkdf.generateBytes(encKey, 0, 32)
+        val key = ByteArray(32)
+        hkdf.generateBytes(key, 0, 32)
+        val aad = pollMessageId.toByteArray(Charsets.UTF_8) +
+            byteArrayOf(0) +
+            voter.toByteArray(Charsets.UTF_8)
+        return key to aad
+    }
 
+    private fun normalizeJidForSecret(jid: String): String {
+        val user = jid.substringBefore("@").substringBefore(":").substringBefore(".")
+        val server = jid.substringAfter("@", "s.whatsapp.net")
+        return "$user@$server"
+    }
+
+    private fun aesGcm(mode: Int, key: ByteArray, iv: ByteArray, data: ByteArray, aad: ByteArray): ByteArray {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        val keySpec = SecretKeySpec(encKey, "AES")
-        val spec = GCMParameterSpec(128, iv)
-        cipher.init(Cipher.ENCRYPT_MODE, keySpec, spec)
-        return cipher.doFinal(votePayload)
+        cipher.init(mode, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+        cipher.updateAAD(aad)
+        return cipher.doFinal(data)
     }
 
     // WA text formatting regexes (from Go wa-text.go)
@@ -2031,6 +2073,7 @@ object WhatsAppProtocol {
             e2eMessage.hasDocumentMessage() -> "document ${e2eMessage.documentMessage.mimetype}"
             e2eMessage.hasContactMessage() -> "contact"
             e2eMessage.hasLocationMessage() -> "location"
+            e2eMessage.hasPollCreationMessage() -> "poll"
             e2eMessage.hasReactionMessage() -> {
                 if (e2eMessage.reactionMessage.text.isNullOrEmpty()) "reaction remove" else "reaction"
             }
@@ -2155,7 +2198,15 @@ object WhatsAppProtocol {
 
 
                 val parsedType = getMessageType(e2eMessage)
-                if (parsedType == "ignore" || parsedType.startsWith("unknown_protocol_")) {
+                // A message carrying only a SenderKeyDistributionMessage types as "ignore", but we
+                // MUST still process it — it's what establishes the group sender key so subsequent
+                // skmsg group messages can be decrypted. Let it through here; the caller processes
+                // the key and then stops (see handleIncomingMessage). Other "ignore" / unknown
+                // protocol messages are still dropped.
+                val hasSenderKeyDistribution = e2eMessage.hasSenderKeyDistributionMessage()
+                if ((parsedType == "ignore" && !hasSenderKeyDistribution) ||
+                    parsedType.startsWith("unknown_protocol_")
+                ) {
                     return null
                 }
 
@@ -2184,6 +2235,14 @@ object WhatsAppProtocol {
                         "Location: $name\n${loc.address}\n$mapsUrl"
                     }
                     e2eMessage.hasReactionMessage() -> e2eMessage.reactionMessage.text
+                    e2eMessage.hasPollCreationMessage() -> {
+                        val poll = e2eMessage.pollCreationMessage
+                        buildString {
+                            append("📊 ")
+                            append(poll.name)
+                            poll.optionsList.forEach { append("\n• "); append(it.optionName) }
+                        }
+                    }
                     e2eMessage.hasProtocolMessage() -> {
                         when (parsedType) {
                             "revoke" -> "[Message Deleted]"
@@ -2230,7 +2289,14 @@ object WhatsAppProtocol {
                     else -> null
                 }
 
-                val pollData: PollData? = null
+                val pollData: PollData? = if (e2eMessage.hasPollCreationMessage()) {
+                    val poll = e2eMessage.pollCreationMessage
+                    PollData(
+                        question = poll.name,
+                        options = poll.optionsList.map { it.optionName },
+                        selectableOptionCount = poll.selectableOptionsCount,
+                    )
+                } else null
 
                 val groupInviteData: GroupInviteMeta? = null
 

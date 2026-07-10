@@ -41,6 +41,7 @@ message Message {
     optional LocationMessage locationMessage = 16;
     optional ReactionMessage reactionMessage = 46;
     optional PollCreationMessage pollCreationMessage = 49;
+    optional PollUpdateMessage pollUpdateMessage = 80;
     optional ProtocolMessage protocolMessage = 12;
     optional SenderKeyDistributionMessage senderKeyDistributionMessage = 2;
     optional DeviceSentMessage deviceSentMessage = 31;
@@ -313,4 +314,24 @@ message PollCreationMessage {
     repeated Option options = 3;
     optional uint32 selectableOptionsCount = 4;
     optional ContextInfo contextInfo = 5;
+}
+
+// A cast poll vote. Mirrors whatsmeow waE2E.PollVoteMessage: the selected options are SHA-256
+// hashes of the option names, encrypted (see PollUpdateMessage) so only poll participants see them.
+message PollVoteMessage {
+    repeated bytes selectedOptions = 1;
+}
+
+// Encrypted poll-vote payload (AES-256-GCM). Mirrors whatsmeow waE2E.PollEncValue.
+message PollEncValue {
+    optional bytes encPayload = 1;
+    optional bytes encIV = 2;
+}
+
+// Wraps an encrypted poll vote, pointing back at the poll it belongs to. Mirrors whatsmeow
+// waE2E.PollUpdateMessage.
+message PollUpdateMessage {
+    optional MessageKey pollCreationMessageKey = 1;
+    optional PollEncValue vote = 2;
+    optional int64 senderTimestampMS = 4;
 }

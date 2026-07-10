@@ -290,15 +290,37 @@ object MessagesSessionManager {
                 state = MessageState.PENDING,
                 timestamp = System.currentTimeMillis(),
                 senderName = null,
+                serviceData = buildPollServiceData(
+                    null, question, options, if (allowMultiple) options.size else 1,
+                ),
             )
         )
         touchConversationOutgoing(conversationId, "📊 $question")
+        // WhatsApp returns the REAL poll message id so we can reconcile the optimistic pending
+        // row onto it — votes (and the stored poll secret/options) are keyed by that id, so the
+        // row the user taps must carry it. Also prevents a later echo from duplicating the poll.
+        if (source == MessageSource.WHATSAPP) {
+            val realId = WhatsAppClient.sendPoll(conversationId, question, options, allowMultiple)
+            if (realId == null) {
+                db.messageDao().updateState(pendingId, MessageState.FAILED)
+                return false
+            }
+            val realDbId = "${source.idPrefix}:$realId"
+            val pending = db.messageDao().get(pendingId)
+            if (pending != null && db.messageDao().get(realDbId) == null) {
+                db.messageDao().deleteById(pendingId)
+                db.messageDao().upsert(pending.copy(id = realDbId, state = MessageState.SENT))
+            } else {
+                db.messageDao().updateState(pendingId, MessageState.SENT)
+            }
+            return true
+        }
         val ok = when (source) {
             MessageSource.MESSAGES_WEB -> GMessagesClient.sendPoll(conversationId, question, options, allowMultiple)
             MessageSource.VOICE -> GVoiceClient.sendPoll(conversationId, question, options, allowMultiple)
             MessageSource.TELEGRAM -> TelegramClient.sendPoll(conversationId, question, options, allowMultiple)
             MessageSource.SIGNAL -> SignalClient.sendPoll(conversationId, question, options, allowMultiple)
-            MessageSource.WHATSAPP -> WhatsAppClient.sendPoll(conversationId, question, options, allowMultiple)
+            MessageSource.WHATSAPP -> false // handled above
             MessageSource.MESSENGER -> MetaClient.sendPoll(conversationId, question, options, allowMultiple)
             MessageSource.INSTAGRAM -> InstagramClient.sendPoll(conversationId, question, options, allowMultiple)
         }
@@ -505,6 +527,32 @@ object MessagesSessionManager {
                 true
             }
         }
+    }
+
+    /**
+     * Cast/update the local user's vote on a poll. Only WhatsApp supports this today. Routes to
+     * the platform client, then optimistically records the local user's selection ("self") on the
+     * poll message so the tally updates immediately.
+     */
+    suspend fun sendPollVote(pollMessageId: String, optionNames: List<String>): Boolean {
+        val msg = db.messageDao().get(pollMessageId) ?: return false
+        val source = sourceFor(msg.conversationId) ?: return false
+        val ok = when (source) {
+            MessageSource.WHATSAPP -> WhatsAppClient.sendPollVote(
+                conversationId = msg.conversationId,
+                pollMessageId = pollMessageId,
+                pollCreatorJid = msg.senderId ?: "",
+                pollFromMe = msg.direction == MessageDirection.OUTGOING,
+                selectedOptionNames = optionNames,
+            )
+            else -> false
+        }
+        if (ok) {
+            db.messageDao().upsert(
+                msg.copy(serviceData = applyPollVote(msg.serviceData, "self", optionNames))
+            )
+        }
+        return ok
     }
 
     /**
@@ -931,6 +979,20 @@ object MessagesSessionManager {
                         senderName = event.senderName,
                         senderId = event.senderId,
                         mediaJson = attachmentsToJson(event.attachments),
+                        // Poll messages carry their structure so the UI renders interactive
+                        // options; votes get merged into this JSON as they arrive.
+                        serviceData = if (event.pollQuestion != null) {
+                            buildPollServiceData(
+                                db.messageDao().get(msgId)?.serviceData,
+                                event.pollQuestion,
+                                event.pollOptions,
+                                // selectable count isn't carried on the event; default to
+                                // single-choice unless the poll clearly allows more.
+                                1,
+                            )
+                        } else {
+                            db.messageDao().get(msgId)?.serviceData
+                        },
                     )
                 )
                 if (backfillComplete[event.source] == true && !alreadySeen) {
@@ -979,6 +1041,19 @@ object MessagesSessionManager {
                     event.senderId,
                     null,
                 )
+            }
+            is GMEvent.PollVote -> {
+                val pollDbId = "${event.source.idPrefix}:${event.pollMessageId}"
+                val msg = db.messageDao().get(pollDbId)
+                if (msg != null) {
+                    db.messageDao().upsert(
+                        msg.copy(
+                            serviceData = applyPollVote(
+                                msg.serviceData, event.voterId, event.optionNames,
+                            )
+                        )
+                    )
+                }
             }
             else -> Unit
         }

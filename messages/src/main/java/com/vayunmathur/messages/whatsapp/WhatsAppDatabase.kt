@@ -27,6 +27,7 @@ import androidx.room.TypeConverters
         WhatsAppMediaRequest::class,
         WhatsAppAvatarCache::class,
         WhatsAppPollOption::class,
+        WhatsAppPollSecret::class,
         // libsignal-backed E2E protocol stores
         WhatsAppE2ESession::class,
         WhatsAppE2EIdentity::class,
@@ -34,7 +35,7 @@ import androidx.room.TypeConverters
         WhatsAppE2ESignedPreKey::class,
         WhatsAppE2ESenderKey::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(WhatsAppTypeConverters::class)
@@ -45,6 +46,7 @@ abstract class WhatsAppDatabase : RoomDatabase() {
     abstract fun mediaRequestDao(): WhatsAppMediaRequestDao
     abstract fun avatarCacheDao(): WhatsAppAvatarCacheDao
     abstract fun pollOptionDao(): WhatsAppPollOptionDao
+    abstract fun pollSecretDao(): WhatsAppPollSecretDao
     abstract fun e2eSessionDao(): WhatsAppE2ESessionDao
     abstract fun e2eIdentityDao(): WhatsAppE2EIdentityDao
     abstract fun e2ePreKeyDao(): WhatsAppE2EPreKeyDao
@@ -215,6 +217,26 @@ interface WhatsAppPollOptionDao {
 
     @Query("DELETE FROM whatsapp_poll_option WHERE msgId = :msgId")
     suspend fun deleteByMessageId(msgId: String)
+}
+
+/**
+ * Per-poll shared secret (MessageContextInfo.messageSecret, hex-encoded), keyed by the poll
+ * creation message id. Needed to encrypt our votes and decrypt incoming votes; persisted so
+ * voting works after a restart, not just within the session.
+ */
+@Entity(tableName = "whatsapp_poll_secret")
+data class WhatsAppPollSecret(
+    @PrimaryKey val msgId: String,
+    val secret: String,
+)
+
+@Dao
+interface WhatsAppPollSecretDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(secret: WhatsAppPollSecret)
+
+    @Query("SELECT secret FROM whatsapp_poll_secret WHERE msgId = :msgId")
+    suspend fun get(msgId: String): String?
 }
 
 // -- libsignal-backed E2E protocol stores (whatsmeow signal store equivalents) --

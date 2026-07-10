@@ -92,6 +92,16 @@ class MessagesViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun sendPollVote(
+        pollMessageId: String,
+        optionNames: List<String>,
+        onResult: (Boolean) -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            onResult(MessagesSessionManager.sendPollVote(pollMessageId, optionNames))
+        }
+    }
+
     /**
      * Share a location on [conversationId]. [text] is the FindFamily share
      * URL minted at send time; sent as a normal message on every platform.
