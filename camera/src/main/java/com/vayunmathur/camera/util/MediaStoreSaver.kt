@@ -39,6 +39,19 @@ object MediaStoreSaver {
         return uri
     }
 
+    /** Write pre-encoded JPEG [bytes] (e.g. with injected XMP) to the image store. */
+    fun saveJpegBytes(
+        resolver: ContentResolver,
+        values: ContentValues,
+        bytes: ByteArray,
+    ): Uri? {
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
+        resolver.openOutputStream(uri)?.use { os ->
+            os.write(bytes)
+        }
+        return uri
+    }
+
     fun saveVideoFile(resolver: ContentResolver, values: ContentValues, file: File): Uri? {
         val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values) ?: return null
         resolver.openOutputStream(uri)?.use { os ->

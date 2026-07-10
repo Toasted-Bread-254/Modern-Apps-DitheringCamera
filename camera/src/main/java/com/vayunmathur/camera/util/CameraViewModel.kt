@@ -1112,9 +1112,9 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
     private fun finishPanoramaSweep() {
         panoramaEngine.stopSweep()
         viewModelScope.launch {
-            panoramaEngine.stitch()?.let {
-                panoramaEngine.saveToMediaStore(it)
-                it.recycle()
+            panoramaEngine.stitch()?.let { (bitmap, info) ->
+                panoramaEngine.saveToMediaStore(bitmap, info)
+                bitmap.recycle()
             }
             panoramaEngine.reset()
         }

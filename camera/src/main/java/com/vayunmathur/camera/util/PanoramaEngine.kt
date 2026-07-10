@@ -37,6 +37,21 @@ data class GuideDot(
     val state: GuideDotState
 )
 
+/**
+ * Geometry of a stitched panorama, describing how the cropped output bitmap maps
+ * onto the full equirectangular sphere. Written out as GPano XMP so compliant
+ * viewers render the image as 360/panoramic.
+ */
+data class PanoInfo(
+    val projectionType: String,
+    val fullWidth: Int,
+    val fullHeight: Int,
+    val croppedWidth: Int,
+    val croppedHeight: Int,
+    val croppedLeft: Int,
+    val croppedTop: Int,
+)
+
 class PanoramaEngine(private val context: Context) : SensorEventListener {
 
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -236,7 +251,7 @@ class PanoramaEngine(private val context: Context) : SensorEventListener {
         }
     }
 
-    suspend fun stitch(): Bitmap? {
+    suspend fun stitch(): Pair<Bitmap, PanoInfo>? {
         if (frames.size < 2) return null
         _isStitching.value = true
         return withContext(Dispatchers.IO) {
@@ -323,7 +338,7 @@ class PanoramaEngine(private val context: Context) : SensorEventListener {
         return Pair(medianDx, medianDy)
     }
 
-    private fun stitchManual(): Bitmap? {
+    private fun stitchManual(): Pair<Bitmap, PanoInfo>? {
         return try {
             val mats = frames.map { bmp ->
                 val mat = Mat()
@@ -458,13 +473,29 @@ class PanoramaEngine(private val context: Context) : SensorEventListener {
             val bitmap = Bitmap.createBitmap(cropped.cols(), cropped.rows(), Bitmap.Config.ARGB_8888)
             Utils.matToBitmap(cropped, bitmap)
             cropped.release()
-            bitmap
+
+            // A cylindrical strip of width W covers a horizontal FOV of W/f radians,
+            // so the equivalent full equirectangular sphere is 2π·f wide. Center the
+            // covered strip inside that full sphere. GPano only defines
+            // "equirectangular"; viewers handle the limited cropped area.
+            val fullWidth = Math.round(2.0 * Math.PI * f).toInt()
+            val fullHeight = fullWidth / 2
+            val info = PanoInfo(
+                projectionType = "equirectangular",
+                fullWidth = fullWidth,
+                fullHeight = fullHeight,
+                croppedWidth = bitmap.width,
+                croppedHeight = bitmap.height,
+                croppedLeft = ((fullWidth - bitmap.width) / 2).coerceAtLeast(0),
+                croppedTop = ((fullHeight - bitmap.height) / 2).coerceAtLeast(0),
+            )
+            Pair(bitmap, info)
         } catch (_: Exception) {
             null
         }
     }
 
-    private fun stitchSphere(): Bitmap? {
+    private fun stitchSphere(): Pair<Bitmap, PanoInfo>? {
         if (frames.isEmpty() || frameOrientations.size != frames.size) return null
 
         val frameW = frames[0].width
@@ -574,15 +605,36 @@ class PanoramaEngine(private val context: Context) : SensorEventListener {
         if (right > left && bottom > top) {
             val cropped = Bitmap.createBitmap(full, left, top, right - left + 1, bottom - top + 1)
             full.recycle()
-            return cropped
+            val info = PanoInfo(
+                projectionType = "equirectangular",
+                fullWidth = eqW,
+                fullHeight = eqH,
+                croppedWidth = right - left + 1,
+                croppedHeight = bottom - top + 1,
+                croppedLeft = left,
+                croppedTop = top,
+            )
+            return Pair(cropped, info)
         }
-        return full
+        val info = PanoInfo(
+            projectionType = "equirectangular",
+            fullWidth = eqW,
+            fullHeight = eqH,
+            croppedWidth = eqW,
+            croppedHeight = eqH,
+            croppedLeft = 0,
+            croppedTop = 0,
+        )
+        return Pair(full, info)
     }
 
-    fun saveToMediaStore(bitmap: Bitmap) {
+    fun saveToMediaStore(bitmap: Bitmap, info: PanoInfo) {
         val prefix = if (sphereMode) "SPHERE" else "PANO"
         val contentValues = MediaStoreSaver.imageValues("${prefix}_${MediaStoreSaver.timestamp()}.jpg")
-        MediaStoreSaver.saveBitmap(context.contentResolver, contentValues, bitmap)
+        val baos = java.io.ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, baos)
+        val tagged = PanoXmp.injectXmp(baos.toByteArray(), PanoXmp.buildGPanoXmp(info))
+        MediaStoreSaver.saveJpegBytes(context.contentResolver, contentValues, tagged)
     }
 
     fun reset() {
