@@ -30,4 +30,5 @@
     <string name="drafts">Wersje robocze</string>
     <string name="save">Zapisz</string>
     <string name="cancel">Anuluj</string>
+    <string name="email_widget_description">Ostatnie wiadomości z Twojej ujednoliconej skrzynki odbiorczej — dotknij, aby otworzyć pocztę e-mail</string>
 </resources>
