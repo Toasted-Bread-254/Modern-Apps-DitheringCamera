@@ -1072,6 +1072,14 @@ object WhatsAppClient {
                 // LID routing (Go rerouteWAMessage)
                 val sender = resolveJID(message.participant ?: message.from)
 
+                // Treat the message as ours when it was sent by our own account from another
+                // device — either flagged during parse (DeviceSentMessage / recipient attr) or the
+                // sender JID resolves to our own user (the common group case: from=group,
+                // participant=ourJid). Otherwise it wrongly renders as an incoming bubble "from"
+                // ourselves.
+                val fromMe = message.isFromMe || isOwnJid(sender) ||
+                    isOwnJid(message.participant ?: message.from)
+
                 // Cache push name from notify attr (Go syncGhost / PushName handling)
                 val notifyName = node.attrs["notify"]
                 if (!notifyName.isNullOrEmpty()) {
@@ -1148,7 +1156,7 @@ object WhatsAppClient {
                     val update = message.e2eMessage.pollUpdateMessage
                     val key = update.pollCreationMessageKey
                     val pollId = key.id
-                    val voter = if (message.isFromMe) (authData?.wid ?: "") else sender
+                    val voter = if (fromMe) (authData?.wid ?: "") else sender
                     val creator = when {
                         key.fromMe -> voter
                         key.participant.isNotEmpty() -> key.participant
@@ -1167,7 +1175,7 @@ object WhatsAppClient {
                                 source = MessageSource.WHATSAPP,
                                 conversationId = "wa:${message.from}",
                                 pollMessageId = pollId,
-                                voterId = if (message.isFromMe) "self" else sender,
+                                voterId = if (fromMe) "self" else sender,
                                 optionNames = names,
                             ))
                         }
@@ -1182,7 +1190,7 @@ object WhatsAppClient {
                     val targetId = reaction.key?.id ?: ""
                     // A reaction the user made on another device echoes back as fromMe;
                     // tag its sender "self" so it isn't misattributed to the chat peer.
-                    val reactorId = if (message.isFromMe) "self" else sender
+                    val reactorId = if (fromMe) "self" else sender
                     if (emoji.isEmpty()) {
                         _events.emit(GMEvent.ReactionRemoved(
                             source = MessageSource.WHATSAPP,
@@ -1220,7 +1228,7 @@ object WhatsAppClient {
                 // Messages the user sent from another linked device (fromMe) are synced
                 // to us as outgoing, not incoming — emit a MessageUpdate so they render on
                 // the sent side instead of as an incoming (previously blank) bubble.
-                if (message.isFromMe) {
+                if (fromMe) {
                     _events.emit(GMEvent.MessageUpdate(
                         source = MessageSource.WHATSAPP,
                         conversationId = "wa:${message.from}",
@@ -3361,6 +3369,16 @@ object WhatsAppClient {
         var s = messageId
         while (s.startsWith("wa:")) s = s.removePrefix("wa:")
         return s
+    }
+
+    /** True when [jid] refers to the local user's own account (phone wid or LID), comparing the
+     *  bare user part so device/agent suffixes and PN/LID addressing don't matter. */
+    private fun isOwnJid(jid: String?): Boolean {
+        if (jid.isNullOrEmpty()) return false
+        fun user(j: String?) = j?.substringBefore("@")?.substringBefore(":")?.substringBefore(".")
+        val u = user(jid) ?: return false
+        if (u.isEmpty()) return false
+        return u == user(authData?.wid) || u == user(authData?.lid)
     }
 
     private fun generateMessageId(): String {
