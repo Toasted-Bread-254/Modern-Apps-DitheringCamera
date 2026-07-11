@@ -30,4 +30,5 @@
     <string name="drafts">Bozze</string>
     <string name="save">Salva</string>
     <string name="cancel">Annulla</string>
+    <string name="email_widget_description">I messaggi recenti dalla tua casella unificata — tocca per aprire Email</string>
 </resources>
