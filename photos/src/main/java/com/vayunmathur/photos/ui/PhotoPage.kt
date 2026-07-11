@@ -25,6 +25,7 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -56,6 +57,8 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -204,16 +207,14 @@ fun PhotoDetailView(
         }
     }
 
-    // Panoramas/spheres get an interactive 360 renderer that owns its own touch
-    // handling (drag/pinch/tap), so the flat zoom/pan gestures are gated off.
+    // 360/panorama photos show as a flat image by default; a button opens an
+    // immersive drag-to-look-around sphere viewer.
     val isPanorama = photo.videoData == null && photo.panoData != null
+    var showImmersive by remember(photo.id) { mutableStateOf(false) }
 
     Box(
             modifier =
                     Modifier.fillMaxSize()
-                            .then(
-                                if (isPanorama) Modifier
-                                else Modifier
                             .pointerInput(Unit) {
                                 detectTapGestures(
                                         onTap = { updatedOnToggleMetadata() },
@@ -284,15 +285,8 @@ fun PhotoDetailView(
                                     } while (event.changes.any { it.pressed })
                                 }
                             }
-                            )
     ) {
-        if (isPanorama) {
-            PanoramaSphereView(
-                    photo = photo,
-                    modifier = Modifier.fillMaxSize(),
-                    onTap = { updatedOnToggleMetadata() }
-            )
-        } else if (photo.videoData == null) {
+        if (photo.videoData == null) {
             AsyncImage(
                     model =
                             ImageRequest.Builder(context)
@@ -412,6 +406,36 @@ fun PhotoDetailView(
                                 context.startActivity(Intent.createChooser(intent, "Share"))
                             }
                     ) { IconShare(tint = Color.White) }
+                }
+            }
+        }
+
+        if (isPanorama) {
+            AnimatedVisibility(
+                    visible = isMetadataVisible,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+            ) {
+                FilledTonalButton(onClick = { showImmersive = true }) {
+                    Text(stringResource(R.string.view_360))
+                }
+            }
+        }
+    }
+
+    if (showImmersive && photo.panoData != null) {
+        Dialog(
+                onDismissRequest = { showImmersive = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                PanoramaSphereView(photo = photo, modifier = Modifier.fillMaxSize())
+                FilledTonalButton(
+                        onClick = { showImmersive = false },
+                        modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
+                ) {
+                    Text(stringResource(R.string.close))
                 }
             }
         }

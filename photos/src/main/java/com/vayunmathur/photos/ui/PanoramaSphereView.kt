@@ -2,10 +2,6 @@ package com.vayunmathur.photos.ui
 
 import android.content.Context
 import android.graphics.BitmapFactory
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
 import android.net.Uri
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
@@ -14,8 +10,9 @@ import android.opengl.Matrix
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.net.toUri
 import com.vayunmathur.photos.data.PanoData
@@ -31,51 +28,36 @@ import kotlin.math.sin
 
 /**
  * Interactive 360 viewer: renders an equirectangular photo onto the inside of a
- * UV sphere (OpenGL ES 2.0) and lets the user look around by dragging, pinching
- * to zoom, and tilting the phone (gyroscope). Partial panoramas map only their
- * covered band using [PanoData]; the rest of the sphere stays black.
+ * UV sphere (OpenGL ES 2.0). The user looks around by dragging and pinches to
+ * zoom — no device motion. Partial panoramas map only their covered band using
+ * [PanoData]; the rest of the sphere stays black. The initial view is centered
+ * on the covered band so the photo is in front on open.
  */
 private class PanoramaSphereGLView(
     context: Context,
     uri: Uri,
     panoData: PanoData,
-    private val onTap: () -> Unit,
-) : GLSurfaceView(context), SensorEventListener {
+) : GLSurfaceView(context) {
 
     private val renderer = SphereRenderer(context, uri, panoData)
-    private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-    private val rotationSensor: Sensor? = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
     private val scaleDetector: ScaleGestureDetector
 
     private var lastX = 0f
     private var lastY = 0f
-    private var downX = 0f
-    private var downY = 0f
     private var dragging = false
 
     init {
         setEGLContextClientVersion(2)
         setRenderer(renderer)
-        renderMode = RENDERMODE_CONTINUOUSLY
+        renderMode = RENDERMODE_WHEN_DIRTY
         scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
                 // Pinch out (scaleFactor > 1) zooms in → narrower FOV.
                 renderer.fov = (renderer.fov / detector.scaleFactor).coerceIn(MIN_FOV, MAX_FOV)
+                requestRender()
                 return true
             }
         })
-    }
-
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        rotationSensor?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
-        }
-    }
-
-    override fun onDetachedFromWindow() {
-        sensorManager.unregisterListener(this)
-        super.onDetachedFromWindow()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -83,44 +65,33 @@ private class PanoramaSphereGLView(
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 lastX = event.x; lastY = event.y
-                downX = event.x; downY = event.y
                 dragging = true
             }
             MotionEvent.ACTION_MOVE -> {
                 if (dragging && !scaleDetector.isInProgress && event.pointerCount == 1) {
                     val dx = event.x - lastX
                     val dy = event.y - lastY
-                    // Scale drag by FOV so the feel is consistent across zoom levels.
+                    // Drag "grabs" the scene: dragging right/down brings the
+                    // content that was to the left/above into view. Scale by FOV
+                    // so the feel is consistent across zoom levels.
                     val speed = DRAG_SPEED * (renderer.fov / DEFAULT_FOV)
-                    renderer.touchYaw -= dx * speed
-                    renderer.touchPitch = (renderer.touchPitch - dy * speed).coerceIn(-90f, 90f)
+                    renderer.addYaw(dx * speed)
+                    renderer.addPitch(dy * speed)
                     lastX = event.x; lastY = event.y
+                    requestRender()
                 }
             }
-            MotionEvent.ACTION_UP -> {
-                val moved = kotlin.math.hypot(event.x - downX, event.y - downY)
-                if (moved < TAP_SLOP && !scaleDetector.isInProgress) onTap()
-                dragging = false
-            }
-            MotionEvent.ACTION_CANCEL -> dragging = false
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> dragging = false
         }
         return true
     }
 
-    override fun onSensorChanged(event: SensorEvent) {
-        if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
-            renderer.updateDeviceRotation(event.values)
-        }
-    }
-
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-
     companion object {
-        private const val DRAG_SPEED = 0.15f
+        // Radians of rotation per pixel of drag at the default FOV.
+        private const val DRAG_SPEED = 0.0015f
         private const val DEFAULT_FOV = 75f
         private const val MIN_FOV = 30f
         private const val MAX_FOV = 100f
-        private const val TAP_SLOP = 20f
     }
 }
 
@@ -130,12 +101,14 @@ private class SphereRenderer(
     private val pano: PanoData,
 ) : GLSurfaceView.Renderer {
 
-    @Volatile var touchYaw = 0f
-    @Volatile var touchPitch = 0f
     @Volatile var fov = 75f
 
-    private val deviceRotation = FloatArray(16)
-    @Volatile private var haveDeviceRotation = false
+    // Look direction, radians. Initialized to the center of the covered band.
+    @Volatile private var yaw = 0f
+    @Volatile private var pitch = 0f
+
+    fun addYaw(delta: Float) { yaw += delta }
+    fun addPitch(delta: Float) { pitch = (pitch + delta).coerceIn(-MAX_PITCH, MAX_PITCH) }
 
     private lateinit var vertexBuffer: FloatBuffer
     private lateinit var texBuffer: FloatBuffer
@@ -154,18 +127,15 @@ private class SphereRenderer(
     private val mvp = FloatArray(16)
     private var aspect = 1f
 
-    fun updateDeviceRotation(rotationVector: FloatArray) {
-        val r = FloatArray(16)
-        SensorManager.getRotationMatrixFromVector(r, rotationVector)
-        // Remap so holding the phone up in portrait points the camera into the
-        // scene, then invert (transpose of an orthonormal matrix) to get a
-        // world→camera view matrix.
-        val remapped = FloatArray(16)
-        SensorManager.remapCoordinateSystem(
-            r, SensorManager.AXIS_X, SensorManager.AXIS_Z, remapped
-        )
-        Matrix.transposeM(deviceRotation, 0, remapped, 0)
-        haveDeviceRotation = true
+    init {
+        val fullW = pano.fullWidth.toFloat().coerceAtLeast(1f)
+        val fullH = pano.fullHeight.toFloat().coerceAtLeast(1f)
+        val centerU = (pano.croppedLeft + pano.croppedWidth / 2f) / fullW
+        val centerV = (pano.croppedTop + pano.croppedHeight / 2f) / fullH
+        // Longitude of the band center; matches the mesh's theta = u * 2π.
+        yaw = (centerU * 2.0 * Math.PI).toFloat()
+        // Latitude of the band center; matches the mesh's phi = π/2 - v * π.
+        pitch = ((Math.PI / 2.0 - centerV * Math.PI).toFloat()).coerceIn(-MAX_PITCH, MAX_PITCH)
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -190,12 +160,11 @@ private class SphereRenderer(
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         Matrix.perspectiveM(projection, 0, fov, aspect, 0.1f, 10f)
 
-        Matrix.setIdentityM(view, 0)
-        Matrix.rotateM(view, 0, touchPitch, 1f, 0f, 0f)
-        Matrix.rotateM(view, 0, touchYaw, 0f, 1f, 0f)
-        if (haveDeviceRotation) {
-            Matrix.multiplyMM(view, 0, view, 0, deviceRotation, 0)
-        }
+        val cp = cos(pitch)
+        val dirX = cp * sin(yaw)
+        val dirY = sin(pitch)
+        val dirZ = cp * cos(yaw)
+        Matrix.setLookAtM(view, 0, 0f, 0f, 0f, dirX, dirY, dirZ, 0f, 1f, 0f)
 
         Matrix.multiplyMM(mvp, 0, projection, 0, view, 0)
 
@@ -328,6 +297,8 @@ private class SphereRenderer(
     companion object {
         private const val STACKS = 64
         private const val SLICES = 64
+        // Just under ±90° to avoid a degenerate look-at (dir parallel to up).
+        private const val MAX_PITCH = 1.5f
 
         private const val VERTEX_SHADER = """
             uniform mat4 uMvp;
@@ -357,37 +328,22 @@ private class SphereRenderer(
 
 /**
  * Compose wrapper around the 360 sphere [GLSurfaceView]. Forwards resume/pause
- * to the GL surface via [DisposableEffect]. [onTap] fires on a tap (used to
- * toggle the metadata overlay).
+ * to the GL surface via the composition lifecycle.
  */
 @Composable
 fun PanoramaSphereView(
     photo: Photo,
     modifier: Modifier = Modifier,
-    onTap: () -> Unit,
 ) {
     val pano = photo.panoData ?: return
     val uri = photo.uri.toUri()
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val context = LocalContext.current
 
-    val glView = androidx.compose.runtime.remember(uri) {
-        PanoramaSphereGLView(context, uri, pano, onTap)
-    }
+    val glView = remember(uri) { PanoramaSphereGLView(context, uri, pano) }
 
-    DisposableEffect(lifecycleOwner, glView) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> glView.onResume()
-                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> glView.onPause()
-                else -> {}
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            glView.onPause()
-        }
+    androidx.compose.runtime.DisposableEffect(glView) {
+        glView.onResume()
+        onDispose { glView.onPause() }
     }
 
     AndroidView(modifier = modifier, factory = { glView })
