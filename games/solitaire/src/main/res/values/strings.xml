@@ -3,6 +3,7 @@
     <string name="klondike">Klondike</string>
     <string name="spider">Spider</string>
     <string name="freecell">FreeCell</string>
+    <string name="pyramid">Pyramid</string>
     <string name="new_game">New Game</string>
     <string name="continue_game">Continue</string>
     <string name="give_up">Give Up</string>

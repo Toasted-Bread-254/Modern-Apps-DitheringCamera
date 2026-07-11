@@ -45,6 +45,7 @@ import com.vayunmathur.games.solitaire.data.GameMode
 import com.vayunmathur.games.solitaire.ui.FreeCellBoard
 import com.vayunmathur.games.solitaire.ui.GameActionBar
 import com.vayunmathur.games.solitaire.ui.KlondikeBoard
+import com.vayunmathur.games.solitaire.ui.PyramidBoard
 import com.vayunmathur.games.solitaire.ui.SpiderBoard
 import com.vayunmathur.games.solitaire.ui.WinOverlay
 import com.vayunmathur.games.solitaire.util.AppBackupAgent
@@ -91,6 +92,7 @@ fun GameMode.displayName(): String = when (this) {
     GameMode.KLONDIKE -> stringResource(R.string.klondike)
     GameMode.SPIDER -> stringResource(R.string.spider)
     GameMode.FREECELL -> stringResource(R.string.freecell)
+    GameMode.PYRAMID -> stringResource(R.string.pyramid)
 }
 
 @Composable
@@ -238,6 +240,9 @@ fun HomeScreen(backStack: NavBackStack<Route>, viewModel: SolitaireViewModel) {
                     Button(onClick = { startGame(GameMode.FREECELL, DrawMode.DRAW_ONE) }, Modifier.fillMaxWidth()) {
                         Text(stringResource(R.string.freecell))
                     }
+                    Button(onClick = { startGame(GameMode.PYRAMID, DrawMode.DRAW_ONE) }, Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.pyramid))
+                    }
                 }
             },
             confirmButton = {},
@@ -272,6 +277,7 @@ fun GameScreen(backStack: NavBackStack<Route>, viewModel: SolitaireViewModel, mo
         GameMode.KLONDIKE -> uiState.klondike?.let { Triple(it.isWon, it.moveCount, it.elapsedSeconds) }
         GameMode.SPIDER -> uiState.spider?.let { Triple(it.isWon, it.moveCount, it.elapsedSeconds) }
         GameMode.FREECELL -> uiState.freeCell?.let { Triple(it.isWon, it.moveCount, it.elapsedSeconds) }
+        GameMode.PYRAMID -> uiState.pyramid?.let { Triple(it.isWon, it.moveCount, it.elapsedSeconds) }
     }
     val isWon = activeGame?.first == true
     val moveCount = activeGame?.second ?: 0
@@ -345,6 +351,16 @@ fun GameScreen(backStack: NavBackStack<Route>, viewModel: SolitaireViewModel, mo
                     }
                     GameMode.FREECELL -> uiState.freeCell?.let {
                         FreeCellBoard(
+                            it,
+                            viewModel,
+                            Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .widthIn(max = SolitaireBoardMaxWidth)
+                                .fillMaxWidth()
+                        )
+                    }
+                    GameMode.PYRAMID -> uiState.pyramid?.let {
+                        PyramidBoard(
                             it,
                             viewModel,
                             Modifier

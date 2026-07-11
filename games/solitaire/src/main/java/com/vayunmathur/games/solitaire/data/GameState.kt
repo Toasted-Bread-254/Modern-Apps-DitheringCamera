@@ -5,7 +5,7 @@ data class TableauPile(
     val faceUp: List<Card> = emptyList()
 )
 
-enum class GameMode { KLONDIKE, SPIDER, FREECELL }
+enum class GameMode { KLONDIKE, SPIDER, FREECELL, PYRAMID }
 
 enum class DrawMode { DRAW_ONE, DRAW_THREE }
 
@@ -41,10 +41,31 @@ data class FreeCellState(
     val isWon: Boolean = false
 )
 
+/**
+ * Pyramid solitaire. [pyramid] is 7 rows (row r has r+1 slots); a removed card
+ * becomes null so positions stay stable for the triangular layout. Cards are
+ * removed in pairs whose ranks sum to 13 (Ace=1 … King=13); a King (13) is
+ * removed on its own. [selectedId] is the currently picked card ("pyr_r_c" or
+ * "waste"). [passesRemaining] is how many more times the waste may be recycled
+ * back into the stock. Winning = the whole pyramid is cleared.
+ */
+data class PyramidState(
+    val pyramid: List<List<Card?>> = emptyList(),
+    val stock: List<Card> = emptyList(),
+    val waste: List<Card> = emptyList(),
+    val passesRemaining: Int = 2,
+    val selectedId: String? = null,
+    val moveCount: Int = 0,
+    val elapsedSeconds: Int = 0,
+    val usedUndo: Boolean = false,
+    val isWon: Boolean = false
+)
+
 data class SolitaireUiState(
     val gameMode: GameMode? = null,
     val klondike: KlondikeState? = null,
     val spider: SpiderState? = null,
     val freeCell: FreeCellState? = null,
+    val pyramid: PyramidState? = null,
     val history: List<Any> = emptyList()
 )

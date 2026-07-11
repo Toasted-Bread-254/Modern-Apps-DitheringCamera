@@ -20,6 +20,7 @@ class SolitaireAchievementsManager(
                     GameMode.KLONDIKE -> onAchievementUnlocked("klondike_first")
                     GameMode.SPIDER -> onAchievementUnlocked("spider_first")
                     GameMode.FREECELL -> onAchievementUnlocked("freecell_first")
+                    GameMode.PYRAMID -> onAchievementUnlocked("pyramid_first")
                 }
             }
         }

@@ -45,6 +45,7 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
             GameMode.KLONDIKE -> klondike?.isWon == false
             GameMode.SPIDER -> spider?.isWon == false
             GameMode.FREECELL -> freeCell?.isWon == false
+            GameMode.PYRAMID -> pyramid?.isWon == false
             null -> false
         }
     }
@@ -54,6 +55,7 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
             GameMode.KLONDIKE -> newKlondikeGame(drawMode)
             GameMode.SPIDER -> newSpiderGame()
             GameMode.FREECELL -> newFreeCellGame()
+            GameMode.PYRAMID -> newPyramidGame()
         }
     }
 
@@ -541,6 +543,161 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    // --- Pyramid ---
+
+    fun newPyramidGame() {
+        val deck = createShuffledDeck()
+        var index = 0
+        val rows = mutableListOf<List<Card?>>()
+        for (r in 0 until 7) {
+            val row = mutableListOf<Card?>()
+            for (c in 0..r) {
+                row.add(deck[index]); index++
+            }
+            rows.add(row)
+        }
+        val stock = deck.subList(index, deck.size).toList()
+        _uiState.value = SolitaireUiState(
+            gameMode = GameMode.PYRAMID,
+            pyramid = PyramidState(
+                pyramid = rows,
+                stock = stock,
+                waste = emptyList(),
+                passesRemaining = 2
+            ),
+            history = emptyList()
+        )
+        statsRepository.recordGamePlayed(GameMode.PYRAMID)
+    }
+
+    /** A pyramid card is exposed when both cards resting on it have been removed. */
+    private fun isPyramidCardExposed(state: PyramidState, row: Int, col: Int): Boolean {
+        if (state.pyramid[row][col] == null) return false
+        if (row == state.pyramid.lastIndex) return true
+        val below = state.pyramid[row + 1]
+        return below[col] == null && below[col + 1] == null
+    }
+
+    /** Whether the card identified by [id] can currently be selected/matched. */
+    private fun isPyramidPlayable(state: PyramidState, id: String): Boolean = when {
+        id == "waste" -> state.waste.isNotEmpty()
+        id.startsWith("pyr_") -> {
+            val (r, c) = parsePyramidId(id)
+            isPyramidCardExposed(state, r, c)
+        }
+        else -> false
+    }
+
+    private fun parsePyramidId(id: String): Pair<Int, Int> {
+        val parts = id.removePrefix("pyr_").split("_")
+        return parts[0].toInt() to parts[1].toInt()
+    }
+
+    private fun pyramidCardAt(state: PyramidState, id: String): Card? = when {
+        id == "waste" -> state.waste.lastOrNull()
+        id.startsWith("pyr_") -> {
+            val (r, c) = parsePyramidId(id)
+            state.pyramid.getOrNull(r)?.getOrNull(c)
+        }
+        else -> null
+    }
+
+    /** Remove the card identified by [id] from the pyramid or the waste. */
+    private fun pyramidRemove(state: PyramidState, id: String): PyramidState = when {
+        id == "waste" -> state.copy(waste = state.waste.dropLast(1))
+        id.startsWith("pyr_") -> {
+            val (r, c) = parsePyramidId(id)
+            val newPyramid = state.pyramid.map { it.toMutableList() }
+            newPyramid[r][c] = null
+            state.copy(pyramid = newPyramid.map { it.toList() })
+        }
+        else -> state
+    }
+
+    /**
+     * Tap a card in the pyramid or on the waste. Kings (value 13) are removed on
+     * their own; otherwise the tap either selects a card, deselects it, or — if a
+     * second playable card is tapped and the two ranks sum to 13 — removes both.
+     */
+    fun pyramidTapCard(id: String) {
+        val state = _uiState.value.pyramid ?: return
+        if (state.isWon) return
+        if (!isPyramidPlayable(state, id)) return
+        val card = pyramidCardAt(state, id) ?: return
+
+        // King removes immediately.
+        if (card.rank.value == 13) {
+            saveHistory()
+            val removed = pyramidRemove(state, id).copy(
+                selectedId = null,
+                moveCount = state.moveCount + 1
+            )
+            _uiState.update { it.copy(pyramid = removed) }
+            checkPyramidWin()
+            return
+        }
+
+        val selected = state.selectedId
+        when {
+            selected == null -> _uiState.update { it.copy(pyramid = state.copy(selectedId = id)) }
+            selected == id -> _uiState.update { it.copy(pyramid = state.copy(selectedId = null)) }
+            else -> {
+                val selectedCard = pyramidCardAt(state, selected)
+                if (selectedCard != null && isPyramidPlayable(state, selected) &&
+                    selectedCard.rank.value + card.rank.value == 13
+                ) {
+                    saveHistory()
+                    val afterFirst = pyramidRemove(state, id)
+                    val afterSecond = pyramidRemove(afterFirst, selected).copy(
+                        selectedId = null,
+                        moveCount = state.moveCount + 1
+                    )
+                    _uiState.update { it.copy(pyramid = afterSecond) }
+                    checkPyramidWin()
+                } else {
+                    // Not a valid pair — treat the tap as a fresh selection.
+                    _uiState.update { it.copy(pyramid = state.copy(selectedId = id)) }
+                }
+            }
+        }
+    }
+
+    fun pyramidDealStock() {
+        val state = _uiState.value.pyramid ?: return
+        if (state.isWon) return
+        if (state.stock.isEmpty()) {
+            // Recycle the waste back into the stock if any passes remain.
+            if (state.passesRemaining <= 0 || state.waste.isEmpty()) return
+            saveHistory()
+            _uiState.update {
+                it.copy(pyramid = state.copy(
+                    stock = state.waste.reversed(),
+                    waste = emptyList(),
+                    passesRemaining = state.passesRemaining - 1,
+                    selectedId = null,
+                    moveCount = state.moveCount + 1
+                ))
+            }
+            return
+        }
+        saveHistory()
+        _uiState.update {
+            it.copy(pyramid = state.copy(
+                stock = state.stock.dropLast(1),
+                waste = state.waste + state.stock.last(),
+                moveCount = state.moveCount + 1
+            ))
+        }
+    }
+
+    private fun checkPyramidWin() {
+        val state = _uiState.value.pyramid ?: return
+        if (state.pyramid.all { row -> row.all { it == null } }) {
+            _uiState.update { it.copy(pyramid = state.copy(isWon = true)) }
+            onGameWon(GameMode.PYRAMID, state.elapsedSeconds, state.moveCount, state.usedUndo)
+        }
+    }
+
     // --- Shared ---
 
     fun tryMoveByDrag(cards: List<Card>, sourceId: String, dropOffset: Offset) {
@@ -552,6 +709,7 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
             GameMode.KLONDIKE -> handleKlondikeDrop(cards, sourceId, targetId)
             GameMode.SPIDER -> handleSpiderDrop(cards, sourceId, targetId)
             GameMode.FREECELL -> handleFreeCellDrop(cards, sourceId, targetId)
+            GameMode.PYRAMID -> {} // Pyramid is tap-based, not drag-based.
             null -> {}
         }
     }
@@ -669,6 +827,9 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
             is FreeCellState -> _uiState.update {
                 it.copy(freeCell = prev.copy(usedUndo = true), history = newHistory)
             }
+            is PyramidState -> _uiState.update {
+                it.copy(pyramid = prev.copy(usedUndo = true), history = newHistory)
+            }
         }
     }
 
@@ -677,6 +838,7 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
             GameMode.KLONDIKE -> newKlondikeGame(_uiState.value.klondike?.drawMode ?: DrawMode.DRAW_ONE)
             GameMode.SPIDER -> newSpiderGame()
             GameMode.FREECELL -> newFreeCellGame()
+            GameMode.PYRAMID -> newPyramidGame()
             null -> {}
         }
     }
@@ -693,6 +855,9 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
                 GameMode.FREECELL -> state.copy(
                     freeCell = state.freeCell?.let { if (!it.isWon) it.copy(elapsedSeconds = it.elapsedSeconds + 1) else it }
                 )
+                GameMode.PYRAMID -> state.copy(
+                    pyramid = state.pyramid?.let { if (!it.isWon) it.copy(elapsedSeconds = it.elapsedSeconds + 1) else it }
+                )
                 null -> state
             }
         }
@@ -708,6 +873,7 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
             GameMode.KLONDIKE -> state.klondike ?: return
             GameMode.SPIDER -> state.spider ?: return
             GameMode.FREECELL -> state.freeCell ?: return
+            GameMode.PYRAMID -> state.pyramid ?: return
             null -> return
         }
         _uiState.update { it.copy(history = it.history + current) }
@@ -723,6 +889,7 @@ class SolitaireViewModel(application: Application) : AndroidViewModel(applicatio
             }
             GameMode.SPIDER -> achievementsManager.onAchievementUnlocked("spider_first")
             GameMode.FREECELL -> achievementsManager.onAchievementUnlocked("freecell_first")
+            GameMode.PYRAMID -> achievementsManager.onAchievementUnlocked("pyramid_first")
         }
         if (!usedUndo) achievementsManager.onAchievementUnlocked("no_undo")
         val totalWins = statsRepository.getTotalGamesWon()

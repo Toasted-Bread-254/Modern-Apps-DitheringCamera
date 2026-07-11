@@ -20,6 +20,11 @@
     "description": "Win a FreeCell game."
   },
   {
+    "id": "pyramid_first",
+    "name": "Pharaoh's Favor",
+    "description": "Win a Pyramid game."
+  },
+  {
     "id": "wins_10",
     "name": "Getting Started",
     "description": "Win 10 games.",
