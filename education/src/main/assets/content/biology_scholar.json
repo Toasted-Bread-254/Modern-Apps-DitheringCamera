@@ -1,0 +1,118 @@
+{
+  "id": "biology-scholar-sample",
+  "name": "Biology (grades 6-12)",
+  "version": 1,
+  "skills": [
+    { "id": "skill.bio.cell-theory", "subject": "SCIENCE", "name": "Cell theory" },
+    { "id": "skill.bio.organelles", "subject": "SCIENCE", "name": "Cell organelles" }
+  ],
+  "courses": [
+    {
+      "id": "course.biology",
+      "subject": "SCIENCE",
+      "title": "Biology",
+      "description": "The study of living things, from cells to ecosystems.",
+      "gradeLevel": 9,
+      "units": [
+        {
+          "id": "unit.cells",
+          "title": "Cells",
+          "description": "The basic unit of life.",
+          "lessons": [
+            {
+              "id": "lesson.cell-theory",
+              "title": "Cell theory",
+              "videos": [
+                { "youtubeId": "yt-placeholder-cell-theory", "title": "Introduction to cells", "durationSeconds": 480 }
+              ],
+              "exercise": {
+                "id": "ex.cell-theory",
+                "title": "Practice: cell theory",
+                "questionIds": ["q.bio.theory-select", "q.bio.smallest"]
+              }
+            },
+            {
+              "id": "lesson.organelles",
+              "title": "Organelles",
+              "videos": [
+                { "youtubeId": "yt-placeholder-organelles", "title": "Tour of a cell", "durationSeconds": 540 }
+              ],
+              "exercise": {
+                "id": "ex.organelles",
+                "title": "Practice: organelles",
+                "questionIds": ["q.bio.mitochondria", "q.bio.match-organelles"]
+              }
+            }
+          ],
+          "quiz": {
+            "id": "quiz.cells",
+            "title": "Unit test: Cells",
+            "questionIds": ["q.bio.theory-select", "q.bio.mitochondria", "q.bio.match-organelles"]
+          }
+        }
+      ],
+      "challenge": {
+        "id": "challenge.biology",
+        "title": "Course challenge",
+        "questionIds": ["q.bio.smallest", "q.bio.mitochondria", "q.bio.match-organelles", "q.bio.theory-select"]
+      }
+    }
+  ],
+  "questions": [
+    {
+      "type": "multiple_select",
+      "id": "q.bio.theory-select",
+      "skillId": "skill.bio.cell-theory",
+      "prompt": { "text": "Which statements are part of cell theory? (Select all that apply.)" },
+      "choices": [
+        { "text": "All living things are made of cells." },
+        { "text": "Cells are the basic unit of life." },
+        { "text": "All cells come from pre-existing cells." },
+        { "text": "Cells are always visible to the naked eye." }
+      ],
+      "correctIndices": [0, 1, 2],
+      "explanation": "The three tenets of cell theory are the first three statements.",
+      "bands": ["SCHOLAR"],
+      "difficulty": 3
+    },
+    {
+      "type": "multiple_choice",
+      "id": "q.bio.smallest",
+      "skillId": "skill.bio.cell-theory",
+      "prompt": { "text": "What is the smallest unit of life that can carry out all life processes?" },
+      "choices": [
+        { "text": "An organ" },
+        { "text": "A cell" },
+        { "text": "A molecule" },
+        { "text": "A tissue" }
+      ],
+      "correctIndex": 1,
+      "explanation": "The cell is the smallest unit of life.",
+      "bands": ["SCHOLAR"],
+      "difficulty": 2
+    },
+    {
+      "type": "short_text",
+      "id": "q.bio.mitochondria",
+      "skillId": "skill.bio.organelles",
+      "prompt": { "text": "Which organelle is known as the 'powerhouse of the cell'?" },
+      "acceptedAnswers": ["mitochondria", "mitochondrion"],
+      "caseSensitive": false,
+      "explanation": "The mitochondria produce most of the cell's ATP (energy).",
+      "bands": ["SCHOLAR"],
+      "difficulty": 2
+    },
+    {
+      "type": "matching",
+      "id": "q.bio.match-organelles",
+      "skillId": "skill.bio.organelles",
+      "prompt": { "text": "Match each organelle to its function." },
+      "left": ["Nucleus", "Ribosome", "Chloroplast"],
+      "right": ["Builds proteins", "Photosynthesis", "Stores genetic material"],
+      "correctRightForLeft": [2, 0, 1],
+      "explanation": "Nucleus stores DNA, ribosomes build proteins, chloroplasts do photosynthesis.",
+      "bands": ["SCHOLAR"],
+      "difficulty": 3
+    }
+  ]
+}

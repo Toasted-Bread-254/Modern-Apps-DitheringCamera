@@ -30,7 +30,7 @@ import com.vayunmathur.library.util.NavBackStack
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CoursePage(backStack: NavBackStack<Route>, viewModel: EducationViewModel, courseId: String) {
+fun ScholarCoursePage(backStack: NavBackStack<Route>, viewModel: EducationViewModel, courseId: String) {
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val content = viewModel.content
     val course = content.course(courseId)

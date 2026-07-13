@@ -26,6 +26,7 @@ import com.vayunmathur.education.ui.ParentPage
 import com.vayunmathur.education.ui.QuizPage
 import com.vayunmathur.education.ui.ResultsPage
 import com.vayunmathur.education.ui.UnitPage
+import com.vayunmathur.education.ui.VideoPlayerPage
 import com.vayunmathur.education.util.EducationViewModel
 import com.vayunmathur.education.util.EducationViewModelFactory
 import com.vayunmathur.library.ui.DynamicTheme
@@ -86,6 +87,8 @@ sealed interface Route : NavKey {
     @Serializable
     data class Quiz(val exerciseId: String) : Route
     @Serializable
+    data class VideoPlayer(val youtubeId: String, val title: String) : Route
+    @Serializable
     data class Results(val total: Int, val correct: Int, val stars: Int) : Route
     @Serializable
     data object ParentGate : Route
@@ -114,6 +117,7 @@ fun MainGraph(viewModel: EducationViewModel) {
         entry<Route.UnitScreen> { UnitPage(backStack, viewModel, it.unitId) }
         entry<Route.LessonScreen> { LessonPage(backStack, viewModel, it.lessonId) }
         entry<Route.Quiz> { QuizPage(backStack, viewModel, it.exerciseId) }
+        entry<Route.VideoPlayer> { VideoPlayerPage(backStack, it.youtubeId, it.title) }
         entry<Route.Results> { ResultsPage(backStack, viewModel, it.total, it.correct, it.stars) }
         entry<Route.ParentGate>(metadata = DialogPage()) { ParentGatePage(backStack, viewModel) }
         entry<Route.Parent> { ParentPage(backStack, viewModel) }

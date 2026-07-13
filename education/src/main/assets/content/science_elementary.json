@@ -1,0 +1,117 @@
+{
+  "id": "science-elementary-sample",
+  "name": "Elementary Science (grades 3-5)",
+  "version": 1,
+  "skills": [
+    { "id": "skill.sci.lifecycle", "subject": "SCIENCE", "name": "Life cycles" },
+    { "id": "skill.sci.states", "subject": "SCIENCE", "name": "States of matter" }
+  ],
+  "courses": [
+    {
+      "id": "course.grade4-science",
+      "subject": "SCIENCE",
+      "title": "4th grade science",
+      "description": "Living things and the matter around us.",
+      "gradeLevel": 4,
+      "units": [
+        {
+          "id": "unit.life-cycles",
+          "title": "Life cycles",
+          "description": "How living things grow and change.",
+          "lessons": [
+            {
+              "id": "lesson.butterfly",
+              "title": "The butterfly life cycle",
+              "videos": [
+                { "youtubeId": "yt-placeholder-butterfly", "title": "From caterpillar to butterfly", "durationSeconds": 280 }
+              ],
+              "exercise": {
+                "id": "ex.life-cycles",
+                "title": "Practice: life cycles",
+                "questionIds": ["q.sci.metamorph-order", "q.sci.stage"]
+              }
+            }
+          ],
+          "quiz": {
+            "id": "quiz.life-cycles",
+            "title": "Unit quiz: Life cycles",
+            "questionIds": ["q.sci.stage", "q.sci.metamorph-order"]
+          }
+        },
+        {
+          "id": "unit.matter",
+          "title": "States of matter",
+          "description": "Solids, liquids, and gases.",
+          "lessons": [
+            {
+              "id": "lesson.states",
+              "title": "Solid, liquid, gas",
+              "videos": [
+                { "youtubeId": "yt-placeholder-states", "title": "The three states of matter", "durationSeconds": 300 }
+              ],
+              "exercise": {
+                "id": "ex.matter",
+                "title": "Practice: matter",
+                "questionIds": ["q.sci.water-gas", "q.sci.match-states"]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "type": "ordering",
+      "id": "q.sci.metamorph-order",
+      "skillId": "skill.sci.lifecycle",
+      "prompt": { "text": "Put the butterfly life cycle in order." },
+      "items": ["Egg", "Caterpillar", "Chrysalis", "Butterfly"],
+      "explanation": "Egg → caterpillar → chrysalis → butterfly.",
+      "bands": ["ELEMENTARY"],
+      "difficulty": 2
+    },
+    {
+      "type": "multiple_choice",
+      "id": "q.sci.stage",
+      "skillId": "skill.sci.lifecycle",
+      "prompt": { "text": "During which stage does a caterpillar form a hard case around itself?" },
+      "choices": [
+        { "text": "Egg" },
+        { "text": "Chrysalis" },
+        { "text": "Butterfly" }
+      ],
+      "correctIndex": 1,
+      "explanation": "The chrysalis (pupa) stage.",
+      "bands": ["ELEMENTARY"],
+      "difficulty": 1
+    },
+    {
+      "type": "multiple_choice",
+      "id": "q.sci.water-gas",
+      "skillId": "skill.sci.states",
+      "prompt": { "text": "What state of matter is water vapor (steam)?" },
+      "choices": [
+        { "text": "Solid" },
+        { "text": "Liquid" },
+        { "text": "Gas" }
+      ],
+      "correctIndex": 2,
+      "explanation": "Water vapor is a gas.",
+      "bands": ["ELEMENTARY"],
+      "difficulty": 1
+    },
+    {
+      "type": "matching",
+      "id": "q.sci.match-states",
+      "skillId": "skill.sci.states",
+      "prompt": { "text": "Match each item to its state of matter." },
+      "left": ["Ice cube", "Milk", "Air in a balloon"],
+      "right": ["Liquid", "Gas", "Solid"],
+      "correctRightForLeft": [2, 0, 1],
+      "explanation": "Ice = solid, milk = liquid, air = gas.",
+      "bands": ["ELEMENTARY"],
+      "difficulty": 2
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "id": "reading-elementary-sample",
+  "name": "Reading & Language Arts (grades 3-5)",
+  "version": 1,
+  "skills": [
+    { "id": "skill.read.mainidea", "subject": "READING", "name": "Find the main idea" },
+    { "id": "skill.read.vocab", "subject": "READING", "name": "Context vocabulary" }
+  ],
+  "courses": [
+    {
+      "id": "course.grade3-reading",
+      "subject": "READING",
+      "title": "3rd grade reading",
+      "description": "Understand stories and grow your vocabulary.",
+      "gradeLevel": 3,
+      "units": [
+        {
+          "id": "unit.story-elements",
+          "title": "Understanding stories",
+          "description": "Main idea, details, and words in context.",
+          "lessons": [
+            {
+              "id": "lesson.main-idea",
+              "title": "Main idea and details",
+              "videos": [
+                { "youtubeId": "yt-placeholder-main-idea", "title": "What is the main idea?", "durationSeconds": 240 }
+              ],
+              "exercise": {
+                "id": "ex.reading",
+                "title": "Practice: reading",
+                "questionIds": ["q.read.mainidea", "q.read.vocab", "q.read.detail"]
+              }
+            }
+          ],
+          "quiz": {
+            "id": "quiz.reading",
+            "title": "Unit quiz: Understanding stories",
+            "questionIds": ["q.read.mainidea", "q.read.vocab"]
+          }
+        }
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "type": "multiple_choice",
+      "id": "q.read.mainidea",
+      "skillId": "skill.read.mainidea",
+      "prompt": { "text": "Maya planted seeds, watered them daily, and watched them grow into tomatoes. What is the main idea?" },
+      "choices": [
+        { "text": "Maya likes the color red." },
+        { "text": "Maya grew tomatoes by caring for her plants." },
+        { "text": "It rained a lot." }
+      ],
+      "correctIndex": 1,
+      "hints": ["What is the whole passage mostly about?"],
+      "explanation": "The passage is mostly about Maya growing tomatoes by caring for them.",
+      "bands": ["ELEMENTARY"],
+      "difficulty": 2
+    },
+    {
+      "type": "multiple_choice",
+      "id": "q.read.vocab",
+      "skillId": "skill.read.vocab",
+      "prompt": { "text": "\"The puppy was tiny.\" The word 'tiny' means —" },
+      "choices": [
+        { "text": "very small" },
+        { "text": "very loud" },
+        { "text": "very fast" }
+      ],
+      "correctIndex": 0,
+      "explanation": "'Tiny' means very small.",
+      "bands": ["ELEMENTARY"],
+      "difficulty": 1
+    },
+    {
+      "type": "short_text",
+      "id": "q.read.detail",
+      "skillId": "skill.read.mainidea",
+      "prompt": { "text": "In the tomato passage, what did Maya do every day? (one word)" },
+      "acceptedAnswers": ["watered", "water", "watering"],
+      "caseSensitive": false,
+      "explanation": "She watered the seeds daily.",
+      "bands": ["ELEMENTARY"],
+      "difficulty": 2
+    }
+  ]
+}

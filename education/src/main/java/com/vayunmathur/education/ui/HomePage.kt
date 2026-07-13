@@ -32,7 +32,7 @@ import com.vayunmathur.library.util.NavBackStack
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomePage(backStack: NavBackStack<Route>, viewModel: EducationViewModel) {
+fun ScholarHomePage(backStack: NavBackStack<Route>, viewModel: EducationViewModel) {
     val learner by viewModel.learner.collectAsStateWithLifecycle()
     val deadlines by viewModel.deadlines.collectAsStateWithLifecycle()
     val l = learner ?: return

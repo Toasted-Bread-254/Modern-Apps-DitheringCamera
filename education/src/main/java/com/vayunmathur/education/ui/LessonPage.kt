@@ -1,6 +1,5 @@
 package com.vayunmathur.education.ui
 
-import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,9 +19,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import com.vayunmathur.education.Route
 import com.vayunmathur.education.content.VideoRef
 import com.vayunmathur.education.util.EducationViewModel
@@ -58,7 +55,11 @@ fun LessonPage(backStack: NavBackStack<Route>, viewModel: EducationViewModel, le
         ) {
             if (lesson.videos.isNotEmpty()) {
                 Text("Watch", style = MaterialTheme.typography.titleMedium)
-                lesson.videos.forEach { VideoRow(it) }
+                lesson.videos.forEach { video ->
+                    VideoRow(video) {
+                        backStack.add(Route.VideoPlayer(video.youtubeId, video.title))
+                    }
+                }
             }
             lesson.exercise?.let { exercise ->
                 Button(
@@ -73,8 +74,7 @@ fun LessonPage(backStack: NavBackStack<Route>, viewModel: EducationViewModel, le
 }
 
 @Composable
-private fun VideoRow(video: VideoRef) {
-    val context = LocalContext.current
+private fun VideoRow(video: VideoRef, onPlay: () -> Unit) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Row(
             Modifier
@@ -92,10 +92,7 @@ private fun VideoRow(video: VideoRef) {
                     )
                 }
             }
-            IconButton(onClick = {
-                val uri = "https://www.youtube.com/watch?v=${video.youtubeId}".toUri()
-                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-            }) {
+            IconButton(onClick = onPlay) {
                 IconPlay()
             }
         }

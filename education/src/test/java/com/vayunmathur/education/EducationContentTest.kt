@@ -25,35 +25,46 @@ private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
 class EducationContentTest {
 
-    private fun loadSamplePack(): ContentPack {
-        // Unit tests run with the module directory as the working directory.
-        val file = File("src/main/assets/content/math_core.json")
-        assertTrue("sample pack missing at ${file.absolutePath}", file.exists())
-        return json.decodeFromString<ContentPack>(file.readText())
+    private fun allPacks(): List<Pair<String, ContentPack>> {
+        val dir = File("src/main/assets/content")
+        assertTrue("content dir missing at ${dir.absolutePath}", dir.isDirectory)
+        val files = dir.listFiles { f -> f.extension == "json" }?.sortedBy { it.name } ?: emptyList()
+        assertTrue("expected at least one content pack", files.isNotEmpty())
+        return files.map { it.name to json.decodeFromString<ContentPack>(it.readText()) }
     }
 
     @Test
-    fun samplePack_parsesAndValidates() {
-        val pack = loadSamplePack()
-        val errors = ContentValidator.validate(pack)
-        assertTrue("expected no validation errors but got: $errors", errors.isEmpty())
+    fun allPacks_parseAndValidate() {
+        allPacks().forEach { (name, pack) ->
+            val errors = ContentValidator.validate(pack)
+            assertTrue("$name has validation errors: $errors", errors.isEmpty())
+        }
     }
 
     @Test
-    fun samplePack_exerciseRefsResolve() {
-        val pack = loadSamplePack()
-        val questionIds = pack.questions.map { it.id }.toSet()
-        val referenced = buildList {
-            pack.courses.forEach { c ->
-                c.challenge?.let { addAll(it.questionIds) }
-                c.units.forEach { u ->
-                    u.quiz?.let { addAll(it.questionIds) }
-                    u.lessons.forEach { l -> l.exercise?.let { addAll(it.questionIds) } }
+    fun allPacks_exerciseRefsResolve() {
+        allPacks().forEach { (name, pack) ->
+            val questionIds = pack.questions.map { it.id }.toSet()
+            val referenced = buildList {
+                pack.courses.forEach { c ->
+                    c.challenge?.let { addAll(it.questionIds) }
+                    c.units.forEach { u ->
+                        u.quiz?.let { addAll(it.questionIds) }
+                        u.lessons.forEach { l -> l.exercise?.let { addAll(it.questionIds) } }
+                    }
                 }
             }
+            assertTrue("$name: all referenced questions must exist", questionIds.containsAll(referenced))
         }
-        assertTrue(referenced.isNotEmpty())
-        assertTrue("all referenced questions must exist", questionIds.containsAll(referenced))
+    }
+
+    @Test
+    fun packs_haveNoCrossPackIdCollisions() {
+        val packs = allPacks().map { it.second }
+        fun <T> dupes(items: List<T>) = items.groupingBy { it }.eachCount().filter { it.value > 1 }.keys
+        assertTrue("duplicate course ids", dupes(packs.flatMap { it.courses.map { c -> c.id } }).isEmpty())
+        assertTrue("duplicate skill ids", dupes(packs.flatMap { it.skills.map { s -> s.id } }).isEmpty())
+        assertTrue("duplicate question ids", dupes(packs.flatMap { it.questions.map { q -> q.id } }).isEmpty())
     }
 
     @Test

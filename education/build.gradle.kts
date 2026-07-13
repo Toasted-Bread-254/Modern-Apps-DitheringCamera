@@ -16,5 +16,11 @@ dependencies {
     implementation(libs.coil.compose)
     implementation("androidx.compose.material:material-icons-extended")
 
+    // Video playback (Khan/YouTube streaming via NewPipe + media3), like :youpipe.
+    implementation(libs.newpipeextractor)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui.compose.material3)
+    implementation(project(":library:network"))
+
     testImplementation(libs.junit)
 }
