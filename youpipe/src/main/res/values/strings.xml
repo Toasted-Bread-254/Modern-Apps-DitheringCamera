@@ -38,6 +38,10 @@
     <string name="label_sponsorblock_description">Select parts from list below to skip them in videos</string>
     <string name="label_dearrow">Enable DeArrow</string>
     <string name="label_dearrow_description">Replace clickbait titles and thumbnails with community-submitted alternatives</string>
+    <string name="label_youtube_content">YouTube Content</string>
+    <string name="label_youtube_language">Content language</string>
+    <string name="label_youtube_language_description">Language for video titles, descriptions, comments, and search results</string>
+    <string name="label_system_default">System default</string>
     <string name="label_backup_restore">Backup &amp; Restore</string>
     <string name="label_restore_youpipe">Restore from YouPipe</string>
     <string name="label_import_newpipe">Import NewPipe subscriptions</string>

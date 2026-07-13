@@ -12,9 +12,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -26,8 +29,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
@@ -43,6 +50,43 @@ import com.vayunmathur.youpipe.util.RecommendationPreset
 import com.vayunmathur.youpipe.util.YouPipeViewModel
 import com.vayunmathur.youpipe.util.YouPipeViewModel.Companion.ALL_SPONSOR_CATEGORIES
 import com.vayunmathur.youpipe.util.YouPipeViewModel.Companion.SPONSOR_CATEGORY_LABELS
+import com.vayunmathur.youpipe.util.YouPipeViewModel.Companion.YOUTUBE_LANGUAGES
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LanguageSelector(selectedCode: String, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val systemDefault = stringResource(R.string.label_system_default)
+    val options = remember { listOf("" to null) + YOUTUBE_LANGUAGES.map { it.first to it.second } }
+    val currentName = YOUTUBE_LANGUAGES.firstOrNull { it.first == selectedCode }?.second ?: systemDefault
+
+    Box {
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.label_youtube_language)) },
+            supportingContent = { Text(currentName) },
+            trailingContent = {
+                Icon(painterResource(R.drawable.outline_arrow_drop_down_24), contentDescription = null)
+            },
+            modifier = Modifier.padding(start = 16.dp).clickable { expanded = true },
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { (code, name) ->
+                DropdownMenuItem(
+                    text = { Text(name ?: systemDefault) },
+                    onClick = { onSelect(code); expanded = false },
+                )
+            }
+        }
+    }
+}
+
+private val SOURCE_TOGGLES = listOf(
+    RecSource.RELATED to R.string.label_source_related,
+    RecSource.TRENDING to R.string.label_source_trending,
+    RecSource.SUBSCRIPTION to R.string.label_source_subscription,
+    RecSource.TOP_CHANNEL to R.string.label_source_top_channel,
+    RecSource.SEARCH to R.string.label_source_search,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +96,7 @@ fun SettingsPage(
 ) {
     val sponsorBlockCategories by ypvm.sponsorBlockCategories.collectAsState()
     val deArrowEnabled by ypvm.deArrowEnabled.collectAsState()
+    val youtubeLanguage by ypvm.youtubeLanguage.collectAsState()
     val recPrefs by ypvm.recommendationPreferences.collectAsState()
     val isLoading by ypvm.isImporting.collectAsState()
     val progress by ypvm.importProgress.collectAsState()
@@ -109,6 +154,17 @@ fun SettingsPage(
                                 onCheckedChange = { ypvm.setDeArrowEnabled(it) }
                             )
                         }
+                    )
+                }
+                item {
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.label_youtube_content)) }
+                    )
+                }
+                item {
+                    LanguageSelector(
+                        selectedCode = youtubeLanguage,
+                        onSelect = { ypvm.setYouTubeLanguage(it) },
                     )
                 }
                 item {
@@ -269,14 +325,6 @@ fun SettingsPage(
         }
     }
 }
-
-private val SOURCE_TOGGLES = listOf(
-    RecSource.RELATED to R.string.label_source_related,
-    RecSource.TRENDING to R.string.label_source_trending,
-    RecSource.SUBSCRIPTION to R.string.label_source_subscription,
-    RecSource.TOP_CHANNEL to R.string.label_source_top_channel,
-    RecSource.SEARCH to R.string.label_source_search,
-)
 
 @Composable
 private fun presetLabel(preset: RecommendationPreset): String = when (preset) {
