@@ -114,7 +114,7 @@ import com.vayunmathur.camera.util.GuideDotState
 import com.vayunmathur.camera.util.FlashMode
 import com.vayunmathur.camera.util.buildColorAdjustmentMatrix
 import com.vayunmathur.camera.util.formatZoomLabel
-import com.vayunmathur.camera.util.QrAnalyzer
+import com.vayunmathur.camera.util.PhotoAnalyzer
 import com.vayunmathur.camera.util.TimerDuration
 import com.vayunmathur.library.util.NavBackStack
 import kotlinx.coroutines.awaitCancellation
@@ -218,6 +218,8 @@ fun CameraScreen(
     val exposureTimeIndex by viewModel.exposureTimeIndex.collectAsState()
     val longExposureProgress by viewModel.longExposureProgress.collectAsState()
     val longExposureRemaining by viewModel.longExposureRemaining.collectAsState()
+    val lowLightDetected by viewModel.lowLightDetected.collectAsState()
+    val nightModeActive by viewModel.nightModeActive.collectAsState()
 
     var activeSetting by remember { mutableStateOf<CameraSetting?>(null) }
     var maskBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
@@ -322,7 +324,12 @@ fun CameraScreen(
                     }
                     else -> {
                         maskBitmap = null
-                        viewModel.setImageAnalyzer(QrAnalyzer { text -> viewModel.setQrResult(text) })
+                        viewModel.setImageAnalyzer(
+                            PhotoAnalyzer(
+                                onLuminance = { viewModel.onLuminance(it) },
+                                onQrDetected = { viewModel.setQrResult(it) }
+                            )
+                        )
                     }
                 }
             }
@@ -517,6 +524,15 @@ fun CameraScreen(
                         LongExposureOverlay(
                             progress = longExposureProgress,
                             remainingText = longExposureRemaining
+                        )
+                    }
+
+                    if (lowLightDetected) {
+                        NightModeButton(
+                            active = nightModeActive,
+                            onClick = { viewModel.toggleNightModeOverride() },
+                            iconRotation = animatedRotation,
+                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp)
                         )
                     }
 
@@ -833,6 +849,38 @@ private fun HorizontalSettingSlider(
             fontWeight = FontWeight.Medium,
             modifier = Modifier.width(40.dp),
             textAlign = TextAlign.End
+        )
+    }
+}
+
+@Composable
+private fun NightModeButton(
+    active: Boolean,
+    onClick: () -> Unit,
+    iconRotation: Float,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .background(Color(0x99000000), RoundedCornerShape(24.dp))
+            .selectedPill(active, RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(24.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            painterResource(R.drawable.bedtime_24px),
+            contentDescription = "Night",
+            tint = if (active) Color.White else Color(0xFFBBBBBB),
+            modifier = Modifier.size(20.dp).rotate(iconRotation)
+        )
+        Text(
+            "Night",
+            color = if (active) Color.White else Color(0xFFBBBBBB),
+            fontSize = 13.sp,
+            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
         )
     }
 }

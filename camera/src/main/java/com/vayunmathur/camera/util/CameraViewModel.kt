@@ -46,7 +46,10 @@ import com.vayunmathur.library.util.DataStoreUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.camera.lifecycle.awaitInstance
@@ -93,6 +96,17 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
          * H.264 + AAC. Flip to true to re-enable once the muxing writes a complete av1C.
          */
         private const val ENABLE_AV1_OPUS_RECORDING = false
+
+        // Night-mode auto-detection tuning. Engage once average Y stays below ENGAGE for a few
+        // frames; disengage once it climbs above DISENGAGE for a few frames. The gap between the
+        // two thresholds is the hysteresis band that stops the moon button from flickering.
+        private const val NIGHT_ENGAGE_LUMA = 40f
+        private const val NIGHT_DISENGAGE_LUMA = 55f
+        private const val NIGHT_DEBOUNCE_FRAMES = 4
+
+        // Target night exposure/ISO used when night mode fires on an Auto exposure stop.
+        private const val NIGHT_TARGET_EXPOSURE_NANOS = 250_000_000L // ~1/4s
+        private const val NIGHT_ISO_FRACTION = 0.75f
 
         val EXPOSURE_TIME_STOPS = listOf(
             ExposureTimeStop("Auto", null),
@@ -216,6 +230,21 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private val _exposureTimeIndex = MutableStateFlow(0)
     val exposureTimeIndex = _exposureTimeIndex.asStateFlow()
+
+    // Night mode is fully automatic: brightness detection engages it, and the moon button lets
+    // the user override it off for the current dark scene. nightModeActive drives the capture path.
+    private val _lowLightDetected = MutableStateFlow(false)
+    val lowLightDetected = _lowLightDetected.asStateFlow()
+
+    private val _nightModeOverriddenOff = MutableStateFlow(false)
+    val nightModeOverriddenOff = _nightModeOverriddenOff.asStateFlow()
+
+    val nightModeActive = combine(_lowLightDetected, _nightModeOverriddenOff) { low, off -> low && !off }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    // Consecutive-frame counters backing the hysteresis + debounce in onLuminance().
+    private var lowLumaFrames = 0
+    private var highLumaFrames = 0
 
     private val _longExposureProgress = MutableStateFlow(0f)
     val longExposureProgress = _longExposureProgress.asStateFlow()
@@ -355,6 +384,43 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
         _exposureTimeIndex.value = index.coerceIn(0, EXPOSURE_TIME_STOPS.lastIndex)
     }
 
+    /**
+     * Feeds the PhotoAnalyzer's average scene luminance through a hysteresis + debounce filter so
+     * night mode engages/disengages smoothly. When the scene brightens back up (true→false), the
+     * user's per-scene override is reset so the next dark scene re-engages cleanly.
+     */
+    fun onLuminance(avg: Float) {
+        if (_lowLightDetected.value) {
+            if (avg > NIGHT_DISENGAGE_LUMA) {
+                highLumaFrames++
+                lowLumaFrames = 0
+                if (highLumaFrames >= NIGHT_DEBOUNCE_FRAMES) {
+                    _lowLightDetected.value = false
+                    _nightModeOverriddenOff.value = false
+                    highLumaFrames = 0
+                }
+            } else {
+                highLumaFrames = 0
+            }
+        } else {
+            if (avg < NIGHT_ENGAGE_LUMA) {
+                lowLumaFrames++
+                highLumaFrames = 0
+                if (lowLumaFrames >= NIGHT_DEBOUNCE_FRAMES) {
+                    _lowLightDetected.value = true
+                    lowLumaFrames = 0
+                }
+            } else {
+                lowLumaFrames = 0
+            }
+        }
+    }
+
+    /** Toggles the user's override for the current dark scene (moon button handler). */
+    fun toggleNightModeOverride() {
+        _nightModeOverriddenOff.value = !_nightModeOverriddenOff.value
+    }
+
     private fun setLastCaptureUri(uri: Uri?) {
         _lastCaptureUri.value = uri
         viewModelScope.launch { ds.setString("camera_last_capture", uri?.toString() ?: "") }
@@ -367,6 +433,14 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
     fun flipCamera() {
         _lensFacing.value = if (_lensFacing.value == CameraSelector.LENS_FACING_BACK)
             CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK
+        resetNightModeDetection()
+    }
+
+    private fun resetNightModeDetection() {
+        _lowLightDetected.value = false
+        _nightModeOverriddenOff.value = false
+        lowLumaFrames = 0
+        highLumaFrames = 0
     }
 
     /**
@@ -648,6 +722,7 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
         _photoSessionActive.value = false
         _highSpeedActive.value = false
         _videoSessionActive.value = false
+        resetNightModeDetection()
     }
 
     // --- Unified manual session control wiring (targets the single bound camera) ---
@@ -776,6 +851,12 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
         ).setMetadata(metadata).build()
 
         val stop = EXPOSURE_TIME_STOPS[_exposureTimeIndex.value]
+        // Manual exposure stop selection always wins. Otherwise, if night mode is active on the
+        // Auto stop, derive a night exposure/ISO from the sensor's ranges (emulation).
+        val nightExposure = if (nightModeActive.value && _exposureTimeIndex.value == 0)
+            computeNightExposure() else null
+        val exposureNanos = stop.nanos ?: nightExposure?.nanos
+        val nightIso = nightExposure?.iso
         val cam2Control = try {
             boundCamera?.cameraControl?.let {
                 androidx.camera.camera2.interop.Camera2CameraControl.from(it)
@@ -783,11 +864,12 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
         } catch (e: Exception) { Log.w("CameraViewModel", "Camera2 control unavailable", e); null }
 
         fun restoreAutoExposure() {
-            if (stop.nanos != null && cam2Control != null) {
+            if (exposureNanos != null && cam2Control != null) {
                 try {
                     cam2Control.setCaptureRequestOptions(
                         androidx.camera.camera2.interop.CaptureRequestOptions.Builder()
                             .clearCaptureRequestOption(android.hardware.camera2.CaptureRequest.SENSOR_EXPOSURE_TIME)
+                            .clearCaptureRequestOption(android.hardware.camera2.CaptureRequest.SENSOR_SENSITIVITY)
                             .clearCaptureRequestOption(android.hardware.camera2.CaptureRequest.CONTROL_AE_MODE)
                             .build()
                     )
@@ -798,8 +880,8 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
         }
 
         fun doCapture() {
-            if (stop.nanos != null && stop.nanos >= 250_000_000L) {
-                startLongExposureCountdown(stop.nanos)
+            if (exposureNanos != null && exposureNanos >= 250_000_000L) {
+                startLongExposureCountdown(exposureNanos)
             }
             fun finishCapture(uri: Uri?) {
                 _isCapturing.value = false
@@ -863,26 +945,63 @@ class CameraViewModel(private val app: Application) : AndroidViewModel(app) {
             )
         }
 
-        if (stop.nanos != null && cam2Control != null) {
+        if (exposureNanos != null && cam2Control != null) {
             try {
-                cam2Control.setCaptureRequestOptions(
-                    androidx.camera.camera2.interop.CaptureRequestOptions.Builder()
-                        .setCaptureRequestOption(
-                            android.hardware.camera2.CaptureRequest.CONTROL_AE_MODE,
-                            android.hardware.camera2.CameraMetadata.CONTROL_AE_MODE_OFF
-                        )
-                        .setCaptureRequestOption(
-                            android.hardware.camera2.CaptureRequest.SENSOR_EXPOSURE_TIME,
-                            stop.nanos
-                        )
-                        .build()
-                ).addListener({ doCapture() }, ContextCompat.getMainExecutor(app))
+                val options = androidx.camera.camera2.interop.CaptureRequestOptions.Builder()
+                    .setCaptureRequestOption(
+                        android.hardware.camera2.CaptureRequest.CONTROL_AE_MODE,
+                        android.hardware.camera2.CameraMetadata.CONTROL_AE_MODE_OFF
+                    )
+                    .setCaptureRequestOption(
+                        android.hardware.camera2.CaptureRequest.SENSOR_EXPOSURE_TIME,
+                        exposureNanos
+                    )
+                if (nightIso != null) {
+                    options.setCaptureRequestOption(
+                        android.hardware.camera2.CaptureRequest.SENSOR_SENSITIVITY,
+                        nightIso
+                    )
+                }
+                cam2Control.setCaptureRequestOptions(options.build())
+                    .addListener({ doCapture() }, ContextCompat.getMainExecutor(app))
             } catch (e: Exception) {
                 Log.w("CameraViewModel", "Failed to set manual exposure", e)
                 doCapture()
             }
         } else {
             doCapture()
+        }
+    }
+
+    private data class NightExposure(val nanos: Long, val iso: Int?)
+
+    /**
+     * Derives a night exposure/ISO from the bound sensor's characteristics: clamps a ~1/4s target
+     * into the sensor's exposure-time range and picks a high fraction of its sensitivity range.
+     * Falls back to a fixed exposure (and auto ISO) if the characteristics are unavailable.
+     */
+    private fun computeNightExposure(): NightExposure {
+        val fallback = NightExposure(NIGHT_TARGET_EXPOSURE_NANOS, null)
+        return try {
+            val cam = boundCamera ?: return fallback
+            val info = androidx.camera.camera2.interop.Camera2CameraInfo.from(cam.cameraInfo)
+            val expRange = info.getCameraCharacteristic(
+                android.hardware.camera2.CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE
+            )
+            val isoRange = info.getCameraCharacteristic(
+                android.hardware.camera2.CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE
+            )
+            val nanos = expRange?.let {
+                NIGHT_TARGET_EXPOSURE_NANOS.coerceIn(it.lower, it.upper)
+            } ?: NIGHT_TARGET_EXPOSURE_NANOS
+            val iso = isoRange?.let {
+                (it.lower + ((it.upper - it.lower) * NIGHT_ISO_FRACTION).roundToInt())
+                    .coerceIn(it.lower, it.upper)
+            }
+            NightExposure(nanos, iso)
+        } catch (e: Exception) {
+            Log.w("CameraViewModel", "Failed to read sensor ranges for night mode", e)
+            fallback
         }
     }
 
