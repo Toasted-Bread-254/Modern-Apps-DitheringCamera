@@ -38,4 +38,8 @@
     <string name="timer_finished_title">Časovač dokončen</string>
     <string name="field_seconds">Sekundy</string>
     <string name="grant_notifications_permission">Udělit oprávnění k oznámením</string>
+    <string name="channel_completed_timers_description">Upozornění po dokončení časovačů</string>
+    <string name="timer_finished_text">%1$s skončil!</string>
+    <string name="analog_clock_widget_label">Analogové hodiny</string>
+    <string name="analog_clock_widget_description">Material You aanalogové hodiny - klepnutím otevřete hodiny</string>
 </resources>
