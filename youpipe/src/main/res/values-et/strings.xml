@@ -90,4 +90,8 @@
     <string name="action_remove">Eemalda</string>
     <string name="action_unblock">Lõpeta blokeerimine</string>
     <string name="action_unmute">Lõpeta summutamine</string>
+    <string name="label_youtube_content">YouTube\'i sisu</string>
+    <string name="label_youtube_language">Sisu keel</string>
+    <string name="label_youtube_language_description">Videote pealkirjade, kirjelduste, kommentaaride ja otsingutulemuste keel</string>
+    <string name="label_system_default">Süsteemi vaikeseadistus</string>
 </resources>
