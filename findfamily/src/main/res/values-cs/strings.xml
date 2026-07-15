@@ -65,7 +65,7 @@
     <string name="clipboard_label">text</string>
     <string name="me_label">Já</string>
     <string name="missing_features_explanation">Najít rodinu vyžaduje pro správné fungování síťovou polohu a geokodér. Pro pokračování je musíte povolit.</string>
-    <string name="notification_channel_location_tracking_desc">Používá se pro aktualizace polohy na pozadí v aplikaci Najít rodinu</string>
+    <string name="notification_channel_location_tracking_desc">Používá se pro aktualizaci polohy na pozadí v aplikaci Najít rodinu</string>
     <string name="notification_channel_battery_name">Upozornění na baterii</string>
     <string name="notification_channel_battery_desc">Upozorní, když má člen rodiny nízký stav baterie</string>
     <string name="notification_channel_entry_exit_desc">Oznámení, když člen rodiny vstoupí do místa nebo ho opustí</string>
