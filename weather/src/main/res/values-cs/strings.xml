@@ -2,11 +2,11 @@
 <resources>
     <string name="app_name">Počasí</string>
     <string name="weather_widget_description">Aktuální čas, datum a počasí na první pohled - klepnutím zobrazíte předpověď</string>
-    <string name="search_location">Hledat lokaci</string>
+    <string name="search_location">Hledat místo</string>
     <string name="confirm_delete">Potvrdit smazání</string>
     <string name="city_name_hint">Název města</string>
     <string name="weather_title">Počasí</string>
-    <string name="add_location">Přidat lokaci</string>
+    <string name="add_location">Přidat místo</string>
     <string name="open_map">Otevřít mapu</string>
     <string name="weather_map_title">Mapa počasí</string>
     <string name="map_measure">Měřit</string>
