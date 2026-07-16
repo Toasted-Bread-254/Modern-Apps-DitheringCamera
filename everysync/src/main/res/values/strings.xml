@@ -1,0 +1,58 @@
+<resources>
+    <string name="app_name">EverySync</string>
+
+    <!-- Accounts list -->
+    <string name="accounts_title">EverySync</string>
+    <string name="no_accounts">No accounts yet. Tap + to add one.</string>
+    <string name="add_account">Add account</string>
+    <string name="sync_now">Sync now</string>
+    <string name="syncing">Syncing…</string>
+    <string name="last_synced">Last synced: %1$s</string>
+    <string name="never_synced">Never synced</string>
+    <string name="settings">Settings</string>
+
+    <!-- Add account -->
+    <string name="add_account_title">Add account</string>
+    <string name="choose_provider">Choose a provider</string>
+    <string name="provider_google">Google</string>
+    <string name="provider_icloud">Apple / iCloud</string>
+    <string name="provider_caldav">CalDAV server</string>
+    <string name="provider_carddav">CardDAV server</string>
+    <string name="provider_withings">Withings</string>
+    <string name="provider_samsung_health">Samsung Health</string>
+    <string name="provider_google_health">Google Health</string>
+    <string name="provider_via_health_connect">via Health Connect</string>
+
+    <!-- DAV login -->
+    <string name="dav_login_title">%1$s login</string>
+    <string name="dav_base_url">Server URL</string>
+    <string name="dav_username">Username / email</string>
+    <string name="dav_password">Password (app-specific)</string>
+    <string name="login">Log in</string>
+    <string name="cancel">Cancel</string>
+
+    <!-- Account detail -->
+    <string name="account_detail_title">Account</string>
+    <string name="sync_contacts">Sync contacts</string>
+    <string name="sync_calendar">Sync calendars</string>
+    <string name="sync_health">Sync health</string>
+    <string name="sync_interval">Sync interval</string>
+    <string name="remove_account">Remove account</string>
+    <string name="collections">Collections</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="global_interval">Sync interval (minutes)</string>
+    <string name="wifi_only">Sync on Wi-Fi only</string>
+    <string name="conflict_policy">Conflict resolution</string>
+    <string name="conflict_lww">Last writer wins</string>
+    <string name="conflict_remote">Prefer server</string>
+    <string name="conflict_local">Prefer device</string>
+
+    <!-- Permissions -->
+    <string name="grant_permissions">Grant permissions</string>
+    <string name="need_permissions">EverySync needs contacts and calendar access to sync your accounts.</string>
+    <string name="grant_health_permissions">Grant Health Connect access</string>
+
+    <string name="everysync_privacy_policy">EverySync syncs contacts, calendars and health data between your cloud accounts and this device. Data is only stored on this device and the servers you configure.</string>
+</resources>

@@ -1,0 +1,34 @@
+package com.vayunmathur.everysync.sync
+
+import android.content.Context
+import androidx.work.CoroutineWorker
+import androidx.work.WorkerParameters
+import com.vayunmathur.everysync.provider.SyncDirection
+
+/**
+ * WorkManager worker driving periodic + on-demand syncs. If an `account` input is
+ * present only that account syncs; otherwise all accounts do.
+ */
+class SyncWorker(
+    appContext: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(appContext, params) {
+
+    override suspend fun doWork(): Result {
+        return try {
+            val account = inputData.getString(KEY_ACCOUNT)
+            if (account != null) {
+                SyncEngine.syncAccount(applicationContext, account, SyncDirection.BOTH)
+            } else {
+                SyncEngine.syncAll(applicationContext, SyncDirection.BOTH)
+            }
+            Result.success()
+        } catch (e: Exception) {
+            Result.retry()
+        }
+    }
+
+    companion object {
+        const val KEY_ACCOUNT = "account"
+    }
+}

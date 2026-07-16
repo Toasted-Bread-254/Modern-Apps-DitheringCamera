@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Contacts -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
+
+    <!-- Calendar -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+
+    <!-- Accounts + sync framework -->
+    <uses-permission android:name="android.permission.GET_ACCOUNTS" />
+    <uses-permission android:name="android.permission.MANAGE_ACCOUNTS" />
+    <uses-permission android:name="android.permission.AUTHENTICATE_ACCOUNTS" />
+    <uses-permission android:name="android.permission.READ_SYNC_SETTINGS" />
+    <uses-permission android:name="android.permission.WRITE_SYNC_SETTINGS" />
+
+    <!-- Health Connect: body composition + vitals we bridge from Withings /
+         Samsung Health / Google Health. -->
+    <uses-permission android:name="android.permission.health.READ_WEIGHT" />
+    <uses-permission android:name="android.permission.health.WRITE_WEIGHT" />
+    <uses-permission android:name="android.permission.health.READ_HEIGHT" />
+    <uses-permission android:name="android.permission.health.WRITE_HEIGHT" />
+    <uses-permission android:name="android.permission.health.READ_BODY_FAT" />
+    <uses-permission android:name="android.permission.health.WRITE_BODY_FAT" />
+    <uses-permission android:name="android.permission.health.READ_LEAN_BODY_MASS" />
+    <uses-permission android:name="android.permission.health.WRITE_LEAN_BODY_MASS" />
+    <uses-permission android:name="android.permission.health.READ_BONE_MASS" />
+    <uses-permission android:name="android.permission.health.WRITE_BONE_MASS" />
+    <uses-permission android:name="android.permission.health.READ_BODY_WATER_MASS" />
+    <uses-permission android:name="android.permission.health.WRITE_BODY_WATER_MASS" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.WRITE_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.WRITE_RESTING_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
+    <uses-permission android:name="android.permission.health.WRITE_OXYGEN_SATURATION" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.WRITE_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <uses-permission android:name="android.permission.health.WRITE_SLEEP" />
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.General">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="mcc|mnc|colorMode|density|fontScale|fontWeightAdjustment|keyboard|keyboardHidden|layoutDirection|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
+            android:theme="@style/Theme.General">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Receives the OAuth2 redirect (com.vayunmathur.everysync:/oauth). -->
+        <activity
+            android:name=".auth.OAuthCallbackActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.vayunmathur.everysync" android:host="oauth" />
+            </intent-filter>
+        </activity>
+
+        <!-- Health Connect permission rationale (Android 13 and 14+). -->
+        <activity
+            android:name=".ui.PermissionsRationaleActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".ui.PermissionsRationaleActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Account authenticator: all EverySync accounts share one account type. -->
+        <service
+            android:name=".auth.AuthenticatorService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accounts.AccountAuthenticator" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accounts.AccountAuthenticator"
+                android:resource="@xml/authenticator" />
+        </service>
+
+        <!-- Contacts sync adapter. -->
+        <service
+            android:name=".sync.ContactsSyncService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.content.SyncAdapter" />
+            </intent-filter>
+            <meta-data
+                android:name="android.content.SyncAdapter"
+                android:resource="@xml/syncadapter_contacts" />
+            <meta-data
+                android:name="android.provider.CONTACTS_STRUCTURE"
+                android:resource="@xml/contacts" />
+        </service>
+
+        <!-- Calendar sync adapter. -->
+        <service
+            android:name=".sync.CalendarSyncService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.content.SyncAdapter" />
+            </intent-filter>
+            <meta-data
+                android:name="android.content.SyncAdapter"
+                android:resource="@xml/syncadapter_calendar" />
+        </service>
+
+    </application>
+
+</manifest>
