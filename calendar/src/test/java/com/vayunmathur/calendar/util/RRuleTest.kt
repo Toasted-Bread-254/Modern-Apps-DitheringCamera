@@ -11,6 +11,30 @@ class RRuleTest {
     private val timeZone = TimeZone.of("America/Los_Angeles")
 
     @Test
+    fun readableStringUsesReadableFormNotDataClass() {
+        val yearly = RRule.parse("FREQ=YEARLY;INTERVAL=1", timeZone)!!
+        assertEquals("Yearly", yearly.toString())
+
+        val everyThreeYears = RRule.parse("FREQ=YEARLY;INTERVAL=3", timeZone)!!
+        assertEquals("Every 3 years", everyThreeYears.toString())
+
+        val monthly = RRule.parse("FREQ=MONTHLY;INTERVAL=1", timeZone)!!
+        assertEquals("Monthly", monthly.toString())
+
+        val daily = RRule.parse("FREQ=DAILY;INTERVAL=1", timeZone)!!
+        assertEquals("Daily", daily.toString())
+
+        val weekly = RRule.parse("FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,WE", timeZone)!!
+        assertEquals("Weekly on Mon, Wed", weekly.toString())
+    }
+
+    @Test
+    fun readableStringIncludesEndCondition() {
+        val counted = RRule.parse("FREQ=DAILY;INTERVAL=2;COUNT=5", timeZone)!!
+        assertEquals("Every 2 days, 5 times", counted.toString())
+    }
+
+    @Test
     fun testParseDailyWithInterval() {
         val rrule = RRule.parse("FREQ=DAILY;INTERVAL=2", timeZone)
         assertNotNull(rrule)

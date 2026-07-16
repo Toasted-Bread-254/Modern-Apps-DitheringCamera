@@ -53,7 +53,7 @@ sealed class RRule {
     abstract val byWeekNo: List<Int>?
     abstract val wkst: DayOfWeek?
     abstract fun asString(firstDay: LocalDate, timeZone: TimeZone): String
-    override fun toString(): String {
+    final override fun toString(): String {
         return toStringImpl() + endCondition.toStringSuffix()
     }
     protected abstract fun toStringImpl(): String
@@ -169,7 +169,7 @@ sealed class RRule {
             val base = "FREQ=YEARLY;INTERVAL=$years"
             return buildRRuleString(base, timeZone)
         }
-        override fun toStringImpl(): String = "Every $years years"
+        override fun toStringImpl(): String = if (years == 1) "Yearly" else "Every $years years"
     }
 
     @Serializable
@@ -193,7 +193,7 @@ sealed class RRule {
             } else ""
             return buildRRuleString(base + byDayPart, timeZone)
         }
-        override fun toStringImpl(): String = "Every $months months"
+        override fun toStringImpl(): String = if (months == 1) "Monthly" else "Every $months months"
     }
 
     @Serializable
@@ -213,9 +213,14 @@ sealed class RRule {
             val base = "FREQ=WEEKLY;INTERVAL=$weeks;BYDAY=$days"
             return buildRRuleString(base, timeZone)
         }
-        override fun toStringImpl(): String = "Every $weeks weeks on ${
-            daysOfWeek.joinToString(", ") { it.name.take(3).lowercase().replaceFirstChar { c -> c.titlecase() } }
-        }"
+        override fun toStringImpl(): String {
+            val prefix = if (weeks == 1) "Weekly" else "Every $weeks weeks"
+            if (daysOfWeek.isEmpty()) return prefix
+            val days = daysOfWeek.sorted().joinToString(", ") {
+                it.name.take(3).lowercase().replaceFirstChar { c -> c.titlecase() }
+            }
+            return "$prefix on $days"
+        }
     }
 
     @Serializable
@@ -233,6 +238,6 @@ sealed class RRule {
             val base = "FREQ=DAILY;INTERVAL=$days"
             return buildRRuleString(base, timeZone)
         }
-        override fun toStringImpl(): String = "Every $days days"
+        override fun toStringImpl(): String = if (days == 1) "Daily" else "Every $days days"
     }
 }
