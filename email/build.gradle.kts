@@ -7,6 +7,18 @@ android {
     namespace = "com.vayunmathur.email"
     defaultConfig {
         applicationId = "com.vayunmathur.email"
+
+        // Outlook / Microsoft 365 OAuth. Public values (client ID is an
+        // identifier, not a secret) so they're committed and the build stays
+        // reproducible. Override with -PEVERYSYNC_* style properties if needed.
+        val outlookClientId = (project.findProperty("EMAIL_OUTLOOK_CLIENT_ID")
+            ?: "4ee55fe9-12c1-4392-82e6-6c7a2a7954c8").toString()
+        buildConfigField("String", "OUTLOOK_OAUTH_CLIENT_ID", "\"$outlookClientId\"")
+        buildConfigField("String", "OUTLOOK_REDIRECT_URI", "\"com.vayunmathur.email://oauth\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     packaging {
@@ -27,6 +39,7 @@ android {
 dependencies {
     implementation(libs.jakarta.mail)
     implementation(libs.jakarta.activation)
+    implementation(libs.androidx.browser)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.cio)
     implementation(libs.ktor.client.content.negotiation)

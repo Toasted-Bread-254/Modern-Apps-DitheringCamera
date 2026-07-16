@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import com.vayunmathur.email.data.CredentialCrypto
+import com.vayunmathur.email.data.OutlookOAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -36,10 +37,18 @@ fun EmailAccount.smtpServer(): ServerConfig = ServerConfig(smtpHost, smtpPort, s
 fun EmailAccount.loginUser(): String = username.ifBlank { email }
 
 /**
- * Decrypt the stored credentials and produce an [EmailManager.AuthType] —
- * always app-password (the only auth scheme this app supports).
+ * Decrypt the stored credentials and produce an [EmailManager.AuthType].
+ *
+ * Outlook accounts (`authType == "oauth2"`) authenticate with a fresh XOAUTH2
+ * access token (refreshed + persisted here on expiry); every other provider uses
+ * a stored app password.
  */
-fun EmailAccount.authType(): EmailManager.AuthType {
+suspend fun EmailAccount.resolveAuth(context: Context): EmailManager.AuthType {
+    if (authType == "oauth2") {
+        val token = OutlookOAuth.freshAccessToken(context, this)
+            ?: error("Account $email is missing an OAuth access token")
+        return EmailManager.AuthType.OAuth(token)
+    }
     val cipher = passwordEncrypted
         ?: error("Account ${email} is missing passwordEncrypted")
     val iv = passwordIv
@@ -56,9 +65,17 @@ class EmailManager {
 
     sealed class AuthType {
         data class Password(val value: String) : AuthType()
+        /** XOAUTH2 access token (Outlook / Microsoft 365). */
+        data class OAuth(val token: String) : AuthType()
     }
 
-    private fun getImapSession(server: ServerConfig): Session {
+    private val AuthType.credential: String
+        get() = when (this) {
+            is AuthType.Password -> value
+            is AuthType.OAuth -> token
+        }
+
+    private fun getImapSession(server: ServerConfig, oauth: Boolean = false): Session {
         val proto = server.imapProtocol
         val properties = Properties().apply {
             this["mail.store.protocol"] = proto
@@ -66,6 +83,12 @@ class EmailManager {
             this["mail.$proto.port"] = server.port.toString()
             this["mail.$proto.fetchsize"] = "1048576"
             this["mail.$proto.partialfetch"] = "true"
+            if (oauth) {
+                // Restrict SASL to XOAUTH2 so the token is sent instead of a password.
+                this["mail.$proto.auth.mechanisms"] = "XOAUTH2"
+                this["mail.$proto.auth.login.disable"] = "true"
+                this["mail.$proto.auth.plain.disable"] = "true"
+            }
             if (server.useSsl) {
                 this["mail.$proto.ssl.enable"] = "true"
             } else {
@@ -76,13 +99,18 @@ class EmailManager {
         return Session.getInstance(properties).also { registerProviders(it) }
     }
 
-    private fun getSmtpSession(server: ServerConfig): Session {
+    private fun getSmtpSession(server: ServerConfig, oauth: Boolean = false): Session {
         val proto = server.smtpProtocol
         val properties = Properties().apply {
             this["mail.transport.protocol"] = proto
             this["mail.$proto.host"] = server.host
             this["mail.$proto.port"] = server.port.toString()
             this["mail.$proto.auth"] = "true"
+            if (oauth) {
+                this["mail.$proto.auth.mechanisms"] = "XOAUTH2"
+                this["mail.$proto.auth.login.disable"] = "true"
+                this["mail.$proto.auth.plain.disable"] = "true"
+            }
             if (server.useSsl) {
                 this["mail.$proto.ssl.enable"] = "true"
             } else {
@@ -116,11 +144,11 @@ class EmailManager {
     }
 
     suspend fun <T> withStore(server: ServerConfig, user: String, auth: AuthType, block: suspend (Store) -> T): T = withContext(Dispatchers.IO) {
-        val session = getImapSession(server)
+        val oauth = auth is AuthType.OAuth
+        val session = getImapSession(server, oauth)
         val store = session.getStore(server.imapProtocol)
         try {
-            val credential = (auth as AuthType.Password).value
-            store.connect(server.host, server.port, user, credential)
+            store.connect(server.host, server.port, user, auth.credential)
             block(store)
         } finally {
             store.close()
@@ -333,7 +361,8 @@ class EmailManager {
         from: String? = null,
         asHtml: Boolean = false
     ) = withContext(Dispatchers.IO) {
-        val session = getSmtpSession(server)
+        val oauth = auth is AuthType.OAuth
+        val session = getSmtpSession(server, oauth)
         val message = MimeMessage(session)
         message.setFrom(InternetAddress(from ?: user))
         message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(to))
