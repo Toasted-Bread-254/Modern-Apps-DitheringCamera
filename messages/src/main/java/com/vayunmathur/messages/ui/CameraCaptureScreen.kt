@@ -14,10 +14,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
+import com.vayunmathur.library.ui.CircularProgressIndicator
+import com.vayunmathur.library.ui.FloatingActionButton
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect

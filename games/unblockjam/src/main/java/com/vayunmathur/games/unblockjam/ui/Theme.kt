@@ -1,6 +1,6 @@
 package com.vayunmathur.games.unblockjam.ui
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import com.vayunmathur.games.unblockjam.data.LevelPack

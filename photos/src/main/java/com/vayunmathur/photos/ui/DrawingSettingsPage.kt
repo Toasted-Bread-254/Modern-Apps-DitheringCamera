@@ -16,10 +16,10 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.Slider
+import com.vayunmathur.library.ui.Surface
+import com.vayunmathur.library.ui.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -137,7 +137,7 @@ fun DrawingSettingsPage(
                 }
             }
 
-            androidx.compose.material3.Button(
+            com.vayunmathur.library.ui.Button(
                 onClick = { dispatchAndPop() },
                 modifier = Modifier.align(Alignment.End).padding(top = 8.dp)
             ) {

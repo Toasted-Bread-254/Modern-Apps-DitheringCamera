@@ -16,21 +16,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.vayunmathur.library.ui.Button
+import com.vayunmathur.library.ui.DropdownMenu
+import com.vayunmathur.library.ui.DropdownMenuItem
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.FloatingActionButton
+import com.vayunmathur.library.ui.HorizontalDivider
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.ListItemDefaults
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TextButton
+import com.vayunmathur.library.ui.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -185,7 +185,7 @@ fun SettingsScreen(viewModel: CalendarViewModel, backStack: NavBackStack<Route>)
                             },
                             trailingContent = {
                                 val isChecked = visibility[cal.id] ?: true
-                                androidx.compose.material3.Checkbox(checked = isChecked, onCheckedChange = { checked -> viewModel.setCalendarVisibility(cal.id, checked) })
+                                com.vayunmathur.library.ui.Checkbox(checked = isChecked, onCheckedChange = { checked -> viewModel.setCalendarVisibility(cal.id, checked) })
                             },
                             colors = ListItemDefaults.colors(
                                 containerColor = if(selectedCalendarId == cal.id) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface

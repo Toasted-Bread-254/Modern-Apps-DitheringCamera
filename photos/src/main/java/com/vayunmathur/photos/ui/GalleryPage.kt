@@ -22,17 +22,17 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import com.vayunmathur.library.ui.CircularProgressIndicator
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.SearchBar
+import com.vayunmathur.library.ui.SearchBarDefaults
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -313,7 +313,7 @@ fun GalleryPage(
         },
         bottomBar = { if (!isSelectionMode) NavigationBar(Route.Gallery, backStack) }
     ) { paddingValues ->
-        androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        com.vayunmathur.library.ui.PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = { galleryViewModel.runSync() },
             modifier = Modifier.fillMaxSize().padding(paddingValues),

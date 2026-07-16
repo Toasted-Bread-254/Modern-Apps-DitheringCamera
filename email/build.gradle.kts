@@ -3,6 +3,10 @@ plugins {
     id("common-conventions-metadata")
 }
 
+launcherIcon {
+    symbol = "mail"
+}
+
 android {
     namespace = "com.vayunmathur.email"
     defaultConfig {

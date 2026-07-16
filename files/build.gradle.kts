@@ -3,6 +3,10 @@ plugins {
     id("common-conventions-metadata")
 }
 
+launcherIcon {
+    symbol = "folder"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.files"

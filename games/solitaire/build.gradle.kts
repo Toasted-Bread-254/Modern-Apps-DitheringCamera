@@ -3,6 +3,10 @@ plugins {
     id("common-conventions-metadata")
 }
 
+launcherIcon {
+    symbol = "playing_cards"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.games.solitaire"

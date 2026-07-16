@@ -14,7 +14,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import com.vayunmathur.library.ui.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -231,7 +231,7 @@ fun NoPermissionsScreen(permissions: Array<String>, setHasPermissions: (Boolean)
                 .padding(it)
                 .fillMaxSize()
         ) {
-            androidx.compose.material3.Button(
+            com.vayunmathur.library.ui.Button(
                 {
                     permissionRequestor.launch(permissions)
                 }, Modifier.align(Alignment.Center)

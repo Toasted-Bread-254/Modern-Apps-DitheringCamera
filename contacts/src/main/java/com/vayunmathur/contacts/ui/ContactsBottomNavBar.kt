@@ -1,6 +1,6 @@
 package com.vayunmathur.contacts.ui
 
-import androidx.compose.material3.*
+import com.vayunmathur.library.ui.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource

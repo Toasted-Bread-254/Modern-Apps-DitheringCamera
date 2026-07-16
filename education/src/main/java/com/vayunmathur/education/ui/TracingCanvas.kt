@@ -22,8 +22,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Text
 import kotlin.math.hypot
 
 /**

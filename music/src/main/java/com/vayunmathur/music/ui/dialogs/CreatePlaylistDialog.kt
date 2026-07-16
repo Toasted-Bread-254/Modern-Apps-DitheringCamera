@@ -1,9 +1,9 @@
 package com.vayunmathur.music.ui.dialogs
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.vayunmathur.library.ui.AlertDialog
+import com.vayunmathur.library.ui.OutlinedTextField
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf

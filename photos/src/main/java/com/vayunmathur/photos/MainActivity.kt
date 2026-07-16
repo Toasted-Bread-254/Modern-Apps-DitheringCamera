@@ -18,14 +18,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.ShortNavigationBar
-import androidx.compose.material3.ShortNavigationBarItem
-import androidx.compose.material3.Text
+import com.vayunmathur.library.ui.Button
+import com.vayunmathur.library.ui.CircularProgressIndicator
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconDelete
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.ShortNavigationBar
+import com.vayunmathur.library.ui.ShortNavigationBarItem
+import com.vayunmathur.library.ui.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -80,7 +81,6 @@ import com.vayunmathur.photos.util.SecureFolderViewModelFactory
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.serialization.Serializable
 import kotlin.math.roundToInt
-import com.vayunmathur.library.R as LibraryR
 
 private const val COLUMN_COUNT_KEY = "photos_column_count"
 
@@ -317,12 +317,12 @@ private fun SecureFolderEntry(
     }
 }
 
-private enum class MainRoute(val route: Route, @StringRes val titleRes: Int, val icon: Int) {
-    Gallery(Route.Gallery, R.string.label_gallery, R.drawable.gallery_thumbnail_24px),
-    Map(Route.Map, R.string.label_map, R.drawable.map_24px),
-    People(Route.People, R.string.label_people, R.drawable.people_24px),
-    Trash(Route.Trash, R.string.label_trash, LibraryR.drawable.delete_24px),
-    SecureFolder(Route.SecureFolder, R.string.label_secure_folder, R.drawable.lock_24px)
+private enum class MainRoute(val route: Route, @StringRes val titleRes: Int, val icon: @Composable () -> Unit) {
+    Gallery(Route.Gallery, R.string.label_gallery, { Icon(painterResource(R.drawable.gallery_thumbnail_24px), null) }),
+    Map(Route.Map, R.string.label_map, { Icon(painterResource(R.drawable.map_24px), null) }),
+    People(Route.People, R.string.label_people, { Icon(painterResource(R.drawable.people_24px), null) }),
+    Trash(Route.Trash, R.string.label_trash, { IconDelete() }),
+    SecureFolder(Route.SecureFolder, R.string.label_secure_folder, { Icon(painterResource(R.drawable.lock_24px), null) })
 }
 
 @Composable
@@ -330,7 +330,7 @@ fun NavigationBar(currentRoute: Route, backStack: NavBackStack<Route>) {
     ShortNavigationBar {
         MainRoute.entries.forEach {
             ShortNavigationBarItem(it.route == currentRoute, { backStack.add(it.route) }, {
-                Icon(painterResource(it.icon), null)
+                it.icon()
             }, {
                 Text(stringResource(it.titleRes))
             })

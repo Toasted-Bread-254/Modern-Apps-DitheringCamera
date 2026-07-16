@@ -26,33 +26,33 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.BottomSheetDefaults
-import androidx.compose.material3.BottomSheetScaffold
-import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.FloatingActionButtonMenu
-import androidx.compose.material3.FloatingActionButtonMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SheetValue
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.ToggleFloatingActionButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.rememberBottomSheetScaffoldState
-import androidx.compose.material3.rememberSliderState
+import com.vayunmathur.library.ui.AssistChip
+import com.vayunmathur.library.ui.BottomSheetDefaults
+import com.vayunmathur.library.ui.BottomSheetScaffold
+import com.vayunmathur.library.ui.Card
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.ExperimentalMaterial3ExpressiveApi
+import com.vayunmathur.library.ui.FilledTonalButton
+import com.vayunmathur.library.ui.FloatingActionButton
+import com.vayunmathur.library.ui.FloatingActionButtonMenu
+import com.vayunmathur.library.ui.FloatingActionButtonMenuItem
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.ListItemDefaults
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.OutlinedButton
+import com.vayunmathur.library.ui.OutlinedTextField
+import com.vayunmathur.library.ui.Slider
+import com.vayunmathur.library.ui.SheetValue
+import com.vayunmathur.library.ui.Switch
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.ToggleFloatingActionButton
+import com.vayunmathur.library.ui.TopAppBar
+import com.vayunmathur.library.ui.TopAppBarDefaults
+import com.vayunmathur.library.ui.dynamicLightColorScheme
+import com.vayunmathur.library.ui.rememberBottomSheetScaffoldState
+import com.vayunmathur.library.ui.rememberSliderState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -120,8 +120,9 @@ import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Instant
 
-// Small peek so most of the map stays visible with the sheet collapsed.
-private val SheetPeekHeight = 128.dp
+// Peek height with the sheet collapsed — sits a bit higher so more of the
+// family list is visible up front while keeping the map usable.
+private val SheetPeekHeight = 200.dp
 // Compact peek used in history mode: just the contact's name.
 private val HistoryPeekHeight = 84.dp
 

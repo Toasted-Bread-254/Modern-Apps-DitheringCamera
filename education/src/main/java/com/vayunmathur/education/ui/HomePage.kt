@@ -9,17 +9,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import com.vayunmathur.library.ui.ElevatedCard
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.OutlinedCard
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -30,6 +27,7 @@ import com.vayunmathur.education.Route
 import com.vayunmathur.education.content.ModuleType
 import com.vayunmathur.education.util.EducationViewModel
 import com.vayunmathur.library.ui.IconChevronRight
+import com.vayunmathur.library.ui.IconEmojiEvents
 import com.vayunmathur.library.ui.IconSettings
 import com.vayunmathur.library.util.NavBackStack
 
@@ -47,7 +45,7 @@ fun ScholarHomePage(backStack: NavBackStack<Route>, viewModel: EducationViewMode
                 title = { Text(if (l.name.isBlank()) "Learn" else "Hi, ${l.name}") },
                 actions = {
                     IconButton(onClick = { backStack.add(Route.Badges) }) {
-                        Icon(Icons.Filled.EmojiEvents, "Badges")
+                        IconEmojiEvents()
                     }
                     IconButton(onClick = { openParentArea(backStack, viewModel) }) {
                         IconSettings()

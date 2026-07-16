@@ -4,6 +4,10 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+launcherIcon {
+    symbol = "person"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.contacts"

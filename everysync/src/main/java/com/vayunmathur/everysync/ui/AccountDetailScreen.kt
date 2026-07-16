@@ -3,18 +3,16 @@ package com.vayunmathur.everysync.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import com.vayunmathur.library.ui.Button
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.IconBack
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.OutlinedButton
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Switch
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -40,7 +38,7 @@ fun AccountDetailScreen(backStack: NavBackStack<Route>, viewModel: EverySyncView
                 title = { Text(accountName) },
                 navigationIcon = {
                     IconButton(onClick = { backStack.pop() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+                        IconBack()
                     }
                 },
             )
@@ -86,7 +84,7 @@ fun AccountDetailScreen(backStack: NavBackStack<Route>, viewModel: EverySyncView
 @Composable
 private fun TypeToggle(labelRes: Int, checked: Boolean, onChange: (Boolean) -> Unit) {
     ListItem(
-        headlineContent = { Text(stringResource(labelRes)) },
+        content = { Text(stringResource(labelRes)) },
         trailingContent = { Switch(checked = checked, onCheckedChange = onChange) },
     )
 }

@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+launcherIcon {
+    symbol = "sync"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.everysync"
@@ -14,7 +18,7 @@ android {
         // No client secret is ever shipped: confidential secrets (Withings,
         // optionally Samsung) live behind a *_TOKEN_PROXY_URL backend relay.
         val googleClientId = (project.findProperty("EVERYSYNC_GOOGLE_CLIENT_ID")
-            ?: "827025129169-1nm22b5uec77b3b7e0qjl0lah29g82h7.apps.googleusercontent.com").toString()
+            ?: "827025129169-tvph1v4c7b4n36s0prbe3u8dh3kd12t7.apps.googleusercontent.com").toString()
 
         // Google installed-app PKCE uses the reverse-DNS custom scheme derived from
         // the client ID (e.g. com.googleusercontent.apps.<id>:/oauth2redirect).

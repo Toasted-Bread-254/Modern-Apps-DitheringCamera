@@ -3,11 +3,11 @@ package com.vayunmathur.weather.ui.components.blocks
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.MaterialShapes
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.toShape
+import com.vayunmathur.library.ui.ExperimentalMaterial3ExpressiveApi
+import com.vayunmathur.library.ui.MaterialShapes
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier

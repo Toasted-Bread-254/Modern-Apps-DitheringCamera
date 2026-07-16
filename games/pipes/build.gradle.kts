@@ -3,6 +3,10 @@ plugins {
     id("common-conventions-metadata")
 }
 
+launcherIcon {
+    symbol = "diagonal_line"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.games.pipes"

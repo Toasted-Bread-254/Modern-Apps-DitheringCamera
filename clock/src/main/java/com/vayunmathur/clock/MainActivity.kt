@@ -18,9 +18,10 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import com.vayunmathur.library.ui.Button
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
@@ -171,10 +173,10 @@ sealed interface Route : NavKey {
 
 @Composable
 fun mainPages() = listOf(
-    BottomBarItem(stringResource(R.string.label_alarm), Route.Alarm, R.drawable.baseline_access_alarm_24),
-    BottomBarItem(stringResource(R.string.label_clock), Route.Clock, R.drawable.baseline_access_time_24),
-    BottomBarItem(stringResource(R.string.label_timer), Route.Timer, R.drawable.baseline_hourglass_bottom_24),
-    BottomBarItem(stringResource(R.string.label_stopwatch), Route.Stopwatch, R.drawable.outline_timer_24)
+    BottomBarItem(stringResource(R.string.label_alarm), Route.Alarm) { Icon(painterResource(R.drawable.baseline_access_alarm_24), null) },
+    BottomBarItem(stringResource(R.string.label_clock), Route.Clock) { Icon(painterResource(R.drawable.baseline_access_time_24), null) },
+    BottomBarItem(stringResource(R.string.label_timer), Route.Timer) { Icon(painterResource(R.drawable.baseline_hourglass_bottom_24), null) },
+    BottomBarItem(stringResource(R.string.label_stopwatch), Route.Stopwatch) { Icon(painterResource(R.drawable.outline_timer_24), null) }
 )
 
 @Composable

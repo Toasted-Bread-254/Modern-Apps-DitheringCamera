@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+launcherIcon {
+    symbol = "music_note"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.music"

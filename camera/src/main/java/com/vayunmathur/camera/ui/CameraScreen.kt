@@ -49,7 +49,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
+import com.vayunmathur.library.ui.CircularProgressIndicator
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
@@ -58,16 +58,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.vayunmathur.library.ui.Button
+import com.vayunmathur.library.ui.FilledTonalButton
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconSettings
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Slider
+import com.vayunmathur.library.ui.SliderDefaults
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -1412,9 +1413,7 @@ private fun BottomBar(
                 .clickable(onClick = onSettingsClick),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                painterResource(com.vayunmathur.library.R.drawable.settings_24px),
-                contentDescription = stringResource(R.string.settings),
+            IconSettings(
                 tint = Color.White,
                 modifier = Modifier.size(22.dp).rotate(iconRotation)
             )

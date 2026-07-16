@@ -21,24 +21,26 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SecondaryTabRow
-import androidx.compose.material3.Tab
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.vayunmathur.library.ui.Button
+import com.vayunmathur.library.ui.Card
+import com.vayunmathur.library.ui.CircularProgressIndicator
+import com.vayunmathur.library.ui.DropdownMenuItem
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.ExposedDropdownMenuBox
+import com.vayunmathur.library.ui.ExposedDropdownMenuDefaults
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconClose
+import com.vayunmathur.library.ui.IconDelete
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.ExposedDropdownMenuAnchorType
+import com.vayunmathur.library.ui.OutlinedTextField
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.SecondaryTabRow
+import com.vayunmathur.library.ui.Tab
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -404,10 +406,7 @@ fun VideoDetails(
                     IconButton(onClick = {
                         DownloadManager.cancelDownload(context, videoID)
                     }) {
-                        Icon(
-                            painterResource(com.vayunmathur.library.R.drawable.close_24px),
-                            contentDescription = "Cancel Download"
-                        )
+                        IconClose()
                     }
                 } else if (downloadedVideo == null) {
                     IconButton(onClick = {
@@ -422,11 +421,7 @@ fun VideoDetails(
                     IconButton(onClick = {
                         ypvm.deleteDownloadedVideo(downloadedVideo!!)
                     }) {
-                        Icon(
-                            painterResource(com.vayunmathur.library.R.drawable.delete_24px),
-                            contentDescription = "Delete Download",
-                            tint = MaterialTheme.colorScheme.error
-                        )
+                        IconDelete(tint = MaterialTheme.colorScheme.error)
                     }
                 }
             }

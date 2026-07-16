@@ -10,17 +10,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.FloatingActionButton
+import com.vayunmathur.library.ui.IconDragHandle
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.ListItemDefaults
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Surface
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -35,7 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.BackupButtons
 import com.vayunmathur.library.ui.CommonSearchBar
@@ -43,7 +42,6 @@ import com.vayunmathur.library.ui.IconAdd
 import com.vayunmathur.library.ui.IconClose
 import com.vayunmathur.library.ui.IconDelete
 import com.vayunmathur.library.util.NavBackStack
-import com.vayunmathur.library.R as LibraryR
 import com.vayunmathur.notes.Route
 import com.vayunmathur.notes.data.Note
 import com.vayunmathur.notes.data.noteDbConfigs
@@ -237,10 +235,7 @@ fun NotesListPage(backStack: NavBackStack<Route>, viewModel: NotesViewModel) {
                                             ),
                                             onClick = {},
                                         ) {
-                                            Icon(
-                                                painterResource(LibraryR.drawable.drag_handle_24px),
-                                                contentDescription = "Reorder"
-                                            )
+                                            IconDragHandle()
                                         }
                                     }
                                 }

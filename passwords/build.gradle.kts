@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+launcherIcon {
+    symbol = "key_vertical"
+}
+
 android {
     defaultConfig {
         minSdk = 35

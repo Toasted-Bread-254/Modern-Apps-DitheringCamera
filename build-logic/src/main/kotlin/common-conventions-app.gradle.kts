@@ -25,6 +25,30 @@ val proguardFile
 
 val (appVersionCode, appVersionName) = readVersionInfo()
 
+// Adaptive launcher icons are generated at build time from Material Symbols
+// instead of committing an ic_launcher_foreground.xml per app. Each app declares
+// its symbol via `launcherIcon { symbol = "..." }` (see LauncherIconExtension).
+// The symbol path is downloaded from google/material-design-icons pinned at this
+// commit for reproducible builds, wrapped in the standard foreground vector, and
+// wired into every variant's generated res.
+val launcherIcon = extensions.create("launcherIcon", LauncherIconExtension::class.java)
+val materialSymbolsRef = "819d78680a849ceef4c78f863d8753e3160b7c89"
+val materialSymbolsCache = File(gradle.gradleUserHomeDir, "material-symbols-cache")
+
+extensions.configure<com.android.build.api.variant.ApplicationAndroidComponentsExtension> {
+    onVariants { variant ->
+        val gen = tasks.register(
+            "generate${variant.name.replaceFirstChar { it.uppercase() }}LauncherIcon",
+            GenerateLauncherIconTask::class.java,
+        ) {
+            symbol.set(launcherIcon.symbol)
+            ref.set(materialSymbolsRef)
+            cacheDir.set(materialSymbolsCache)
+        }
+        variant.sources.res?.addGeneratedSourceDirectory(gen, GenerateLauncherIconTask::outputDir)
+    }
+}
+
 configure<com.android.build.api.dsl.ApplicationExtension> {
     dependenciesInfo {
         includeInApk = false
@@ -124,7 +148,9 @@ dependencies {
 
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.material3)
+    // Material 3 is intentionally NOT declared here. Apps must consume Material only
+    // through `:library:ui` (which exposes it via `api`), so all Material usage goes
+    // through the curated wrappers in `com.vayunmathur.library.ui`.
 
     // Kotlin Serialization
     implementation(libs.kotlinx.serialization.json)
@@ -137,4 +163,15 @@ fun DependencyHandlerScope.justSoItShowsAsUsedSomewhere() {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
+}
+
+// Apps consume Material only through `:library:ui` wrappers, but some re-exported
+// Material 3 types (sheets, tabs, adaptive, etc.) are still marked @RequiresOptIn.
+// Opt in globally so app code doesn't need to import Material's markers.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions.optIn.addAll(
+        "androidx.compose.material3.ExperimentalMaterial3Api",
+        "androidx.compose.material3.ExperimentalMaterial3ExpressiveApi",
+        "androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi",
+    )
 }

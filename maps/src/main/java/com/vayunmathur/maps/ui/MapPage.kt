@@ -19,25 +19,26 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.BottomSheetScaffold
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SheetValue
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberBottomSheetScaffoldState
-import androidx.compose.material3.rememberBottomSheetState
+import com.vayunmathur.library.ui.AlertDialog
+import com.vayunmathur.library.ui.IconDragHandle
+import com.vayunmathur.library.ui.AssistChip
+import com.vayunmathur.library.ui.BottomSheetScaffold
+import com.vayunmathur.library.ui.Button
+import com.vayunmathur.library.ui.Card
+import com.vayunmathur.library.ui.CardDefaults
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.ListItemDefaults
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.SheetValue
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TextButton
+import com.vayunmathur.library.ui.TopAppBar
+import com.vayunmathur.library.ui.TopAppBarDefaults
+import com.vayunmathur.library.ui.rememberBottomSheetScaffoldState
+import com.vayunmathur.library.ui.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -414,10 +415,7 @@ fun MapPage(backStack: NavBackStack<Route>, viewModel: SelectedFeatureViewModel,
                                                     IconClose()
                                                 }
                                             }
-                                            Icon(
-                                                painterResource(R.drawable.drag_handle_24px),
-                                                stringResource(MapsR.string.reorder), Modifier.draggableHandle(),
-                                            )
+                                            IconDragHandle(Modifier.draggableHandle())
                                         }
                                     }, colors = ListItemDefaults.colors(Color.Transparent))
                                 }

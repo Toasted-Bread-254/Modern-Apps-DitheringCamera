@@ -10,17 +10,20 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.vayunmathur.library.ui.DropdownMenu
+import com.vayunmathur.library.ui.DropdownMenuItem
+import com.vayunmathur.library.ui.HorizontalDivider
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconAdd
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.IconDelete
+import com.vayunmathur.library.ui.LocalContentColor
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Surface
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -83,9 +86,13 @@ data class BottomBarActions(
 )
 
 @Composable
-internal fun FmtIcon(res: Int, active: Boolean, enabled: Boolean, desc: String, onClick: () -> Unit) {
+internal fun FmtIcon(active: Boolean, enabled: Boolean, icon: @Composable () -> Unit, onClick: () -> Unit) {
     IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(40.dp)) {
-        Icon(painterResource(res), contentDescription = desc, tint = if (active && enabled) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+        CompositionLocalProvider(
+            LocalContentColor provides if (active && enabled) MaterialTheme.colorScheme.primary else LocalContentColor.current
+        ) {
+            icon()
+        }
     }
 }
 
@@ -126,7 +133,7 @@ private fun InsertControl(caps: DocCaps, actions: BottomBarActions) {
     var menu by remember { mutableStateOf(false) }
     var shapeMenu by remember { mutableStateOf(false) }
     Box {
-        FmtIcon(com.vayunmathur.library.R.drawable.add_24px, false, true, "Insert") { menu = true }
+        FmtIcon(false, true, { IconAdd() }) { menu = true }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             if (caps.insertImage) DropdownMenuItem(text = { Text("Image…") }, onClick = { menu = false; actions.onInsertImage() })
             if (caps.insertShape) DropdownMenuItem(text = { Text("Shape") }, trailingIcon = { Icon(painterResource(R.drawable.arrow_drop_down_24px), null) }, onClick = { shapeMenu = true })
@@ -196,9 +203,9 @@ private fun TextFormatControls(
         }
     }
     EditorBaseButtons(textFormatter)
-    FmtIcon(R.drawable.format_color_text_24px, false, enabled, "Text color") { actions.onTextColor() }
+    FmtIcon(false, enabled, { Icon(painterResource(R.drawable.format_color_text_24px), null) }) { actions.onTextColor() }
     Box {
-        FmtIcon(alignIcon, false, enabled, "Alignment") { alignMenu = true }
+        FmtIcon(false, enabled, { Icon(painterResource(alignIcon), null) }) { alignMenu = true }
         DropdownMenu(expanded = alignMenu, onDismissRequest = { alignMenu = false }) {
             DropdownMenuItem(text = { Text("Left") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_left_24px), null) }, onClick = { alignMenu = false; setAlign(TextAlign.Start) })
             DropdownMenuItem(text = { Text("Center") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_center_24px), null) }, onClick = { alignMenu = false; setAlign(TextAlign.Center) })
@@ -206,16 +213,16 @@ private fun TextFormatControls(
             DropdownMenuItem(text = { Text("Justify") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_justify_24px), null) }, onClick = { alignMenu = false; setAlign(TextAlign.Justify) })
         }
     }
-    FmtIcon(R.drawable.format_list_bulleted_24px, isBullet, enabled, "Bulleted list") { if (focusedPara >= 0) viewModel.toggleListItem(focusedPara) }
-    FmtIcon(R.drawable.format_list_numbered_24px, isNumbered, enabled, "Numbered list") { if (focusedPara >= 0) viewModel.toggleNumberedList(focusedPara) }
-    FmtIcon(R.drawable.check_box_24px, isCheckbox, enabled, "Checklist") { if (focusedPara >= 0) viewModel.toggleCheckbox(focusedPara) }
-    FmtIcon(R.drawable.format_indent_increase_24px, false, enabled, "Increase indent") {
+    FmtIcon(isBullet, enabled, { Icon(painterResource(R.drawable.format_list_bulleted_24px), null) }) { if (focusedPara >= 0) viewModel.toggleListItem(focusedPara) }
+    FmtIcon(isNumbered, enabled, { Icon(painterResource(R.drawable.format_list_numbered_24px), null) }) { if (focusedPara >= 0) viewModel.toggleNumberedList(focusedPara) }
+    FmtIcon(isCheckbox, enabled, { Icon(painterResource(R.drawable.check_box_24px), null) }) { if (focusedPara >= 0) viewModel.toggleCheckbox(focusedPara) }
+    FmtIcon(false, enabled, { Icon(painterResource(R.drawable.format_indent_increase_24px), null) }) {
         if (focusedPara >= 0) {
             if (para?.style == ParagraphStyle.LIST_ITEM) viewModel.changeListLevel(focusedPara, 1)
             else viewModel.indentParagraph(focusedPara)
         }
     }
-    FmtIcon(R.drawable.format_indent_decrease_24px, false, enabled, "Decrease indent") {
+    FmtIcon(false, enabled, { Icon(painterResource(R.drawable.format_indent_decrease_24px), null) }) {
         if (focusedPara >= 0) {
             if (para?.style == ParagraphStyle.LIST_ITEM) viewModel.changeListLevel(focusedPara, -1)
             else viewModel.outdentParagraph(focusedPara)
@@ -244,7 +251,7 @@ private fun TextFormatControls(
     }
     Box {
         var moreMenu by remember { mutableStateOf(false) }
-        FmtIcon(R.drawable.more_vert_24px, false, enabled, "More") { moreMenu = true }
+        FmtIcon(false, enabled, { Icon(painterResource(R.drawable.more_vert_24px), null) }) { moreMenu = true }
         DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
             DropdownMenuItem(text = { Text("Font size…") }, onClick = { moreMenu = false; actions.onFontSize() })
             DropdownMenuItem(text = { Text("Clear formatting") }, onClick = { moreMenu = false; viewModel.clearRunFormatting(runStart, runEnd, selStart, selEnd) })
@@ -271,10 +278,10 @@ private fun CellFormatControls(target: FormatTarget.Cell?, viewModel: OfficeView
     val c = target?.col ?: -1
     var alignMenu by remember { mutableStateOf(false) }
     EditorBaseButtons(CellFormatter(viewModel, s, r, c, enabled))
-    FmtIcon(R.drawable.format_color_text_24px, false, enabled, "Text color") { actions.onCellTextColor() }
+    FmtIcon(false, enabled, { Icon(painterResource(R.drawable.format_color_text_24px), null) }) { actions.onCellTextColor() }
     TextButton(onClick = { actions.onCellBgColor() }, enabled = enabled) { Text("Fill") }
     Box {
-        FmtIcon(R.drawable.format_align_left_24px, false, enabled, "Alignment") { alignMenu = true }
+        FmtIcon(false, enabled, { Icon(painterResource(R.drawable.format_align_left_24px), null) }) { alignMenu = true }
         DropdownMenu(expanded = alignMenu, onDismissRequest = { alignMenu = false }) {
             DropdownMenuItem(text = { Text("Left") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_left_24px), null) }, onClick = { alignMenu = false; if (enabled) viewModel.setCellAlignment(s, r, c, TextAlign.Start) })
             DropdownMenuItem(text = { Text("Center") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_center_24px), null) }, onClick = { alignMenu = false; if (enabled) viewModel.setCellAlignment(s, r, c, TextAlign.Center) })
@@ -285,7 +292,7 @@ private fun CellFormatControls(target: FormatTarget.Cell?, viewModel: OfficeView
     Box {
         var moreMenu by remember { mutableStateOf(false) }
         var numMenu by remember { mutableStateOf(false) }
-        FmtIcon(R.drawable.more_vert_24px, false, enabled, "More") { moreMenu = true }
+        FmtIcon(false, enabled, { Icon(painterResource(R.drawable.more_vert_24px), null) }) { moreMenu = true }
         DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
             DropdownMenuItem(text = { Text("Fill down") }, enabled = enabled, onClick = { moreMenu = false; if (enabled) viewModel.fillDownToEnd(s, r, c) })
             DropdownMenuItem(text = { Text("Border color…") }, enabled = enabled, onClick = { moreMenu = false; actions.onCellBorder() })
@@ -411,21 +418,21 @@ private fun ElementFormatControls(target: FormatTarget.Element?, viewModel: Offi
     val e = target?.element ?: -1
     var alignMenu by remember { mutableStateOf(false) }
     EditorBaseButtons(SlideFormatter(viewModel, s, e, enabled))
-    FmtIcon(R.drawable.format_color_text_24px, false, enabled, "Text color") { actions.onSlideTextColor() }
+    FmtIcon(false, enabled, { Icon(painterResource(R.drawable.format_color_text_24px), null) }) { actions.onSlideTextColor() }
     TextButton(onClick = { actions.onSlideFill() }, enabled = enabled) { Text("Fill") }
     TextButton(onClick = { actions.onSlideStroke() }, enabled = enabled) { Text("Border") }
     Box {
-        FmtIcon(R.drawable.format_align_left_24px, false, enabled, "Alignment") { alignMenu = true }
+        FmtIcon(false, enabled, { Icon(painterResource(R.drawable.format_align_left_24px), null) }) { alignMenu = true }
         DropdownMenu(expanded = alignMenu, onDismissRequest = { alignMenu = false }) {
             DropdownMenuItem(text = { Text("Left") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_left_24px), null) }, onClick = { alignMenu = false; if (enabled) viewModel.setSlideElementAlignment(s, e, TextAlign.Start) })
             DropdownMenuItem(text = { Text("Center") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_center_24px), null) }, onClick = { alignMenu = false; if (enabled) viewModel.setSlideElementAlignment(s, e, TextAlign.Center) })
             DropdownMenuItem(text = { Text("Right") }, leadingIcon = { Icon(painterResource(R.drawable.format_align_right_24px), null) }, onClick = { alignMenu = false; if (enabled) viewModel.setSlideElementAlignment(s, e, TextAlign.End) })
         }
     }
-    FmtIcon(com.vayunmathur.library.R.drawable.delete_24px, false, enabled, "Delete element") { if (enabled) actions.onDeleteElement() }
+    FmtIcon(false, enabled, { IconDelete() }) { if (enabled) actions.onDeleteElement() }
     Box {
         var moreMenu by remember { mutableStateOf(false) }
-        FmtIcon(R.drawable.more_vert_24px, false, enabled, "More") { moreMenu = true }
+        FmtIcon(false, enabled, { Icon(painterResource(R.drawable.more_vert_24px), null) }) { moreMenu = true }
         DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
             DropdownMenuItem(text = { Text("Duplicate") }, enabled = enabled, onClick = { moreMenu = false; if (enabled) viewModel.duplicateSlideElement(s, e) })
             DropdownMenuItem(text = { Text("Bring to front") }, enabled = enabled, onClick = { moreMenu = false; if (enabled) viewModel.reorderSlideElement(s, e, true) })

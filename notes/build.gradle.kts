@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+launcherIcon {
+    symbol = "subject"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.notes"

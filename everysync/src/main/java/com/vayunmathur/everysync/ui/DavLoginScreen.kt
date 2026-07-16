@@ -2,10 +2,10 @@ package com.vayunmathur.everysync.ui
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.vayunmathur.library.ui.AlertDialog
+import com.vayunmathur.library.ui.OutlinedTextField
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,15 +36,12 @@ fun DavLoginScreen(backStack: NavBackStack<Route>, viewModel: EverySyncViewModel
                     onValueChange = { baseUrl = it },
                     label = { Text(stringResource(R.string.dav_base_url)) },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = provider?.davPresetUrl == null,
-                    singleLine = true,
                 )
                 OutlinedTextField(
                     value = username,
                     onValueChange = { username = it },
                     label = { Text(stringResource(R.string.dav_username)) },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
                 )
                 OutlinedTextField(
                     value = password,
@@ -52,7 +49,6 @@ fun DavLoginScreen(backStack: NavBackStack<Route>, viewModel: EverySyncViewModel
                     label = { Text(stringResource(R.string.dav_password)) },
                     modifier = Modifier.fillMaxWidth(),
                     visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
                 )
             }
         },

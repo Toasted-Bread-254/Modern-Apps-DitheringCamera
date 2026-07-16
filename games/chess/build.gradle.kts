@@ -3,6 +3,10 @@ plugins {
     id("common-conventions-metadata")
 }
 
+launcherIcon {
+    symbol = "chess"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.games.chess"

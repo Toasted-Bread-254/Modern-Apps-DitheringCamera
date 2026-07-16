@@ -21,21 +21,24 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.SheetValue
-import androidx.compose.material3.rememberBottomSheetState
+import com.vayunmathur.library.ui.Button
+import com.vayunmathur.library.ui.CircularProgressIndicator
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.IconBack
+import com.vayunmathur.library.ui.IconDelete
+import com.vayunmathur.library.ui.IconDragHandle
+import com.vayunmathur.library.ui.IconSearch
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.ListItemDefaults
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.ModalBottomSheet
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TopAppBar
+import com.vayunmathur.library.ui.TopAppBarDefaults
+import com.vayunmathur.library.ui.SheetValue
+import com.vayunmathur.library.ui.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -51,10 +54,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.vayunmathur.library.R as LibraryR
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.weather.R
 import com.vayunmathur.weather.Route
@@ -200,11 +201,7 @@ fun LocationsScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
-                        Icon(
-                            painter = painterResource(LibraryR.drawable.arrow_back_24px),
-                            contentDescription = "Close",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
+                        IconBack(tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
             )
@@ -216,10 +213,7 @@ fun LocationsScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
-                Icon(
-                    painter = painterResource(LibraryR.drawable.outline_search_24),
-                    contentDescription = null,
-                )
+                IconSearch()
                 Spacer(Modifier.width(8.dp))
                 Text(stringResource(R.string.search_location))
             }
@@ -276,11 +270,7 @@ fun LocationsScreen(
                                             },
                                         ),
                                     ) {
-                                        Icon(
-                                            painter = painterResource(LibraryR.drawable.drag_handle_24px),
-                                            contentDescription = "Reorder",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
+                                        IconDragHandle(tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                             } else {
@@ -310,17 +300,13 @@ fun LocationsScreen(
                 ListItem(
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                     leadingContent = {
-                        Icon(
-                            painter = painterResource(LibraryR.drawable.delete_24px),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurface,
-                        )
+                        IconDelete(tint = MaterialTheme.colorScheme.onSurface)
                     },
                     content = { Text("Delete", color = MaterialTheme.colorScheme.onSurface) },
                     modifier = Modifier.padding(horizontal = 8.dp),
                 )
                 Spacer(Modifier.height(4.dp))
-                androidx.compose.material3.TextButton(
+                com.vayunmathur.library.ui.TextButton(
                     onClick = {
                         viewModel.deleteLocation(sheetLocation)
                         longPressedLocation = null
@@ -395,7 +381,7 @@ fun SearchLocationPage(backStack: NavBackStack<Route>, viewModel: WeatherViewMod
         }
     }
 
-    androidx.compose.material3.Surface(
+    com.vayunmathur.library.ui.Surface(
         shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surfaceContainer,
         tonalElevation = 0.dp,
@@ -411,15 +397,12 @@ fun SearchLocationPage(backStack: NavBackStack<Route>, viewModel: WeatherViewMod
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(12.dp))
-            androidx.compose.material3.OutlinedTextField(
+            com.vayunmathur.library.ui.OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
                 placeholder = { Text(stringResource(R.string.city_name_hint)) },
                 leadingIcon = {
-                    Icon(
-                        painter = painterResource(LibraryR.drawable.outline_search_24),
-                        contentDescription = null,
-                    )
+                    IconSearch()
                 },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),

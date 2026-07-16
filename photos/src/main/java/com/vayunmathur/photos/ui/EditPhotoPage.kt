@@ -32,20 +32,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.HighlightAlt
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TopAppBar
+import com.vayunmathur.library.ui.DropdownMenu
+import com.vayunmathur.library.ui.DropdownMenuItem
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.IconBack
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.IconHighlightAlt
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Surface
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TextField
+import com.vayunmathur.library.ui.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -678,7 +676,7 @@ fun EditPhotoPage(
                 title = { Text(stringResource(R.string.title_edit_photo), maxLines = 1) },
                 navigationIcon = {
                     IconButton(onClick = { context.finish() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        IconBack()
                     }
                 },
                 actions = {
@@ -1448,7 +1446,7 @@ private fun CategoryIcon(category: ToolCategory) {
         ToolCategory.Adjust -> IconSettings()
         ToolCategory.Filters -> IconStar()
         ToolCategory.Retouch -> IconBrush()
-        ToolCategory.Select -> Icon(Icons.Outlined.HighlightAlt, contentDescription = null)
+        ToolCategory.Select -> IconHighlightAlt()
         ToolCategory.Transform -> IconCrop()
         ToolCategory.Draw -> IconDraw()
         ToolCategory.Paint -> IconEdit()
@@ -2065,7 +2063,7 @@ private fun SelectionPanel(
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Tolerance", fontSize = 12.sp, modifier = Modifier.width(92.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 InfoHint("How close in color a pixel must be to the tapped spot to be selected. Higher = selects more.")
-                androidx.compose.material3.Slider(value = wandTolerance, onValueChange = onWandTolerance, valueRange = 0.01f..0.6f, modifier = Modifier.weight(1f))
+                com.vayunmathur.library.ui.Slider(value = wandTolerance, onValueChange = onWandTolerance, valueRange = 0.01f..0.6f, modifier = Modifier.weight(1f))
                 Text("${(wandTolerance * 100).roundToInt()}", fontSize = 12.sp, modifier = Modifier.width(36.dp), textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -2078,7 +2076,7 @@ private fun SelectionPanel(
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Edge softness", fontSize = 12.sp, modifier = Modifier.width(92.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             InfoHint("Blurs the selection's edge so edits fade in gradually. 0 = a hard, crisp edge.")
-            androidx.compose.material3.Slider(value = feather, onValueChange = onFeather, onValueChangeFinished = onFeatherCommit, valueRange = 0f..50f, modifier = Modifier.weight(1f))
+            com.vayunmathur.library.ui.Slider(value = feather, onValueChange = onFeather, onValueChangeFinished = onFeatherCommit, valueRange = 0f..50f, modifier = Modifier.weight(1f))
             Text("${feather.roundToInt()}", fontSize = 12.sp, modifier = Modifier.width(36.dp), textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {

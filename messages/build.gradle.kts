@@ -15,6 +15,10 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+launcherIcon {
+    symbol = "sms"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.messages"

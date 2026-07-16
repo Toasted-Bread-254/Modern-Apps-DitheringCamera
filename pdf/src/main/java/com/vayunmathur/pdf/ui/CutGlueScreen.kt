@@ -22,22 +22,23 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import com.vayunmathur.library.ui.CircularProgressIndicator
+import com.vayunmathur.library.ui.DropdownMenu
+import com.vayunmathur.library.ui.DropdownMenuItem
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.FloatingActionButton
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -80,12 +81,12 @@ fun CutGlueScreen(onBack: () -> Unit) {
     // Stable per-page keys so drag-reorder animates; order mirrors native pages.
     val pageKeys = remember { mutableStateListOf<Long>() }
     var nextKey by remember { mutableIntStateOf(0) }
-    var version by remember { mutableIntStateOf(0) }
     var menuOpen by remember { mutableStateOf(false) }
 
-    fun refresh() {
-        version++
-    }
+    // Rendered pages cached by stable page key. Appends/reorders/removes then
+    // reuse already-rendered pages instead of re-rendering every visible
+    // thumbnail, which is what made the grid slow to load.
+    val pageCache = remember { mutableStateMapOf<Long, SafePdfPage>() }
 
     val pdfPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -96,7 +97,6 @@ fun CutGlueScreen(onBack: () -> Unit) {
             } ?: return@launch
             val added = doc.appendPdf(bytes)
             repeat(added) { pageKeys.add(nextKey++.toLong()) }
-            refresh()
         }
     }
 
@@ -107,7 +107,6 @@ fun CutGlueScreen(onBack: () -> Unit) {
             val jpeg = withContext(Dispatchers.IO) { readAsJpegPage(context, uri) } ?: return@launch
             val ok = doc.appendImage(jpeg.bytes, jpeg.width, jpeg.height)
             if (ok > 0) pageKeys.add(nextKey++.toLong())
-            refresh()
         }
     }
 
@@ -127,7 +126,7 @@ fun CutGlueScreen(onBack: () -> Unit) {
         if (from.index < pageKeys.size && to.index < pageKeys.size) {
             val k = pageKeys.removeAt(from.index)
             pageKeys.add(to.index, k)
-            scope.launch { doc.movePage(from.index, to.index); refresh() }
+            scope.launch { doc.movePage(from.index, to.index) }
         }
     }
 
@@ -186,12 +185,14 @@ fun CutGlueScreen(onBack: () -> Unit) {
                         ReorderableItem(reorderState, key = key) { _ ->
                             ComposePageThumb(
                                 doc = doc,
+                                pageKey = key,
                                 index = index,
-                                version = version,
+                                cache = pageCache,
                                 onDelete = {
                                     if (index in pageKeys.indices) {
                                         pageKeys.removeAt(index)
-                                        scope.launch { doc.removePage(index); refresh() }
+                                        pageCache.remove(key)
+                                        scope.launch { doc.removePage(index) }
                                     }
                                 },
                                 dragHandle = Modifier.longPressDraggableHandle(),
@@ -207,13 +208,21 @@ fun CutGlueScreen(onBack: () -> Unit) {
 @Composable
 private fun ComposePageThumb(
     doc: ComposePdfDocument,
+    pageKey: Long,
     index: Int,
-    version: Int,
+    cache: androidx.compose.runtime.snapshots.SnapshotStateMap<Long, SafePdfPage>,
     onDelete: () -> Unit,
     dragHandle: Modifier,
 ) {
-    val page by produceState<SafePdfPage?>(null, index, version) {
-        value = if (index >= 0) doc.renderPage(index) else null
+    // Render each page once and cache it by its stable key. Reorders and appends
+    // then reuse the cached render instead of re-rendering every visible thumb.
+    val page by produceState<SafePdfPage?>(cache[pageKey], pageKey) {
+        cache[pageKey]?.let { value = it; return@produceState }
+        if (index >= 0) {
+            val rendered = doc.renderPage(index)
+            if (rendered != null) cache[pageKey] = rendered
+            value = rendered
+        }
     }
     val current = page
     val ratio = if (current != null && current.height > 0f) current.width / current.height else 0.75f

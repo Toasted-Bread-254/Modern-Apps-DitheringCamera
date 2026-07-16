@@ -4,19 +4,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.HorizontalDivider
+import com.vayunmathur.library.ui.IconBack
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.OutlinedTextField
+import com.vayunmathur.library.ui.RadioButton
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Switch
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,7 +45,7 @@ fun SettingsScreen(backStack: NavBackStack<Route>, viewModel: EverySyncViewModel
                 title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = { backStack.pop() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+                        IconBack()
                     }
                 },
             )
@@ -62,10 +60,9 @@ fun SettingsScreen(backStack: NavBackStack<Route>, viewModel: EverySyncViewModel
                 },
                 label = { Text(stringResource(R.string.global_interval)) },
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
-                singleLine = true,
             )
             ListItem(
-                headlineContent = { Text(stringResource(R.string.wifi_only)) },
+                content = { Text(stringResource(R.string.wifi_only)) },
                 trailingContent = { Switch(checked = wifiOnly, onCheckedChange = { viewModel.setWifiOnly(it) }) },
             )
             HorizontalDivider()
@@ -84,7 +81,7 @@ fun SettingsScreen(backStack: NavBackStack<Route>, viewModel: EverySyncViewModel
 private fun ConflictOption(labelRes: Int, value: String, selected: String, onSelect: (String) -> Unit) {
     ListItem(
         modifier = Modifier.selectable(selected = selected == value, onClick = { onSelect(value) }),
-        headlineContent = { Text(stringResource(labelRes)) },
+        content = { Text(stringResource(labelRes)) },
         leadingContent = { RadioButton(selected = selected == value, onClick = { onSelect(value) }) },
     )
 }

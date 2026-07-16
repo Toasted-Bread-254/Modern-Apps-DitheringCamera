@@ -5,14 +5,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme.colorScheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Switch
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -56,8 +56,8 @@ fun SettingsPage(viewModel: WordMakerViewModel, onBack: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.tap_to_spell), style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-                    Text(stringResource(R.string.tap_to_spell_description), style = androidx.compose.material3.MaterialTheme.typography.bodySmall, color = colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.tap_to_spell), style = com.vayunmathur.library.ui.MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.tap_to_spell_description), style = com.vayunmathur.library.ui.MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(
                     checked = tapToSpell,

@@ -41,21 +41,24 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryScrollableTabRow
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.Text
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
+import com.vayunmathur.library.ui.AlertDialog
+import com.vayunmathur.library.ui.Card
+import com.vayunmathur.library.ui.CardDefaults
+import com.vayunmathur.library.ui.HorizontalDivider
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconCrop
+import com.vayunmathur.library.ui.IconDelete
+import com.vayunmathur.library.ui.IconDragHandle
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.PrimaryScrollableTabRow
+import com.vayunmathur.library.ui.Surface
+import com.vayunmathur.library.ui.Tab
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.DropdownMenu
+import com.vayunmathur.library.ui.DropdownMenuItem
+import com.vayunmathur.library.ui.TextButton
+import com.vayunmathur.library.ui.TextField
+import com.vayunmathur.library.ui.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -421,7 +424,7 @@ fun SettingsDialog(
                 }
                 Spacer(Modifier.height(16.dp))
                 Text("Default Font Size: ${fontSize.toInt()}pt")
-                androidx.compose.material3.Slider(value = fontSize, onValueChange = { fontSize = it }, valueRange = 8f..48f)
+                com.vayunmathur.library.ui.Slider(value = fontSize, onValueChange = { fontSize = it }, valueRange = 8f..48f)
             }
         },
         confirmButton = {
@@ -784,7 +787,7 @@ private fun FullScreenImage(image: OdfImage, onCrop: (() -> Unit)? = null, onDis
         if (bitmap != null) Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxWidth().padding(16.dp), contentScale = ContentScale.Fit)
         if (onCrop != null) {
             TextButton(onClick = onCrop, modifier = Modifier.align(Alignment.TopStart).padding(8.dp)) {
-                Icon(painterResource(com.vayunmathur.library.R.drawable.crop_24px), contentDescription = null, tint = Color.White)
+                IconCrop(tint = Color.White)
                 Spacer(Modifier.width(4.dp))
                 Text("Crop", color = Color.White)
             }
@@ -837,7 +840,7 @@ fun ImageCropDialog(
 private fun CropSlider(label: String, value: Float, onChange: (Float) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.width(64.dp), style = MaterialTheme.typography.labelMedium)
-        androidx.compose.material3.Slider(value = value, onValueChange = onChange, valueRange = 0f..0.45f, modifier = Modifier.weight(1f))
+        com.vayunmathur.library.ui.Slider(value = value, onValueChange = onChange, valueRange = 0f..0.45f, modifier = Modifier.weight(1f))
         Text("${(value * 100).toInt()}%", Modifier.width(40.dp), style = MaterialTheme.typography.labelSmall)
     }
 }
@@ -1757,7 +1760,7 @@ fun FloatingElementLayer(
                     // Move handle (top center, above the box).
                     ElementHandle(
                         Modifier.align(Alignment.TopCenter).offset(y = (-22).dp),
-                        icon = com.vayunmathur.library.R.drawable.drag_handle_24px,
+                        icon = { IconDragHandle(modifier = Modifier.size(12.dp), tint = Color.White) },
                         onStart = { live = element.bounds() }, onEnd = { commit() }
                     ) { dx, dy ->
                         val c = startBounds()
@@ -1785,7 +1788,7 @@ fun FloatingElementLayer(
                         .background(MaterialTheme.colorScheme.errorContainer, CircleShape)
                         .border(1.dp, MaterialTheme.colorScheme.error, CircleShape)
                         .clickable { onDelete(ei) }, contentAlignment = Alignment.Center) {
-                        Icon(painterResource(com.vayunmathur.library.R.drawable.delete_24px), contentDescription = "Delete element", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(14.dp))
+                        IconDelete(tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(14.dp))
                     }
                     // Crop (top start, above the box) — only for image frames.
                     if (element is OdfSlideElement.Frame && element.frame.image != null) {
@@ -1793,7 +1796,7 @@ fun FloatingElementLayer(
                             .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape)
                             .border(1.dp, MaterialTheme.colorScheme.secondary, CircleShape)
                             .clickable { onCropImage(ei) }, contentAlignment = Alignment.Center) {
-                            Icon(painterResource(com.vayunmathur.library.R.drawable.crop_24px), contentDescription = "Crop image", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(14.dp))
+                            IconCrop(tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(14.dp))
                         }
                     }
                 }
@@ -1804,7 +1807,7 @@ fun FloatingElementLayer(
 
 /** A small draggable selection handle (move/resize). Drag deltas are reported in pixels. (Phase 1) */
 @Composable
-private fun ElementHandle(modifier: Modifier, icon: Int? = null, onStart: () -> Unit, onEnd: () -> Unit, onDrag: (Float, Float) -> Unit) {
+private fun ElementHandle(modifier: Modifier, icon: (@Composable () -> Unit)? = null, onStart: () -> Unit, onEnd: () -> Unit, onDrag: (Float, Float) -> Unit) {
     Box(
         modifier.size(18.dp)
             .background(MaterialTheme.colorScheme.primary, CircleShape)
@@ -1818,7 +1821,7 @@ private fun ElementHandle(modifier: Modifier, icon: Int? = null, onStart: () -> 
             },
         contentAlignment = Alignment.Center
     ) {
-        if (icon != null) Icon(painterResource(icon), contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+        if (icon != null) icon()
     }
 }
 

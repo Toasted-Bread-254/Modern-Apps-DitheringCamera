@@ -6,6 +6,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+launcherIcon {
+    symbol = "partly_cloudy_day"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.weather"

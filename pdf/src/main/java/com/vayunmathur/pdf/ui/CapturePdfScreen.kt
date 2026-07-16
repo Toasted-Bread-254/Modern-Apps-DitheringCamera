@@ -21,16 +21,16 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.BottomAppBar
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import com.vayunmathur.library.ui.BottomAppBar
+import com.vayunmathur.library.ui.Button
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Text
 import androidx.compose.ui.res.painterResource
-import androidx.compose.material3.TopAppBar
+import com.vayunmathur.library.ui.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -177,12 +177,12 @@ fun CapturePdfScreen(
                                     IconButton(onClick = { showScanOptions = true }) {
                                         Icon(painterResource(R.drawable.ic_overflow), contentDescription = "Scan options")
                                     }
-                                    androidx.compose.material3.DropdownMenu(
+                                    com.vayunmathur.library.ui.DropdownMenu(
                                         expanded = showScanOptions,
                                         onDismissRequest = { showScanOptions = false },
                                     ) {
                                         for (f in com.vayunmathur.pdf.util.ScanFilter.entries) {
-                                            androidx.compose.material3.DropdownMenuItem(
+                                            com.vayunmathur.library.ui.DropdownMenuItem(
                                                 leadingIcon = {
                                                     if (scanFilter == f) Icon(painterResource(R.drawable.ic_tool_select), null)
                                                 },
@@ -190,8 +190,8 @@ fun CapturePdfScreen(
                                                 onClick = { scanFilter = f },
                                             )
                                         }
-                                        androidx.compose.material3.HorizontalDivider()
-                                        androidx.compose.material3.DropdownMenuItem(
+                                        com.vayunmathur.library.ui.HorizontalDivider()
+                                        com.vayunmathur.library.ui.DropdownMenuItem(
                                             leadingIcon = {
                                                 if (addOcr) Icon(painterResource(R.drawable.ic_tool_select), null)
                                             },

@@ -1,7 +1,7 @@
 package com.vayunmathur.games.pipes.ui
 
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 

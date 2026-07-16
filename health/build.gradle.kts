@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+launcherIcon {
+    symbol = "ecg_heart"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.health"

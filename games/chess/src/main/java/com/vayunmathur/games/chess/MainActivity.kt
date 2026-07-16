@@ -24,20 +24,20 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.VerticalDivider
+import com.vayunmathur.library.ui.AlertDialog
+import com.vayunmathur.library.ui.Button
+import com.vayunmathur.library.ui.Card
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.OutlinedButton
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.SegmentedButton
+import com.vayunmathur.library.ui.SegmentedButtonDefaults
+import com.vayunmathur.library.ui.SingleChoiceSegmentedButtonRow
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TextButton
+import com.vayunmathur.library.ui.TopAppBar
+import com.vayunmathur.library.ui.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -95,9 +95,11 @@ import androidx.compose.runtime.produceState
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.Serializable
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.CircularProgressIndicator
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.IconBack
+import com.vayunmathur.library.ui.IconPlay
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.CircularProgressIndicator
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
@@ -138,18 +140,15 @@ class MainActivity : ComponentActivity() {
                         BottomBarItem(
                             stringResource(R.string.tab_play),
                             Route.Game,
-                            com.vayunmathur.library.R.drawable.outline_play_arrow_24
-                        ),
+                        ) { IconPlay() },
                         BottomBarItem(
                             stringResource(R.string.tab_puzzles),
                             Route.Puzzles,
-                            R.drawable.chess_knight_fill1_24px
-                        ),
+                        ) { Icon(painterResource(R.drawable.chess_knight_fill1_24px), null) },
                         BottomBarItem(
                             stringResource(R.string.tab_learn),
                             Route.Learn,
-                            R.drawable.school_24px
-                        )
+                        ) { Icon(painterResource(R.drawable.school_24px), null) }
                     )
                     MainNavigation(
                         backStack,
@@ -738,7 +737,7 @@ fun LearnStageScreen(
                 title = { Text(stage?.title ?: stringResource(R.string.tab_learn)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(painterResource(com.vayunmathur.library.R.drawable.arrow_back_24px), "Back")
+                        IconBack()
                     }
                 }
             )

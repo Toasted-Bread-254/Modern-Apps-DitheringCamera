@@ -10,8 +10,8 @@ import android.provider.MediaStore
 import android.util.Log
 import android.util.Size
 import androidx.collection.LruCache
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue

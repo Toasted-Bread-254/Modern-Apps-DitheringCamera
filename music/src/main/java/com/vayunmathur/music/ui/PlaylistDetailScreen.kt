@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
+import com.vayunmathur.library.ui.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -169,9 +169,7 @@ fun PlaylistDetailScreen(backStack: NavBackStack<Route>, musicViewModel: MusicVi
                     },
                     leading = if (isPlaying) {
                         {
-                            Icon(
-                                painter = painterResource(com.vayunmathur.library.R.drawable.outline_play_arrow_24),
-                                contentDescription = "Playing",
+                            IconPlay(
                                 modifier = Modifier.size(24.dp).padding(end = 8.dp),
                                 tint = MaterialTheme.colorScheme.primary,
                             )

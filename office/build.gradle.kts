@@ -3,6 +3,10 @@ plugins {
     id("common-conventions-metadata")
 }
 
+launcherIcon {
+    symbol = "description"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.office"

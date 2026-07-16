@@ -41,3 +41,11 @@ dependencies {
     // Kotlin Serialization
     implementation(libs.kotlinx.serialization.json)
 }
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions.optIn.addAll(
+        "androidx.compose.material3.ExperimentalMaterial3Api",
+        "androidx.compose.material3.ExperimentalMaterial3ExpressiveApi",
+        "androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi",
+    )
+}

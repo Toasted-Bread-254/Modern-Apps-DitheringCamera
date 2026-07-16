@@ -4,11 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
+import com.vayunmathur.library.ui.DropdownMenu
+import com.vayunmathur.library.ui.DropdownMenuItem
+import com.vayunmathur.library.ui.HorizontalDivider
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.ListItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,7 +43,7 @@ fun CalendarSelectorDropdown(
 
     Box(modifier) {
         ListItem(
-            content = { androidx.compose.material3.Text(selectedCalendar?.displayName ?: stringResource(R.string.select_calendar)) },
+            content = { com.vayunmathur.library.ui.Text(selectedCalendar?.displayName ?: stringResource(R.string.select_calendar)) },
             leadingContent = {
                 selectedCalendar?.color?.let { Box(Modifier.size(24.dp).background(Color(it), RectangleShape)) }
             },
@@ -54,10 +54,10 @@ fun CalendarSelectorDropdown(
         )
         DropdownMenu(expanded = showDropdown, onDismissRequest = { showDropdown = false }) {
             grouped.forEach { (account, cals) ->
-                DropdownMenuItem(text = { androidx.compose.material3.Text(account) }, onClick = {}, enabled = false)
+                DropdownMenuItem(text = { com.vayunmathur.library.ui.Text(account) }, onClick = {}, enabled = false)
                 cals.forEach { cal ->
                     DropdownMenuItem(
-                        text = { androidx.compose.material3.Text(cal.displayName) },
+                        text = { com.vayunmathur.library.ui.Text(cal.displayName) },
                         leadingIcon = { Box(Modifier.size(16.dp).background(Color(cal.color), RectangleShape)) },
                         onClick = {
                             onSelect(cal)
@@ -69,7 +69,7 @@ fun CalendarSelectorDropdown(
             if (onCreateNew != null) {
                 HorizontalDivider()
                 DropdownMenuItem(
-                    text = { androidx.compose.material3.Text(stringResource(R.string.create_new_calendar)) },
+                    text = { com.vayunmathur.library.ui.Text(stringResource(R.string.create_new_calendar)) },
                     onClick = {
                         showDropdown = false
                         onCreateNew()

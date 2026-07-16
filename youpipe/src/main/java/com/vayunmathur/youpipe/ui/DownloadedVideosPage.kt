@@ -11,15 +11,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import com.vayunmathur.library.ui.CircularProgressIndicator
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.IconCheck
+import com.vayunmathur.library.ui.IconClose
+import com.vayunmathur.library.ui.IconDelete
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,7 +31,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.util.BottomNavBar
@@ -73,7 +74,7 @@ fun DownloadedVideosPage(backStack: NavBackStack<Route>, youPipeViewModel: YouPi
                             selectedIds = emptySet()
                             selectedActiveIds = emptySet()
                         }) {
-                            Icon(painterResource(com.vayunmathur.library.R.drawable.delete_24px), contentDescription = "Delete selected")
+                            IconDelete()
                         }
                     }
                 }
@@ -131,10 +132,7 @@ fun DownloadedVideosPage(backStack: NavBackStack<Route>, youPipeViewModel: YouPi
                                 )
                                 if (!isSelectionMode) {
                                     IconButton(onClick = { DownloadManager.cancelDownload(context, videoID) }) {
-                                        Icon(
-                                            painterResource(com.vayunmathur.library.R.drawable.close_24px),
-                                            contentDescription = "Cancel"
-                                        )
+                                        IconClose()
                                     }
                                 }
                             }
@@ -195,9 +193,7 @@ fun SelectionIndicator(isSelected: Boolean) {
         contentAlignment = Alignment.Center
     ) {
         if (isSelected) {
-            Icon(
-                painter = painterResource(com.vayunmathur.library.R.drawable.outline_check_24),
-                contentDescription = null,
+            IconCheck(
                 modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.onPrimary
             )

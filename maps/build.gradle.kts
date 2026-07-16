@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+launcherIcon {
+    symbol = "location_on"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.maps"

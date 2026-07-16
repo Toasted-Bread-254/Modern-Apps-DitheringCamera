@@ -5,7 +5,9 @@ import androidx.annotation.OptIn
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
+import com.google.zxing.DecodeHintType
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.NotFoundException
 import com.google.zxing.PlanarYUVLuminanceSource
@@ -24,7 +26,17 @@ class PhotoAnalyzer(
     private val onQrDetected: (String) -> Unit,
     private val onMotionFrame: ((Bitmap, Long, Int) -> Unit)? = null
 ) : ImageAnalysis.Analyzer {
-    private val reader = MultiFormatReader()
+    private val reader = MultiFormatReader().apply {
+        // Restrict to 2D codes only. Without this, ZXing's default MultiFormatReader
+        // also decodes 1D linear barcodes (EAN/UPC/Code-128/ITF) which yield purely
+        // numeric strings. In landscape, horizontal scene edges mimic linear barcode
+        // bars and produce spurious numeric "QR" detections.
+        setHints(
+            mapOf(
+                DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE)
+            )
+        )
+    }
 
     @OptIn(ExperimentalGetImage::class)
     override fun analyze(imageProxy: ImageProxy) {

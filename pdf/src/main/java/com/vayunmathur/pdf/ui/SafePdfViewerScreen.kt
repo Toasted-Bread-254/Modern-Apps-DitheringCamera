@@ -12,7 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -35,27 +35,27 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.BottomAppBar
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SmallFloatingActionButton
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberDrawerState
+import com.vayunmathur.library.ui.BottomAppBar
+import com.vayunmathur.library.ui.Checkbox
+import com.vayunmathur.library.ui.CircularProgressIndicator
+import com.vayunmathur.library.ui.DrawerValue
+import com.vayunmathur.library.ui.DropdownMenu
+import com.vayunmathur.library.ui.DropdownMenuItem
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.HorizontalDivider
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.ModalDrawerSheet
+import com.vayunmathur.library.ui.ModalNavigationDrawer
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Slider
+import com.vayunmathur.library.ui.SmallFloatingActionButton
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TextField
+import com.vayunmathur.library.ui.TextButton
+import com.vayunmathur.library.ui.TopAppBar
+import com.vayunmathur.library.ui.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -385,7 +385,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
 
     if (needsPassword) {
         var pwInput by remember { mutableStateOf("") }
-        androidx.compose.material3.AlertDialog(
+        com.vayunmathur.library.ui.AlertDialog(
             onDismissRequest = { onBack() },
             title = { Text("Password required") },
             text = {
@@ -429,10 +429,6 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
     val redoStack = remember { mutableStateListOf<EditAction>() }
     // Set by non-undoable edits (forms, flatten, redactions) so Save still shows.
     var nonUndoDirty by remember { mutableStateOf(false) }
-    // Jump-to-page dialog.
-    var showJump by remember { mutableStateOf(false) }
-    // Global refresh version for document-wide ops (redactions).
-    var selectText by remember { mutableStateOf(false) }
     var pageCount by remember(document) { mutableIntStateOf(document?.pageCount ?: 0) }
     var pageMgrVersion by remember { mutableIntStateOf(0) }
     // Per-page render version: bumping one page's entry re-renders ONLY that page,
@@ -565,6 +561,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
         when {
             drawerState.isOpen -> scope.launch { drawerState.close() }
             searching -> { searching = false; query = "" }
+            editMode -> { editMode = false; selected = null }
             else -> onBack()
         }
     }
@@ -789,17 +786,6 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                     } else {
                         if (!editMode) {
                             IconButton({ searching = true }) { IconSearch() }
-                            IconButton({ showJump = true }) {
-                                Icon(painterResource(R.drawable.ic_jump_to_page), contentDescription = "Jump to page")
-                            }
-                            IconButton({ selectText = !selectText }) {
-                                Icon(
-                                    painterResource(R.drawable.ic_select_text),
-                                    contentDescription = "Select text",
-                                    tint = if (selectText) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
                             IconButton({ showEncrypt = true }) {
                                 Icon(painterResource(R.drawable.ic_lock), contentDescription = "Encrypt with password")
                             }
@@ -913,7 +899,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                         IconClose()
                     }
                     androidx.compose.foundation.layout.Spacer(Modifier.padding(4.dp))
-                    androidx.compose.material3.FloatingActionButton(
+                    com.vayunmathur.library.ui.FloatingActionButton(
                         onClick = { commitPoly() },
                     ) { IconCheck() }
                 }
@@ -954,7 +940,6 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                             index = index,
                             version = (pageVersions[index] ?: 0) + pageMgrVersion,
                             editMode = editMode,
-                            selectText = selectText,
                             tool = tool,
                             shape = shape,
                             markup = markup,
@@ -995,7 +980,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
 
     pendingNote?.let { (page, pt) ->
         var noteText by remember { mutableStateOf("") }
-        androidx.compose.material3.AlertDialog(
+        com.vayunmathur.library.ui.AlertDialog(
             onDismissRequest = { pendingNote = null },
             title = { Text("Sticky note") },
             text = {
@@ -1017,7 +1002,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
 
     pendingCallout?.let { (page, a, b) ->
         var calloutText by remember { mutableStateOf("Text") }
-        androidx.compose.material3.AlertDialog(
+        com.vayunmathur.library.ui.AlertDialog(
             onDismissRequest = { pendingCallout = null },
             title = { Text("Callout") },
             text = { TextField(value = calloutText, onValueChange = { calloutText = it }) },
@@ -1049,7 +1034,7 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
 
     if (showEncrypt) {
         var pw by remember { mutableStateOf("") }
-        androidx.compose.material3.AlertDialog(
+        com.vayunmathur.library.ui.AlertDialog(
             onDismissRequest = { showEncrypt = false },
             title = { Text("Encrypt with password") },
             text = {
@@ -1070,36 +1055,6 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
             dismissButton = { TextButton({ showEncrypt = false }) { Text("Cancel") } },
         )
     }
-
-    if (showJump) {
-        var target by remember { mutableStateOf("") }
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showJump = false },
-            title = { Text("Go to page") },
-            text = {
-                TextField(
-                    value = target,
-                    onValueChange = { s -> target = s.filter { it.isDigit() }.take(6) },
-                    singleLine = true,
-                    placeholder = { Text(if (pageCount > 0) "1\u2013$pageCount" else "") },
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
-                    ),
-                )
-            },
-            confirmButton = {
-                TextButton({
-                    val p = target.toIntOrNull()
-                    if (p != null && pageCount > 0) {
-                        val idx = p.coerceIn(1, pageCount) - 1
-                        scope.launch { listState.animateScrollToItem(idx) }
-                    }
-                    showJump = false
-                }) { Text("Go") }
-            },
-            dismissButton = { TextButton({ showJump = false }) { Text("Cancel") } },
-        )
-    }
     }
 }
 
@@ -1109,7 +1064,6 @@ private fun SafePdfPageItem(
     index: Int,
     version: Int,
     editMode: Boolean,
-    selectText: Boolean,
     tool: EditTool,
     shape: ShapeKind,
     markup: MarkupKind,
@@ -1192,7 +1146,6 @@ private fun SafePdfPageItem(
             NonEditOverlay(
                 page = current,
                 links = links,
-                selectText = selectText,
                 cw = cw,
                 ch = ch,
                 scale = scale,
@@ -1269,7 +1222,6 @@ private fun SafePdfPageItem(
 private fun NonEditOverlay(
     page: SafePdfPage,
     links: List<SafeLink>,
-    selectText: Boolean,
     cw: Float,
     ch: Float,
     scale: Float,
@@ -1301,10 +1253,9 @@ private fun NonEditOverlay(
         )
     }
 
-    // Glyph-level text selection with draggable handles.
-    if (selectText) {
-        TextSelectionLayer(page = page, ch = ch, scale = scale)
-    }
+    // Glyph-level text selection with draggable handles. Always available in
+    // regular view — long-press a page to start selecting (see TextSelectionLayer).
+    TextSelectionLayer(page = page, ch = ch, scale = scale)
 }
 
 /** A single selectable glyph in reading order, with its on-screen rect. */
@@ -1357,7 +1308,7 @@ private fun TextSelectionLayer(page: SafePdfPage, ch: Float, scale: Float) {
 
     Canvas(
         Modifier.fillMaxSize().pointerInput(glyphs) {
-            detectDragGestures(
+            detectDragGesturesAfterLongPress(
                 onDragStart = { pos ->
                     val r = range
                     // Grab an existing handle if the touch is near one, else start fresh.
@@ -1368,7 +1319,7 @@ private fun TextSelectionLayer(page: SafePdfPage, ch: Float, scale: Float) {
                         val dEnd = kotlin.math.hypot(endG.right - pos.x, endG.bottom - pos.y)
                         if (minOf(dStart, dEnd) < 60f) {
                             dragEnd = dEnd <= dStart
-                            return@detectDragGestures
+                            return@detectDragGesturesAfterLongPress
                         }
                     }
                     val i = nearest(pos)
@@ -2045,7 +1996,7 @@ private fun StyleDialog(
     var r by remember(color) { mutableFloatStateOf(color.red) }
     var g by remember(color) { mutableFloatStateOf(color.green) }
     var b by remember(color) { mutableFloatStateOf(color.blue) }
-    androidx.compose.material3.AlertDialog(
+    com.vayunmathur.library.ui.AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onDismiss) { Text("Done") } },
         title = { Text("Style") },

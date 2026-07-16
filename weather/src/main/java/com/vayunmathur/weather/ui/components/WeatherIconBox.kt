@@ -1,7 +1,7 @@
 package com.vayunmathur.weather.ui.components
 
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.size

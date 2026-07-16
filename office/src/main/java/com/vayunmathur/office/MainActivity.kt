@@ -43,27 +43,37 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Card
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.OutlinedTextField
+import com.vayunmathur.library.ui.AlertDialog
+import com.vayunmathur.library.ui.Button
+import com.vayunmathur.library.ui.CircularProgressIndicator
+import com.vayunmathur.library.ui.DropdownMenu
+import com.vayunmathur.library.ui.DropdownMenuItem
+import com.vayunmathur.library.ui.DrawerValue
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.HorizontalDivider
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.IconBack
+import com.vayunmathur.library.ui.IconClose
+import com.vayunmathur.library.ui.IconDownload
+import com.vayunmathur.library.ui.IconHome
+import com.vayunmathur.library.ui.IconRefresh
+import com.vayunmathur.library.ui.IconSave
+import com.vayunmathur.library.ui.IconSearch
+import com.vayunmathur.library.ui.IconSettings
+import com.vayunmathur.library.ui.IconShare
+import com.vayunmathur.library.ui.IconUndo
+import com.vayunmathur.library.ui.LocalContentColor
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.ModalDrawerSheet
+import com.vayunmathur.library.ui.ModalNavigationDrawer
+import com.vayunmathur.library.ui.OutlinedButton
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.NavigationBar
+import com.vayunmathur.library.ui.NavigationBarItem
+import com.vayunmathur.library.ui.Card
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.OutlinedTextField
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.platform.LocalClipboard
@@ -71,14 +81,14 @@ import androidx.compose.ui.platform.ClipEntry
 import android.content.ClipData
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.zIndex
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberDrawerState
+import com.vayunmathur.library.ui.Slider
+import com.vayunmathur.library.ui.Surface
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TextButton
+import com.vayunmathur.library.ui.TextField
+import com.vayunmathur.library.ui.TextFieldDefaults
+import com.vayunmathur.library.ui.TopAppBar
+import com.vayunmathur.library.ui.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -100,9 +110,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.Typography
+import com.vayunmathur.library.ui.dynamicLightColorScheme
+import com.vayunmathur.library.ui.dynamicDarkColorScheme
+import com.vayunmathur.library.ui.Typography
 import com.vayunmathur.office.odf.*
 import com.vayunmathur.library.ui.odf.*
 import com.vayunmathur.office.ui.*
@@ -184,8 +194,8 @@ class MainActivity : ComponentActivity() {
             }
 
             val pages: List<BottomBarItem<out OfficeRoute>> = listOf(
-                BottomBarItem("Offline", OfficeRoute.Offline, com.vayunmathur.library.R.drawable.home_24px),
-                BottomBarItem("Online", OfficeRoute.Online, com.vayunmathur.library.R.drawable.outline_file_download_24)
+                BottomBarItem("Offline", OfficeRoute.Offline) { IconHome() },
+                BottomBarItem("Online", OfficeRoute.Online) { IconDownload() }
             )
 
             fun leaveEditor() {
@@ -466,7 +476,7 @@ fun OnlineTab(viewModel: OfficeViewModel, onOpenDoc: (com.vayunmathur.office.uti
                 title = { Text("Online") },
                 actions = {
                     IconButton(onClick = { viewModel.refreshOnline() }) {
-                        Icon(painterResource(com.vayunmathur.library.R.drawable.refresh_24px), "Refresh")
+                        IconRefresh()
                     }
                 }
             )
@@ -729,16 +739,16 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                         title = { Text(document.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium) },
                         navigationIcon = {
                             IconButton(onClick = { if (!isOnline && hasUnsavedChanges) showUnsavedDialog = true else onBack() }) {
-                                Icon(painterResource(com.vayunmathur.library.R.drawable.arrow_back_24px), contentDescription = "Back")
+                                IconBack()
                             }
                         },
                         actions = {
-                            if (canEdit) IconButton(onClick = { showSearch = !showSearch }) { Icon(painterResource(com.vayunmathur.library.R.drawable.outline_search_24), contentDescription = "Search") }
-                            IconButton(onClick = { viewModel.undo() }, enabled = canUndo) { Icon(painterResource(com.vayunmathur.library.R.drawable.undo_24px), contentDescription = "Undo") }
+                            if (canEdit) IconButton(onClick = { showSearch = !showSearch }) { IconSearch() }
+                            IconButton(onClick = { viewModel.undo() }, enabled = canUndo) { IconUndo() }
                             IconButton(onClick = { viewModel.redo() }, enabled = canRedo) { Icon(painterResource(R.drawable.redo_24px), contentDescription = "Redo") }
                             if (!isOnline) {
                                 IconButton(onClick = { if (viewModel.needsSaveAs()) saveAsLauncher.launch(saveAsName) else viewModel.save() }, enabled = hasUnsavedChanges && !isSaving) {
-                                    if (isSaving) CircularProgressIndicator(Modifier.size(20.dp)) else Icon(painterResource(com.vayunmathur.library.R.drawable.save_24px), contentDescription = "Save")
+                                    if (isSaving) CircularProgressIndicator(Modifier.size(20.dp)) else IconSave()
                                 }
                             }
                         }
@@ -751,19 +761,19 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                                 TextButton(onClick = { fileMenu = true }) { Text("File") }
                                 DropdownMenu(expanded = fileMenu, onDismissRequest = { fileMenu = false }) {
                                     if (!isOnline) {
-                                        DropdownMenuItem(text = { Text("Save") }, enabled = hasUnsavedChanges, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.save_24px), null) }, onClick = { fileMenu = false; if (viewModel.needsSaveAs()) saveAsLauncher.launch(saveAsName) else viewModel.save() })
+                                        DropdownMenuItem(text = { Text("Save") }, enabled = hasUnsavedChanges, leadingIcon = { IconSave() }, onClick = { fileMenu = false; if (viewModel.needsSaveAs()) saveAsLauncher.launch(saveAsName) else viewModel.save() })
                                         DropdownMenuItem(text = { Text("Save As…") }, onClick = { fileMenu = false; saveAsLauncher.launch(saveAsName) })
                                     } else {
-                                        DropdownMenuItem(text = { Text("Synced to cloud") }, enabled = false, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.save_24px), null) }, onClick = {})
+                                        DropdownMenuItem(text = { Text("Synced to cloud") }, enabled = false, leadingIcon = { IconSave() }, onClick = {})
                                     }
-                                    DropdownMenuItem(text = { Text("Share online…") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.share_24px), null) }, onClick = { fileMenu = false; if (onlineEnabled) showShareDialog = true else showEnableOnlineDialog = true })
+                                    DropdownMenuItem(text = { Text("Share online…") }, leadingIcon = { IconShare() }, onClick = { fileMenu = false; if (onlineEnabled) showShareDialog = true else showEnableOnlineDialog = true })
                                     DropdownMenuItem(text = { Text(stringResource(R.string.print_doc)) }, onClick = { fileMenu = false; printDocument(activity, document) })
                                     viewModel.documentUri?.let { uri ->
-                                        DropdownMenuItem(text = { Text(stringResource(R.string.share)) }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.share_24px), null) }, onClick = { fileMenu = false; context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "*/*"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, null)) })
+                                        DropdownMenuItem(text = { Text(stringResource(R.string.share)) }, leadingIcon = { IconShare() }, onClick = { fileMenu = false; context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "*/*"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, null)) })
                                     }
-                                    DropdownMenuItem(text = { Text("Export ▸") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.outline_file_download_24), null) }, onClick = { fileMenu = false; exportMenu = true })
+                                    DropdownMenuItem(text = { Text("Export ▸") }, leadingIcon = { IconDownload() }, onClick = { fileMenu = false; exportMenu = true })
                                     HorizontalDivider()
-                                    DropdownMenuItem(text = { Text("Settings") }, leadingIcon = { Icon(painterResource(com.vayunmathur.library.R.drawable.settings_24px), null) }, onClick = { fileMenu = false; showSettings = true })
+                                    DropdownMenuItem(text = { Text("Settings") }, leadingIcon = { IconSettings() }, onClick = { fileMenu = false; showSettings = true })
                                 }
                                 // Export submenu (opened from File ▸ Export)
                                 DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
@@ -850,7 +860,7 @@ fun DocumentScreen(document: OdfDocument, viewModel: OfficeViewModel, activity: 
                                 trailingIcon = {
                                     Row {
                                         if (isTextDoc) TextButton(onClick = { showReplaceBar = !showReplaceBar }) { Text(if (showReplaceBar) "Hide" else "Replace") }
-                                        IconButton(onClick = { showSearch = false; searchQuery = ""; showReplaceBar = false }) { Icon(painterResource(com.vayunmathur.library.R.drawable.close_24px), contentDescription = "Close search") }
+                                        IconButton(onClick = { showSearch = false; searchQuery = ""; showReplaceBar = false }) { IconClose() }
                                     }
                                 })
                             if (isTextDoc && searchQuery.isNotEmpty()) {

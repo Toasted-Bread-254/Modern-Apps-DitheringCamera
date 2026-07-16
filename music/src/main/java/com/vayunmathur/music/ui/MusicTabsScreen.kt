@@ -7,12 +7,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FlexibleBottomAppBar
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import com.vayunmathur.library.ui.ExperimentalMaterial3ExpressiveApi
+import com.vayunmathur.library.ui.FlexibleBottomAppBar
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.NavigationBarItem
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
@@ -43,7 +43,7 @@ import kotlinx.coroutines.launch
  * The now-playing controls and the tab bar are hoisted to this screen's
  * Scaffold so they remain visible across all four tabs.
  */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, com.vayunmathur.library.ui.ExperimentalMaterial3Api::class)
 @Composable
 fun MusicTabsScreen(
     backStack: NavBackStack<Route>,

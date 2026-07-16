@@ -9,15 +9,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.BottomAppBar
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import com.vayunmathur.library.ui.BottomAppBar
+import com.vayunmathur.library.ui.FloatingActionButton
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.LinearProgressIndicator
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.ListItemDefaults
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -72,9 +72,7 @@ fun HomeTabContent(backStack: NavBackStack<Route>, musicViewModel: MusicViewMode
         val isPlaying = currentMediaItem?.mediaId == song.id.toString() && currentSource == "all_songs"
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (isPlaying) {
-                Icon(
-                    painter = painterResource(com.vayunmathur.library.R.drawable.outline_play_arrow_24),
-                    contentDescription = "Playing",
+                IconPlay(
                     modifier = Modifier.size(24.dp).padding(end = 8.dp),
                     tint = MaterialTheme.colorScheme.primary
                 )

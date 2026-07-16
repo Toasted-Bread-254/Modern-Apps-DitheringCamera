@@ -9,21 +9,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.DrawerState
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import com.vayunmathur.library.ui.DrawerState
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.IconMenu
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Surface
+import com.vayunmathur.library.ui.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.vayunmathur.library.R as LibraryR
 import com.vayunmathur.weather.data.SavedLocation
 import kotlinx.coroutines.launch
 
@@ -76,11 +74,7 @@ fun MainSearchBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = { toggleDrawer() }) {
-                Icon(
-                    painter = painterResource(LibraryR.drawable.baseline_menu_24),
-                    contentDescription = "Show locations menu",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                IconMenu(tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.width(4.dp))
             Text(

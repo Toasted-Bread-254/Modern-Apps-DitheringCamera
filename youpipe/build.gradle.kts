@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+launcherIcon {
+    symbol = "play_arrow"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.youpipe"

@@ -51,7 +51,16 @@ object OAuthManager {
             .apply { config.extraAuthParams.forEach { (k, v) -> appendQueryParameter(k, v) } }
             .build()
 
-        CustomTabsIntent.Builder().build().launchUrl(context, url)
+        // Launched from an application context (the ViewModel), so the Custom Tab
+        // intent needs NEW_TASK or startActivity throws. Guarded so a device with
+        // no browser/Custom Tabs handler doesn't crash the app.
+        val customTabs = CustomTabsIntent.Builder().build()
+        customTabs.intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            customTabs.launchUrl(context, url)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to launch OAuth Custom Tab", e)
+        }
     }
 
     /** Handle the OAuth redirect. Returns the created account name on success. */

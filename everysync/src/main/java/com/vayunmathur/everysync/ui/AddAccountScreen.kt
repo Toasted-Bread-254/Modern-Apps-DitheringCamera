@@ -4,15 +4,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconBack
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -32,7 +31,7 @@ fun AddAccountScreen(backStack: NavBackStack<Route>, viewModel: EverySyncViewMod
                 title = { Text(stringResource(R.string.add_account_title)) },
                 navigationIcon = {
                     IconButton(onClick = { backStack.pop() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+                        IconBack()
                     }
                 },
             )
@@ -49,7 +48,7 @@ fun AddAccountScreen(backStack: NavBackStack<Route>, viewModel: EverySyncViewMod
                         }
                     },
                     leadingContent = { Icon(painterResource(provider.iconRes), null) },
-                    headlineContent = { Text(provider.displayName) },
+                    content = { Text(provider.displayName) },
                     supportingContent = if (provider.viaHealthConnect) {
                         { Text(stringResource(R.string.provider_via_health_connect)) }
                     } else null,

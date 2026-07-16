@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FlexibleBottomAppBar
-import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -24,7 +23,6 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.scene.DialogSceneStrategy
 import androidx.navigation3.ui.NavDisplay
@@ -158,7 +156,7 @@ inline fun <reified T: NavKey> rememberNavBackStack(elements: List<T>): NavBackS
 data class BottomBarItem<Route: NavKey>(
     val name: String,
     val route: Route,
-    val icon: Int
+    val icon: @Composable () -> Unit
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -171,7 +169,7 @@ fun <Route : NavKey> BottomNavBar(backStack: NavBackStack<Route>, pages: List<Bo
                     if (backStack.last() != page.route) {
                         backStack.reset(page.route)
                     }
-                }, { Icon(painterResource(page.icon), null) }, label = { Text(page.name) }
+                }, { page.icon() }, label = { Text(page.name) }
             )
         }
     }

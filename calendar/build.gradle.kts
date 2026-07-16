@@ -3,6 +3,10 @@ plugins {
     id("common-conventions-metadata")
 }
 
+launcherIcon {
+    symbol = "calendar_month"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.calendar"

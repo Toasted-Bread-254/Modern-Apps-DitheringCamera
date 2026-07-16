@@ -32,22 +32,22 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme.colorScheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.CenterAlignedTopAppBar
+import com.vayunmathur.library.ui.AlertDialog
+import com.vayunmathur.library.ui.Button
+import com.vayunmathur.library.ui.CircularProgressIndicator
+import com.vayunmathur.library.ui.DropdownMenu
+import com.vayunmathur.library.ui.DropdownMenuItem
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.FilledIconButton
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Surface
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TextButton
+import com.vayunmathur.library.ui.TopAppBar
+import com.vayunmathur.library.ui.CenterAlignedTopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -194,7 +194,7 @@ fun WordMakerGameLoader(backStack: NavBackStack<Route>, viewModel: WordMakerView
             }
 
             error != null -> {
-                Text(text = error!!, color = colorScheme.error)
+                Text(text = error!!, color = MaterialTheme.colorScheme.error)
             }
 
             crosswordData != null -> {
@@ -592,9 +592,9 @@ fun WordGameScreen(
 
                 SurfaceText(Modifier.offset { IntOffset(offset.x.toInt(), offset.y.toInt()) },
                     RoundedCornerShape(4.dp * scale),
-                    colorScheme.primary, letter.char.toString(),
+                    MaterialTheme.colorScheme.primary, letter.char.toString(),
                     Modifier, FontWeight.Bold, fontSize, size,
-                    textColor = colorScheme.onPrimary)
+                    textColor = MaterialTheme.colorScheme.onPrimary)
             }
         }
     }
@@ -739,7 +739,7 @@ fun CompetitiveLobbyScreen(
                     } else {
                         stringResource(R.string.competitive_timed_out, it.delta)
                     },
-                    color = if (it.won) colorScheme.primary else colorScheme.error,
+                    color = if (it.won) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                     fontWeight = FontWeight.Bold,
                     fontSize = 22.sp
                 )
@@ -770,7 +770,7 @@ fun CompetitiveStatusBar(
     val totalSeconds = (remainingTimeMs / 1000L).toInt()
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
-    val timeColor = if (totalSeconds <= 10) colorScheme.error else colorScheme.onSurface
+    val timeColor = if (totalSeconds <= 10) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -941,11 +941,11 @@ fun CrosswordBoard(
                                             onCellClicked(y, x)
                                         },
                                     RoundedCornerShape(4.dp),
-                                    if (letter != null) colorScheme.primary else colorScheme.surfaceVariant,
+                                    if (letter != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                                     letter?.toString() ?: " ",
                                     Modifier,
                                     FontWeight.Bold, fontSize, size,
-                                    textColor = if (letter != null) colorScheme.onPrimary else Color.Unspecified
+                                    textColor = if (letter != null) MaterialTheme.colorScheme.onPrimary else Color.Unspecified
                                 )
                             } else {
                                 Box(Modifier.padding(1.dp).size(size))
@@ -1019,7 +1019,7 @@ fun LetterChooser(
                     alpha = if (selectedLettersIndices.isNotEmpty()) 1f else 0f,
                     translationX = wordShakeTranslation
                 ),
-            RoundedCornerShape(8.dp), colorScheme.primaryContainer,
+            RoundedCornerShape(8.dp), MaterialTheme.colorScheme.primaryContainer,
             formedWord.ifEmpty { " " },
             Modifier
                 .padding(horizontal = 16.dp, vertical = 12.dp)
@@ -1093,7 +1093,7 @@ fun LetterChooser(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                val primaryColor = colorScheme.primary
+                val primaryColor = MaterialTheme.colorScheme.primary
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     selectedLettersIndices.zipWithNext { a, b ->
                         drawLine(primaryColor, letterCenters[a], letterCenters[b], 10f, cap = StrokeCap.Round)
@@ -1106,7 +1106,7 @@ fun LetterChooser(
                 Surface(
                     Modifier.fillMaxSize(0.9f),
                     CircleShape,
-                    colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
                 ) {}
 
                 letters.forEachIndexed { index, chooserLetter ->
@@ -1132,7 +1132,7 @@ fun LetterChooser(
                                 }
                             } else Modifier),
                             CircleShape,
-                            if (index in selectedLettersIndices) colorScheme.primary else colorScheme.secondary,
+                            if (index in selectedLettersIndices) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                             chooserLetter.char.toString(),
                             Modifier.padding(1.dp),
                             FontWeight.Bold,

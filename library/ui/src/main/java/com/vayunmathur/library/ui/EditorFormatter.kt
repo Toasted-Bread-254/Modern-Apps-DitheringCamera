@@ -107,6 +107,32 @@ fun FormatIconButton(
 }
 
 /**
+ * Slot-based variant of [FormatIconButton] for toolbar buttons that render one of the
+ * app's own `IconXyz()` composables (see `Icons.kt`) instead of a Material vector.
+ */
+@Composable
+fun FormatIconButton(
+    contentDescription: String,
+    active: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.focusProperties { canFocus = false }.size(40.dp),
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            LocalContentColor provides
+                if (active && enabled) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+        ) {
+            icon()
+        }
+    }
+}
+
+/**
  * Renders the mandated base buttons (in a fixed order) for [formatter], showing
  * only those it [EditorFormatter.supported]s. Handles the link dialog for
  * editors that support [EditorFormat.LINK].

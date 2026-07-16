@@ -21,6 +21,9 @@ import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.util.Consumer
 import com.vayunmathur.library.util.NavKey
 import com.vayunmathur.library.ui.DynamicTheme
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconSettings
+import androidx.compose.ui.res.painterResource
 import com.vayunmathur.library.util.BottomBarItem
 import com.vayunmathur.library.util.DialogPage
 import com.vayunmathur.library.util.MainNavigation
@@ -199,9 +202,9 @@ fun Navigation(initialRoute: Route, ypvm: YouPipeViewModel) {
 }
 
 val MAIN_BOTTOM_BAR_ITEMS = listOf(
-    BottomBarItem("Home", Route.SearchPage, R.drawable.outline_home_24),
-    BottomBarItem("Subscriptions", Route.SubscriptionsPage, R.drawable.outline_subscriptions_24),
-    BottomBarItem("History", Route.History, R.drawable.baseline_history_24),
-    BottomBarItem("Downloads", Route.Downloads, R.drawable.outline_list_24),
-    BottomBarItem("Settings", Route.Settings, com.vayunmathur.library.R.drawable.settings_24px)
+    BottomBarItem("Home", Route.SearchPage) { Icon(painterResource(R.drawable.outline_home_24), null) },
+    BottomBarItem("Subscriptions", Route.SubscriptionsPage) { Icon(painterResource(R.drawable.outline_subscriptions_24), null) },
+    BottomBarItem("History", Route.History) { Icon(painterResource(R.drawable.baseline_history_24), null) },
+    BottomBarItem("Downloads", Route.Downloads) { Icon(painterResource(R.drawable.outline_list_24), null) },
+    BottomBarItem("Settings", Route.Settings) { IconSettings() }
 )

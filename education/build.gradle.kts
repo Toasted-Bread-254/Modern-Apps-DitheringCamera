@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+launcherIcon {
+    symbol = "school"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.education"

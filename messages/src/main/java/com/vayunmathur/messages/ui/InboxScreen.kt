@@ -19,19 +19,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import com.vayunmathur.library.ui.Card
+import com.vayunmathur.library.ui.CardDefaults
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.FloatingActionButton
+import com.vayunmathur.library.ui.HorizontalDivider
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.ListItemDefaults
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Surface
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -134,7 +134,7 @@ fun InboxScreen(
     }
 
     if (showSourcePicker) {
-        androidx.compose.material3.AlertDialog(
+        com.vayunmathur.library.ui.AlertDialog(
             onDismissRequest = { showSourcePicker = false },
             title = { Text("New conversation") },
             text = {
@@ -149,7 +149,7 @@ fun InboxScreen(
                     } else {
                         Text("Choose which service to send from:")
                         connected.forEach { source ->
-                            androidx.compose.material3.TextButton(onClick = {
+                            com.vayunmathur.library.ui.TextButton(onClick = {
                                 showSourcePicker = false
                                 backStack.add(Route.Compose(initialSource = source.name))
                             }, modifier = Modifier.fillMaxWidth()) { Text(sourceLabel(source)) }
@@ -159,7 +159,7 @@ fun InboxScreen(
             },
             confirmButton = {},
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = {
+                com.vayunmathur.library.ui.TextButton(onClick = {
                     showSourcePicker = false
                 }) { Text("Cancel") }
             },
@@ -167,7 +167,7 @@ fun InboxScreen(
     }
 
     pendingDelete?.let { conv ->
-        androidx.compose.material3.AlertDialog(
+        com.vayunmathur.library.ui.AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("Delete conversation?") },
             text = {
@@ -177,13 +177,13 @@ fun InboxScreen(
                 )
             },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = {
+                com.vayunmathur.library.ui.TextButton(onClick = {
                     vm.deleteConversation(conv.id)
                     pendingDelete = null
                 }) { Text("Delete") }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { pendingDelete = null }) {
+                com.vayunmathur.library.ui.TextButton(onClick = { pendingDelete = null }) {
                     Text("Cancel")
                 }
             },

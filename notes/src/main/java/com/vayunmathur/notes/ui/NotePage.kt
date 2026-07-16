@@ -21,19 +21,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Draw
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.IconDraw
+import com.vayunmathur.library.ui.IconImage
+import com.vayunmathur.library.ui.IconKeyboardArrowDown
+import com.vayunmathur.library.ui.IconKeyboardArrowUp
+import com.vayunmathur.library.ui.LocalContentColor
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -228,12 +227,12 @@ fun NotePage(
             // the markdown formatting buttons followed by the insert buttons; otherwise
             // it shows just the insert buttons. Everything lives in a single row.
             val insertButtons: @Composable RowScope.() -> Unit = {
-                FormatIconButton(Icons.Filled.Image, stringResource(R.string.add_image)) {
+                FormatIconButton(stringResource(R.string.add_image), onClick = {
                     pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }
-                FormatIconButton(Icons.Filled.Draw, stringResource(R.string.add_drawing)) {
+                }) { IconImage() }
+                FormatIconButton(stringResource(R.string.add_drawing), onClick = {
                     editingInk = NoteBlock.Ink(emptyList(), id = randomBlockId())
-                }
+                }) { IconDraw() }
             }
             val controller = activeController
             if (controller != null && controller.focused) {
@@ -334,10 +333,10 @@ private fun ImageBlock(
         BlockControls(onMoveUp = onMoveUp, onMoveDown = onMoveDown, onDelete = onDelete) {
             // Step image width between quarter and full width.
             IconButton(onClick = { onResize((block.widthFraction - 0.25f).coerceAtLeast(0.25f)) }) {
-                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = stringResource(R.string.shrink))
+                IconKeyboardArrowDown()
             }
             IconButton(onClick = { onResize((block.widthFraction + 0.25f).coerceAtMost(1f)) }) {
-                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = stringResource(R.string.enlarge))
+                IconKeyboardArrowUp()
             }
         }
     }
@@ -383,10 +382,10 @@ private fun BlockControls(
     Row(verticalAlignment = Alignment.CenterVertically) {
         extra()
         IconButton(onClick = onMoveUp) {
-            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = stringResource(R.string.move_up))
+            IconKeyboardArrowUp()
         }
         IconButton(onClick = onMoveDown) {
-            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = stringResource(R.string.move_down))
+            IconKeyboardArrowDown()
         }
         IconButton(onClick = onDelete) { IconDelete() }
     }

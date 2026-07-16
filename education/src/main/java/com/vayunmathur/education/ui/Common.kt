@@ -2,10 +2,10 @@ package com.vayunmathur.education.ui
 
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import com.vayunmathur.library.ui.AssistChip
+import com.vayunmathur.library.ui.AssistChipDefaults
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight

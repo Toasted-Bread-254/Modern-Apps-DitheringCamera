@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+launcherIcon {
+    symbol = "photo_library"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.photos"

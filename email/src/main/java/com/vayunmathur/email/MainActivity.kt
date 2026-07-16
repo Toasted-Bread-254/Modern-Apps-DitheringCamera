@@ -17,7 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
+import com.vayunmathur.library.ui.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
@@ -452,9 +452,9 @@ fun MessageListScreen(
         val result = snackbarHostState.showSnackbar(
             message = "Message deleted",
             actionLabel = "Undo",
-            duration = androidx.compose.material3.SnackbarDuration.Short,
+            duration = com.vayunmathur.library.ui.SnackbarDuration.Short,
         )
-        if (result != androidx.compose.material3.SnackbarResult.ActionPerformed) {
+        if (result != com.vayunmathur.library.ui.SnackbarResult.ActionPerformed) {
             viewModel.deleteMessage(msg.accountEmail, msg.folderName, msg.id)
         }
         pendingDelete = null
@@ -563,9 +563,9 @@ fun MessageListScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                androidx.compose.material3.FilterChip(selected = msgFilter == 0, onClick = { msgFilter = 0 }, label = { Text("All") })
-                androidx.compose.material3.FilterChip(selected = msgFilter == 1, onClick = { msgFilter = 1 }, label = { Text("Unread") })
-                androidx.compose.material3.FilterChip(selected = msgFilter == 2, onClick = { msgFilter = 2 }, label = { Text("Attachments") })
+                com.vayunmathur.library.ui.FilterChip(selected = msgFilter == 0, onClick = { msgFilter = 0 }, label = { Text("All") })
+                com.vayunmathur.library.ui.FilterChip(selected = msgFilter == 1, onClick = { msgFilter = 1 }, label = { Text("Unread") })
+                com.vayunmathur.library.ui.FilterChip(selected = msgFilter == 2, onClick = { msgFilter = 2 }, label = { Text("Attachments") })
             }
             val filteredMessages by remember {
                 derivedStateOf {
@@ -576,7 +576,7 @@ fun MessageListScreen(
                     }
                 }
             }
-            androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+            com.vayunmathur.library.ui.PullToRefreshBox(
                 isRefreshing = isSyncing,
                 onRefresh = { viewModel.refresh(context) },
                 modifier = Modifier.fillMaxSize(),
@@ -628,11 +628,11 @@ fun MessageListScreen(
                         // repeated read/unread swipes toggle the CURRENT persisted state
                         // (the confirmValueChange lambda is captured once by the state).
                         val currentMessage by rememberUpdatedState(message)
-                        val dismissState = androidx.compose.material3.rememberSwipeToDismissBoxState(
+                        val dismissState = com.vayunmathur.library.ui.rememberSwipeToDismissBoxState(
                             confirmValueChange = { value ->
                                 when (value) {
-                                    androidx.compose.material3.SwipeToDismissBoxValue.EndToStart -> { pendingDelete = currentMessage; true }
-                                    androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd -> {
+                                    com.vayunmathur.library.ui.SwipeToDismissBoxValue.EndToStart -> { pendingDelete = currentMessage; true }
+                                    com.vayunmathur.library.ui.SwipeToDismissBoxValue.StartToEnd -> {
                                         viewModel.markAsRead(currentMessage.accountEmail, currentMessage.folderName, currentMessage.id, !currentMessage.isRead)
                                         false
                                     }
@@ -640,18 +640,18 @@ fun MessageListScreen(
                                 }
                             }
                         )
-                        androidx.compose.material3.SwipeToDismissBox(
+                        com.vayunmathur.library.ui.SwipeToDismissBox(
                             state = dismissState,
                             backgroundContent = {
                                 // Only show a background icon while an active swipe is in
                                 // progress in that direction — never when settled.
                                 when (dismissState.dismissDirection) {
-                                    androidx.compose.material3.SwipeToDismissBoxValue.EndToStart ->
+                                    com.vayunmathur.library.ui.SwipeToDismissBoxValue.EndToStart ->
                                         Box(
                                             modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
                                             contentAlignment = Alignment.CenterEnd,
                                         ) { com.vayunmathur.library.ui.IconDelete() }
-                                    androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd ->
+                                    com.vayunmathur.library.ui.SwipeToDismissBoxValue.StartToEnd ->
                                         Box(
                                             modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
                                             contentAlignment = Alignment.CenterStart,

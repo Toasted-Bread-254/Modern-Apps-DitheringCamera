@@ -5,6 +5,10 @@ plugins {
     id("common-conventions-metadata")
 }
 
+launcherIcon {
+    symbol = "picture_as_pdf"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.pdf"

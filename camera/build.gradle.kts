@@ -3,6 +3,10 @@ plugins {
     id("common-conventions-metadata")
 }
 
+launcherIcon {
+    symbol = "photo_camera"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.camera"

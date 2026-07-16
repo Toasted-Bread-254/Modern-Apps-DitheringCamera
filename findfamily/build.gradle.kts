@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+launcherIcon {
+    symbol = "share_location"
+}
+
 android {
     defaultConfig {
         applicationId = "com.vayunmathur.findfamily"
