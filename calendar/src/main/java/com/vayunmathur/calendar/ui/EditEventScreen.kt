@@ -61,11 +61,15 @@ import kotlin.time.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.DatePeriod
+import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.atTime
 import kotlinx.datetime.format
 import kotlinx.datetime.format.DayOfWeekNames
 import kotlinx.datetime.format.MonthNames
 import kotlinx.datetime.format.Padding
+import kotlinx.datetime.minus
+import kotlinx.datetime.plus
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
@@ -130,7 +134,13 @@ fun EditEventScreen(viewModel: CalendarViewModel, editRoute: Route.EditEvent, ba
 
     var allDay by remember { mutableStateOf(event?.allDay ?: editRoute.allDay ?: false) }
     var startDate by remember { mutableStateOf(event?.startDateTimeDisplay?.date ?: initialBeginLdt?.date ?: today) }
-    var endDate by remember { mutableStateOf(event?.endDateTimeDisplay?.date ?: initialEndLdt?.date ?: startDate) }
+    // Stored all-day end is exclusive (midnight after the last day), so show the last covered day.
+    var endDate by remember {
+        mutableStateOf(
+            event?.let { if (it.allDay) it.endDateTimeDisplay.date.minus(DatePeriod(days = 1)) else it.endDateTimeDisplay.date }
+                ?: initialEndLdt?.date ?: startDate
+        )
+    }
     var startTime by remember { mutableStateOf(event?.startDateTimeDisplay?.time ?: initialBeginLdt?.time ?: now) }
     var endTime by remember { mutableStateOf(event?.endDateTimeDisplay?.time ?: initialEndLdt?.time ?: startTime) }
     var timezone by remember { mutableStateOf(event?.timezone ?: TimeZone.currentSystemDefault().id) }
@@ -200,6 +210,12 @@ fun EditEventScreen(viewModel: CalendarViewModel, editRoute: Route.EditEvent, ba
     }, floatingActionButton = {
         FloatingActionButton(onClick = {
             val buildTz = if (allDay) TimeZone.UTC else TimeZone.of(timezone)
+            // All-day events are stored at midnight UTC with an exclusive end (the midnight
+            // after the last selected day), matching RFC 5545 / the Android calendar provider.
+            val startInstant = if (allDay) startDate.atStartOfDayIn(buildTz)
+                else startDate.atTime(startTime).toInstant(buildTz)
+            val endInstant = if (allDay) endDate.plus(DatePeriod(days = 1)).atStartOfDayIn(buildTz)
+                else endDate.atTime(endTime).toInstant(buildTz)
             val newEvent = Event(
                 id = eventId,
                 calendarID = selectedCalendar,
@@ -207,8 +223,8 @@ fun EditEventScreen(viewModel: CalendarViewModel, editRoute: Route.EditEvent, ba
                 description = descriptionText,
                 location = location,
                 color = event?.color,
-                start = startDate.atTime(startTime).toInstant(buildTz).toEpochMilliseconds(),
-                end = endDate.atTime(endTime).toInstant(buildTz).toEpochMilliseconds(),
+                start = startInstant.toEpochMilliseconds(),
+                end = endInstant.toEpochMilliseconds(),
                 timezone = if (allDay) "UTC" else timezone,
                 allDay = allDay,
                 rrule = rruleObj,

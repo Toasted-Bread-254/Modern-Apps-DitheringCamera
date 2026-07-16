@@ -8,6 +8,7 @@ import androidx.core.database.getStringOrNull
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import com.vayunmathur.calendar.util.RRule
@@ -15,7 +16,6 @@ import com.vayunmathur.calendar.util.parseIcalBasicDate
 import com.vayunmathur.calendar.util.toIcalBasic
 import kotlinx.serialization.Serializable
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
 
@@ -46,8 +46,13 @@ data class Event(
     fun toContentValues(calendarId: Long): ContentValues {
         val tz = if (allDay) "UTC" else timezone
         val tzObj = TimeZone.of(tz)
-        val dtstart = startDateTimeDisplay.toInstant(tzObj).toEpochMilliseconds()
-        val dtendActual = endDateTimeDisplay.toInstant(tzObj).toEpochMilliseconds()
+        // All-day events follow RFC 5545: DTSTART/DTEND are aligned to midnight UTC and
+        // DTEND is exclusive (the midnight after the last covered day). `end` is already
+        // stored as that exclusive instant, so we only need to snap both ends to midnight.
+        val dtstart = if (allDay) startDateTimeDisplay.date.atStartOfDayIn(tzObj).toEpochMilliseconds()
+            else startDateTimeDisplay.toInstant(tzObj).toEpochMilliseconds()
+        val dtendActual = if (allDay) endDateTimeDisplay.date.atStartOfDayIn(tzObj).toEpochMilliseconds()
+            else endDateTimeDisplay.toInstant(tzObj).toEpochMilliseconds()
         return ContentValues().apply {
             put(CalendarContract.Events.TITLE, title)
             put(CalendarContract.Events.DESCRIPTION, description)
@@ -56,8 +61,7 @@ data class Event(
             put(CalendarContract.Events.DTSTART, dtstart)
             if (rrule != null) {
                 put(CalendarContract.Events.DTEND, null as Long?)
-                var duration = (dtendActual - dtstart).milliseconds
-                if (allDay) duration += 1.days
+                val duration = (dtendActual - dtstart).milliseconds
                 put(CalendarContract.Events.DURATION, duration.toIsoString())
                 put(CalendarContract.Events.RRULE, rrule.asString(startDateTimeDisplay.date, tzObj))
             } else {
