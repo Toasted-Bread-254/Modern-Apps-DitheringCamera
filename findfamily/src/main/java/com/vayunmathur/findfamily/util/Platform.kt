@@ -97,6 +97,8 @@ class Platform(private val context: Context) {
             return {
                 // Define the specific contact data fields you need
                 val requestedFields = arrayListOf(
+                    ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE,
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
                     ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE,
                 )
 
