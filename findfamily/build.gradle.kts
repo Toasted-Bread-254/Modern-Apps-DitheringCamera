@@ -5,7 +5,7 @@ plugins {
 }
 
 launcherIcon {
-    symbol = "share_location"
+    symbol = "moved_location"
 }
 
 android {

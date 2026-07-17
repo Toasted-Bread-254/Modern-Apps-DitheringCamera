@@ -5,7 +5,7 @@ plugins {
 }
 
 launcherIcon {
-    symbol = "smart_toy"
+    symbol = "robot_2"
 }
 
 android {

@@ -5,6 +5,7 @@ plugins {
 
 launcherIcon {
     symbol = "crossword"
+    scale = 0.5
 }
 
 android {

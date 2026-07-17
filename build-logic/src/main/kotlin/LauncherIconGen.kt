@@ -19,6 +19,13 @@ import java.net.URI
 interface LauncherIconExtension {
     /** Material Symbols name, e.g. "calendar_month" (the `materialsymbolsoutlined` style). */
     val symbol: Property<String>
+
+    /**
+     * Fraction of the 960 viewport the symbol occupies within the adaptive-icon
+     * safe zone. Defaults to 0.58; lower values render a smaller glyph with more
+     * padding. The translate is derived so the glyph stays centered.
+     */
+    val scale: Property<Double>
 }
 
 // Downloads the outlined Material Symbol at [ref], wraps its path in the standard
@@ -31,6 +38,9 @@ abstract class GenerateLauncherIconTask : DefaultTask() {
 
     @get:Input
     abstract val ref: Property<String>
+
+    @get:Input
+    abstract val scale: Property<Double>
 
     @get:Internal
     abstract val cacheDir: DirectoryProperty
@@ -78,18 +88,20 @@ abstract class GenerateLauncherIconTask : DefaultTask() {
         return text
     }
 
-    private fun wrap(pathData: String): String =
-        """
+    private fun wrap(pathData: String): String {
+        val s = scale.get()
+        val translate = (VIEWPORT - VIEWPORT * s) / 2.0
+        return """
         |<vector xmlns:android="http://schemas.android.com/apk/res/android"
         |    android:width="108dp"
         |    android:height="108dp"
         |    android:viewportWidth="960"
         |    android:viewportHeight="960"
         |    android:tint="#000000">
-        |  <group android:scaleX="0.58"
-        |      android:scaleY="0.58"
-        |      android:translateX="201.6"
-        |      android:translateY="201.6">
+        |  <group android:scaleX="${fmt(s)}"
+        |      android:scaleY="${fmt(s)}"
+        |      android:translateX="${fmt(translate)}"
+        |      android:translateY="${fmt(translate)}">
         |    <path
         |        android:fillColor="@android:color/white"
         |        android:pathData="$pathData"/>
@@ -97,8 +109,15 @@ abstract class GenerateLauncherIconTask : DefaultTask() {
         |</vector>
         |
         """.trimMargin()
+    }
+
+    private fun fmt(v: Double): String {
+        val s = v.toString()
+        return if (s.endsWith(".0")) s.dropLast(2) else s
+    }
 
     private companion object {
+        const val VIEWPORT = 960.0
         val PATH_DATA = Regex("""android:pathData="([^"]*)"""")
     }
 }

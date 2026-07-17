@@ -31,7 +31,9 @@ val (appVersionCode, appVersionName) = readVersionInfo()
 // The symbol path is downloaded from google/material-design-icons pinned at this
 // commit for reproducible builds, wrapped in the standard foreground vector, and
 // wired into every variant's generated res.
-val launcherIcon = extensions.create("launcherIcon", LauncherIconExtension::class.java)
+val launcherIcon = extensions.create("launcherIcon", LauncherIconExtension::class.java).apply {
+    scale.convention(0.58)
+}
 val materialSymbolsRef = "819d78680a849ceef4c78f863d8753e3160b7c89"
 val materialSymbolsCache = File(gradle.gradleUserHomeDir, "material-symbols-cache")
 
@@ -42,6 +44,7 @@ extensions.configure<com.android.build.api.variant.ApplicationAndroidComponentsE
             GenerateLauncherIconTask::class.java,
         ) {
             symbol.set(launcherIcon.symbol)
+            scale.set(launcherIcon.scale)
             ref.set(materialSymbolsRef)
             cacheDir.set(materialSymbolsCache)
         }
